@@ -1,0 +1,11 @@
+{
+  "domain": "woow_esphome_modbus_scanner",
+  "name": "Woow ESPHome Modbus Scanner",
+  "codeowners": ["@WOOWTECH"],
+  "config_flow": true,
+  "documentation": "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/issues",
+  "version": "0.1.0"
+}

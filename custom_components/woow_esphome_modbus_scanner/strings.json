@@ -1,0 +1,14 @@
+{
+  "title": "Woow ESPHome Modbus Scanner",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Woow ESPHome Modbus Scanner",
+        "description": "Create the singleton scanner entry. Version 0.1.0 provides deterministic mock scanning only and does not access ESPHome or Modbus hardware."
+      }
+    },
+    "abort": {
+      "already_configured": "Woow ESPHome Modbus Scanner is already configured."
+    }
+  }
+}

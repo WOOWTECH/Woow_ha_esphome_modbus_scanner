@@ -1,0 +1,10 @@
+.coverage
+.coverage.*
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+htmlcov/
+coverage.xml
+.DS_Store

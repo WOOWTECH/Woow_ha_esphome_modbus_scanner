@@ -1,0 +1,307 @@
+list_gateways:
+  name: List gateways
+  description: >-
+    List available read-only scan gateways and capabilities. Version 0.1.0
+    returns one deterministic simulated gateway and never accesses hardware.
+
+start_scan:
+  name: Start scan
+  description: >-
+    Start a bounded background Slave-ID scan and return its scan_id. Results are
+    best-effort: a timeout does not prove absence and an address is not a unique
+    device identity.
+  fields:
+    provider:
+      name: Provider
+      description: Gateway provider; only the deterministic mock is implemented.
+      default: mock
+      selector:
+        select:
+          options:
+            - label: Mock (simulated)
+              value: mock
+    gateway_id:
+      name: Gateway
+      description: Provider-owned gateway identifier.
+      default: "mock:rs485-gateway"
+      selector:
+        select:
+          options:
+            - label: Simulated RS-485 Gateway
+              value: "mock:rs485-gateway"
+    esphome_device_id:
+      name: ESPHome device (future)
+      description: >-
+        Optional Home Assistant ESPHome device reserved for a future physical
+        adapter. Version 0.1.0 mock scans do not contact or require this device.
+      selector:
+        device:
+          filter:
+            - integration: esphome
+    start_id:
+      name: Start Slave ID
+      description: Inclusive first Modbus address (1–247).
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 247
+          mode: box
+    end_id:
+      name: End Slave ID
+      description: Inclusive final Modbus address (1–247).
+      required: true
+      default: 12
+      selector:
+        number:
+          min: 1
+          max: 247
+          mode: box
+    probe_type:
+      name: Probe type
+      description: Read-only probe requested for each address.
+      default: device_identification
+      selector:
+        select:
+          options:
+            - label: Device identification
+              value: device_identification
+            - label: Holding register read
+              value: holding_register
+            - label: Input register read
+              value: input_register
+    register_address:
+      name: Register address
+      description: Zero-based address used only by register probes.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    register_count:
+      name: Register count
+      description: Registers requested by a register probe (1–125).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 125
+          mode: box
+    timeout_ms:
+      name: Timeout
+      description: Per-attempt timeout; informational in deterministic mock mode.
+      default: 500
+      selector:
+        number:
+          min: 10
+          max: 10000
+          unit_of_measurement: ms
+          mode: box
+    retries:
+      name: Retries
+      description: Additional attempts after the first (0–5).
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 5
+          mode: box
+    inter_request_delay_ms:
+      name: Inter-request delay
+      description: Minimum delay between address transactions.
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 5000
+          unit_of_measurement: ms
+          mode: box
+    pause_normal_polling:
+      name: Pause normal polling
+      description: >-
+        Records a future adapter request to pause normal gateway polling. Mock
+        mode has no normal polling and records no hardware side effects.
+      default: false
+      selector:
+        boolean:
+    mock_profile:
+      name: Simulation profile
+      description: Deterministic outcome profile for the mock gateway.
+      default: found_default
+      selector:
+        select:
+          options:
+            - found_default
+            - all_offline
+            - partial_timeout
+            - modbus_exception
+            - possible_collision
+            - gateway_disconnect
+    safety_confirmed:
+      name: Confirm scan safety
+      description: >-
+        I understand discovery is best-effort, may disrupt normal polling on a
+        future physical bus, and proves neither absence nor Slave-ID uniqueness.
+      required: true
+      selector:
+        boolean:
+
+get_scan_status:
+  name: Get scan status
+  description: Return progress, timestamps, outcome counts, and terminal errors.
+  fields:
+    scan_id:
+      name: Scan ID
+      description: UUID returned by start_scan or test_address.
+      required: true
+      selector:
+        text:
+
+get_scan_results:
+  name: Get scan results
+  description: >-
+    Return normalized responder details and complete counts. Timeouts are counted
+    but omitted from responders; uniqueness is never claimed.
+  fields:
+    scan_id:
+      name: Scan ID
+      description: UUID returned by start_scan or test_address.
+      required: true
+      selector:
+        text:
+
+cancel_scan:
+  name: Cancel scan
+  description: Request cooperative cancellation after the current transaction.
+  fields:
+    scan_id:
+      name: Scan ID
+      description: UUID of an active or retained scan.
+      required: true
+      selector:
+        text:
+
+test_address:
+  name: Test address
+  description: >-
+    Test exactly one Slave ID through the same read-only coordinator and return a
+    scan_id. The explicit range safety confirmation is implicit for one address.
+  fields:
+    provider:
+      name: Provider
+      description: Gateway provider; only the deterministic mock is implemented.
+      default: mock
+      selector:
+        select:
+          options:
+            - label: Mock (simulated)
+              value: mock
+    gateway_id:
+      name: Gateway
+      description: Provider-owned gateway identifier.
+      default: "mock:rs485-gateway"
+      selector:
+        select:
+          options:
+            - label: Simulated RS-485 Gateway
+              value: "mock:rs485-gateway"
+    esphome_device_id:
+      name: ESPHome device (future)
+      description: >-
+        Optional Home Assistant ESPHome device reserved for a future physical
+        adapter. Version 0.1.0 mock tests do not contact or require this device.
+      selector:
+        device:
+          filter:
+            - integration: esphome
+    address:
+      name: Slave ID
+      description: Single Modbus address to test (1–247).
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 247
+          mode: box
+    probe_type:
+      name: Probe type
+      description: Read-only probe requested for this address.
+      default: device_identification
+      selector:
+        select:
+          options:
+            - label: Device identification
+              value: device_identification
+            - label: Holding register read
+              value: holding_register
+            - label: Input register read
+              value: input_register
+    register_address:
+      name: Register address
+      description: Zero-based address used only by register probes.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    register_count:
+      name: Register count
+      description: Registers requested by a register probe (1–125).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 125
+          mode: box
+    timeout_ms:
+      name: Timeout
+      description: Per-attempt timeout; informational in deterministic mock mode.
+      default: 500
+      selector:
+        number:
+          min: 10
+          max: 10000
+          unit_of_measurement: ms
+          mode: box
+    retries:
+      name: Retries
+      description: Additional attempts after the first (0–5).
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 5
+          mode: box
+    inter_request_delay_ms:
+      name: Inter-request delay
+      description: Minimum delay before any following address; none for one ID.
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 5000
+          unit_of_measurement: ms
+          mode: box
+    pause_normal_polling:
+      name: Pause normal polling
+      description: Future adapter intent; no effect in mock mode.
+      default: false
+      selector:
+        boolean:
+    mock_profile:
+      name: Simulation profile
+      description: Deterministic outcome profile for the mock gateway.
+      default: found_default
+      selector:
+        select:
+          options:
+            - found_default
+            - all_offline
+            - partial_timeout
+            - modbus_exception
+            - possible_collision
+            - gateway_disconnect

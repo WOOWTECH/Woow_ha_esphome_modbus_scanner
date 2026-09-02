@@ -1,0 +1,9 @@
+target-version = "py313"
+line-length = 100
+extend-exclude = [".venv"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "BLE"]
+
+[lint.isort]
+force-sort-within-sections = true

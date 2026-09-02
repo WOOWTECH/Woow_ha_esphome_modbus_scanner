@@ -1,0 +1,14 @@
+{
+  "title": "Woow ESPHome Modbus Scanner",
+  "config": {
+    "step": {
+      "user": {
+        "title": "設定 Woow ESPHome Modbus Scanner",
+        "description": "建立唯一的掃描器設定項目。0.1.0 版僅提供可重現的模擬掃描，不會存取 ESPHome 或 Modbus 實體硬體。"
+      }
+    },
+    "abort": {
+      "already_configured": "Woow ESPHome Modbus Scanner 已完成設定。"
+    }
+  }
+}
