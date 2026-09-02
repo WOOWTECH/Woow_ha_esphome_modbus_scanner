@@ -58,6 +58,10 @@ def test_repository_contains_no_legacy_coupling():
 def test_repository_has_no_browser_bundle_panel_registration_or_editor_runtime():
     files = _repository_files()
     browser_suffixes = {".css", ".html", ".js", ".jsx", ".map", ".svg", ".ts", ".tsx"}
+    permitted_static_files = {
+        ROOT / "docs" / "tutorial" / "woow-esphome-modbus-scanner-v0.1.0-zh-TW.html",
+        ROOT / "tests" / "tutorial" / "browser_check.mjs",
+    }
     browser_directories = {"front" + "end", "www"}
     forbidden_code = (
         "async_register_" + "panel",
@@ -67,7 +71,10 @@ def test_repository_has_no_browser_bundle_panel_registration_or_editor_runtime()
         "mo" + "naco",
     )
 
-    assert not any(path.suffix.lower() in browser_suffixes for path in files)
+    assert not any(
+        path.suffix.lower() in browser_suffixes and path not in permitted_static_files
+        for path in files
+    )
     assert not any(browser_directories.intersection(path.parts) for path in files)
     for path in files:
         if path.suffix.lower() not in {".py", ".json", ".yaml", ".yml"}:

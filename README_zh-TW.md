@@ -6,6 +6,13 @@
 
 English: [README.md](README.md)
 
+## 下載版繁體中文完整教學
+
+**[在 GitHub 檢視原始檔](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[下載 v0.1.0 教學 HTML release asset](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.1.0/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Raw HTML 備用下載](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[下載 v0.1.0 原始碼封存檔](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/archive/refs/tags/v0.1.0.zip)**
+
+> **v0.1.0 僅限 MOCK 模擬：**HTML 是教學文件，不是 ESPHome 韌體；本版不會
+> 連線 ESPHome，也不會掃描實體硬體。
+
 ## 版本範圍與安全語意
 
 目前版本適合開發自動化、服務呼叫端、生命週期測試與結果語意驗證，尚不是
@@ -92,7 +99,7 @@ ESPHome 裝置 selector 不表示 Home Assistant 或 ESPHome 已提供本契約�
 
 ## 開發與驗證
 
-0.1.0 執行 `pytest --collect-only -q` 會收集 **105 個測試**。
+0.1.0 執行 `pytest --collect-only -q` 會收集 **118 個測試**。
 
 ```bash
 uv venv --python 3.13.2

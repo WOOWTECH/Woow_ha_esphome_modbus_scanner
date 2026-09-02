@@ -7,6 +7,13 @@ opens an ESPHome connection or a Modbus transport.
 
 繁體中文：[README_zh-TW.md](README_zh-TW.md)
 
+## Downloadable Traditional-Chinese tutorial
+
+**[Source-file view on GitHub](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Download the v0.1.0 tutorial HTML release asset](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.1.0/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Raw HTML fallback](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Download the v0.1.0 source archive](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/archive/refs/tags/v0.1.0.zip)**
+
+> **v0.1.0 MOCK ONLY:** the HTML is offline tutorial documentation, not ESPHome
+> firmware. This release does not connect to ESPHome or scan physical hardware.
+
 ## Status and safety
 
 This release is useful for automations, service-client development, lifecycle
@@ -113,7 +120,7 @@ an upstream API must be established before a real provider can be claimed.
 
 The hermetic suite exercises models, mock behavior, coordinator adversarial
 boundaries, service schemas/responses/admin gating, singleton config flow, and
-unload races. `pytest --collect-only -q` collects exactly **105 tests** for 0.1.0.
+unload races. `pytest --collect-only -q` collects exactly **118 tests** for 0.1.0.
 Live smoke testing is opt-in and mock-only.
 
 ```bash

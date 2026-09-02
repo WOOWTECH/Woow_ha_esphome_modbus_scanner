@@ -15,7 +15,7 @@ Tests are hermetic and vertical at public seams:
 - live-tool safety tests cover HTTPS, explicit loopback HTTP, and redirect refusal.
 
 `pytest --collect-only -q` is the source of truth for test counts and collects
-exactly 105 tests in 0.1.0. The live smoke script itself is excluded by
+exactly 116 tests in 0.1.0. The live smoke script itself is excluded by
 `pytest.ini`; it requires explicit environment variables and calls only the mock
 provider through a running Home Assistant instance. Its safety helpers remain
 covered by the hermetic suite, and CI lints and compiles the script.
