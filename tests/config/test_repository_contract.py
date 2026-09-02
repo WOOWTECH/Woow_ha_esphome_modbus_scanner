@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from custom_components import woow_esphome_modbus_scanner as integration
 from custom_components.woow_esphome_modbus_scanner.const import DOMAIN, NAME, VERSION
 
 ROOT = Path(__file__).parents[2]
@@ -17,6 +18,9 @@ def test_manifest_identity_and_hacs_layout():
     assert manifest["name"] == NAME
     assert manifest["version"] == VERSION
     assert manifest["config_flow"] is True
+    assert list(manifest)[:2] == ["domain", "name"]
+    assert list(manifest)[2:] == sorted(list(manifest)[2:])
+    assert callable(integration.CONFIG_SCHEMA)
     hacs = json.loads((ROOT / "hacs.json").read_text())
     assert hacs["name"] == NAME
     assert hacs["content_in_root"] is False

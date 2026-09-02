@@ -10,6 +10,7 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DATA_COORDINATOR,
@@ -25,6 +26,8 @@ from .const import (
     VERSION,
 )
 from .services import async_register_services, async_unregister_services
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 @dataclass(slots=True)
@@ -49,7 +52,7 @@ def _lifecycle(hass: HomeAssistant) -> _LifecycleState:
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Accept YAML discovery while remaining config-entry only."""
+    """Set up the config-entry-only integration base."""
     return True
 
 
