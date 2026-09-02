@@ -4,10 +4,10 @@ import {createReadStream} from 'node:fs';
 import {createServer} from 'node:http';
 import {resolve, sep} from 'node:path';
 import {tmpdir} from 'node:os';
-import {chromium} from 'playwright';
+import {chromium} from '../../panel_frontend/node_modules/playwright/index.mjs';
 
 const root = resolve(process.cwd());
-const tutorialPath = '/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html';
+const tutorialPath = process.env.TUTORIAL_PATH || '/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html';
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
   const path = resolve(root, `.${pathname}`);

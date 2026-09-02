@@ -1,7 +1,7 @@
 list_gateways:
   name: List gateways
   description: >-
-    List available read-only scan gateways and capabilities. Version 0.1.0
+    List available read-only scan gateways and capabilities. Version 0.2.0
     returns one deterministic simulated gateway and never accesses hardware.
 
 start_scan:
@@ -33,7 +33,7 @@ start_scan:
       name: ESPHome device (future)
       description: >-
         Optional Home Assistant ESPHome device reserved for a future physical
-        adapter. Version 0.1.0 mock scans do not contact or require this device.
+        adapter. Version 0.2.0 mock scans do not contact or require this device.
       selector:
         device:
           filter:
@@ -211,7 +211,7 @@ test_address:
       name: ESPHome device (future)
       description: >-
         Optional Home Assistant ESPHome device reserved for a future physical
-        adapter. Version 0.1.0 mock tests do not contact or require this device.
+        adapter. Version 0.2.0 mock tests do not contact or require this device.
       selector:
         device:
           filter:

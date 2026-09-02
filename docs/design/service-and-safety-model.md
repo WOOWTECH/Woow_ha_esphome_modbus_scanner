@@ -7,8 +7,17 @@ services always return a response. Start, cancel, and single-address test
 services return one when the caller requests it, matching Home Assistant's
 optional-response convention.
 
-User-context calls require an administrator. Context-free internal service calls
-are allowed. This policy is enforced before coordinator access.
+Version 0.2.0 permanently exposes all six services to every authenticated Home
+Assistant user. There is no admin/user authorization gate; the public sidebar is
+also registered with `require_admin: false`. This is an explicit product policy,
+not an accidental omission.
+
+The policy is safe only within the current mock-only transport boundary. A
+future physical provider would let any HA user generate bus traffic, potentially
+disrupt normal polling, and view responder evidence. Installers must control HA
+accounts, and maintainers must reassess this threat before a physical provider
+is enabled. Schema, lifecycle ownership, gateway serialization, and the literal
+range safety acknowledgement remain enforced.
 
 ## Validation
 

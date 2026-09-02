@@ -8,3 +8,8 @@ __pycache__/
 htmlcov/
 coverage.xml
 .DS_Store
+
+node_modules/
+panel_frontend/dist/
+test-results/
+playwright-report/

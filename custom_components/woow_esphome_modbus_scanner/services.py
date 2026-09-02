@@ -1,4 +1,4 @@
-"""Admin-only Home Assistant service seam for Modbus scanning."""
+"""All-user Home Assistant service seam for Modbus scanning."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.exceptions import HomeAssistantError, Unauthorized
+from homeassistant.exceptions import HomeAssistantError
 import voluptuous as vol
 
 from .const import (
@@ -142,15 +142,6 @@ _TEST_ADDRESS_SCHEMA = vol.Schema(
 _LIST_GATEWAYS_SCHEMA = vol.Schema({})
 
 
-async def _async_reject_non_admin(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Require admin for user-context calls while allowing trusted internal calls."""
-    if call.context.user_id is None:
-        return
-    user = await hass.auth.async_get_user(call.context.user_id)
-    if user is None or not user.is_admin:
-        raise Unauthorized(context=call.context)
-
-
 _Owner = tuple[str, int]
 
 
@@ -209,12 +200,10 @@ def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
 async def _handle_list_gateways(
     call: ServiceCall, owner: _Owner
 ) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     return _coordinator(call.hass, owner).list_gateways()
 
 
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     try:
         request = _scan_request(
             call.data, safety_confirmed=call.data["safety_confirmed"]
@@ -227,7 +216,6 @@ async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceRespons
 async def _handle_get_scan_status(
     call: ServiceCall, owner: _Owner
 ) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     try:
         return _coordinator(call.hass, owner).status(call.data["scan_id"])
     except ScanNotFoundError as err:
@@ -237,7 +225,6 @@ async def _handle_get_scan_status(
 async def _handle_get_scan_results(
     call: ServiceCall, owner: _Owner
 ) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     try:
         return _coordinator(call.hass, owner).results(call.data["scan_id"])
     except ScanNotFoundError as err:
@@ -245,7 +232,6 @@ async def _handle_get_scan_results(
 
 
 async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     try:
         return await _coordinator(call.hass, owner).cancel(call.data["scan_id"])
     except ScanNotFoundError as err:
@@ -253,7 +239,6 @@ async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceRespon
 
 
 async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _async_reject_non_admin(call.hass, call)
     try:
         request = _scan_request(
             call.data, safety_confirmed=True, address=call.data["address"]

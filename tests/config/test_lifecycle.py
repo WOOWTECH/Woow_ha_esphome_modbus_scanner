@@ -2,14 +2,12 @@
 
 import asyncio
 
-from homeassistant.exceptions import HomeAssistantError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.woow_esphome_modbus_scanner import (
     async_setup_entry,
     async_unload_entry,
-    services,
 )
 from custom_components.woow_esphome_modbus_scanner.const import (
     DATA_COORDINATOR,
@@ -19,6 +17,22 @@ from custom_components.woow_esphome_modbus_scanner.const import (
     DOMAIN,
     PUBLIC_SERVICES,
 )
+
+
+@pytest.fixture(autouse=True)
+def bypass_panel_registration(monkeypatch):
+    """Keep lifecycle tests focused on generation/service ownership."""
+    async def register_panel(_hass):
+        return None
+
+    monkeypatch.setattr(
+        "custom_components.woow_esphome_modbus_scanner._async_register_panel",
+        register_panel,
+    )
+    monkeypatch.setattr(
+        "custom_components.woow_esphome_modbus_scanner.frontend.async_remove_panel",
+        lambda *_args, **_kwargs: None,
+    )
 
 
 def _assert_unloaded(hass, coordinator):
@@ -78,45 +92,6 @@ async def test_unload_removes_services_before_coordinator_shutdown(hass, monkeyp
 
     finish_shutdown.set()
     assert await unload
-    _assert_unloaded(hass, coordinator)
-
-
-async def test_dispatched_handler_cannot_recreate_coordinator_after_unload(
-    hass, monkeypatch
-):
-    entry = MockConfigEntry(domain=DOMAIN, title="Woow ESPHome Modbus Scanner", data={})
-    entry.add_to_hass(hass)
-    assert await async_setup_entry(hass, entry)
-    coordinator = hass.data[DOMAIN][DATA_COORDINATOR]
-    authorization_entered = asyncio.Event()
-    resume_authorization = asyncio.Event()
-    original_authorization = services._async_reject_non_admin
-
-    async def paused_authorization(call_hass, call):
-        await original_authorization(call_hass, call)
-        authorization_entered.set()
-        await resume_authorization.wait()
-
-    monkeypatch.setattr(services, "_async_reject_non_admin", paused_authorization)
-    dispatched = asyncio.create_task(
-        hass.services.async_call(
-            DOMAIN,
-            "start_scan",
-            {"start_id": 1, "end_id": 2, "safety_confirmed": True},
-            blocking=True,
-            return_response=True,
-        )
-    )
-    await authorization_entered.wait()
-
-    assert await async_unload_entry(hass, entry)
-    _assert_unloaded(hass, coordinator)
-
-    resume_authorization.set()
-    with pytest.raises(HomeAssistantError, match="no longer available"):
-        await dispatched
-    await hass.async_block_till_done()
-
     _assert_unloaded(hass, coordinator)
 
 

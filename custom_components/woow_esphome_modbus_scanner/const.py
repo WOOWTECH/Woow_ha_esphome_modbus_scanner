@@ -2,11 +2,21 @@
 
 DOMAIN = "woow_esphome_modbus_scanner"
 NAME = "Woow ESPHome Modbus Scanner"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
+
+PANEL_COMPONENT_NAME = "woow-esphome-modbus-scanner-panel"
+PANEL_URL_PATH = "woow-esphome-modbus-scanner"
+PANEL_TITLE = "Modbus Scanner"
+PANEL_ICON = "mdi:radar"
+PANEL_STATIC_URL = (
+    f"/woow_esphome_modbus_scanner/frontend/{VERSION}/"
+    "woow-esphome-modbus-scanner-panel.js"
+)
 
 DATA_COORDINATOR = "coordinator"
 DATA_COORDINATOR_OWNER = "coordinator_owner"
 DATA_LIFECYCLE = "lifecycle"
+DATA_STATIC_PATH_REGISTERED = "static_path_registered"
 DATA_SERVICE_OWNER = "service_owner"
 DATA_SERVICES_AVAILABLE = "services_available"
 

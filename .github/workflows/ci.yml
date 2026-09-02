@@ -23,6 +23,30 @@ jobs:
           version: "0.16.2"
       - run: ruff check .
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: panel_frontend/package-lock.json
+      - run: npm ci --include=dev
+        working-directory: panel_frontend
+      - run: npm test
+        working-directory: panel_frontend
+      - run: npm run check:drift
+        working-directory: panel_frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: panel_frontend
+      - run: npm run test:browser
+        working-directory: panel_frontend
+      - run: node tests/tutorial/browser_check.mjs
+      - run: >-
+          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html
+          node tests/tutorial/browser_check.mjs
+
   hassfest:
     runs-on: ubuntu-latest
     steps:
