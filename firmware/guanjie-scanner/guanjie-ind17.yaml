@@ -6,7 +6,7 @@ esphome:
   on_boot:
     priority: -100
     then:
-      - lambda: id(dehumidifier).set_scanner_result(&id(scanner_result));
+      - lambda: id(dehumidifier).set_scanner_result(id(scanner_result));
 esp32:
   board: esp32dev
   flash_size: 4MB

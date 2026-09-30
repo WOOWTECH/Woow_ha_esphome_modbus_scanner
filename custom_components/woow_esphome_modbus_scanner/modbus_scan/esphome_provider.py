@@ -106,12 +106,20 @@ class ESPHomeGatewayProvider:
         sensor_key = None
 
         def on_state(state):
-            if pending is None or pending.done() or state.key != sensor_key:
+            if (
+                pending is None
+                or pending.done()
+                or state.key != sensor_key
+                or getattr(state, "missing_state", False)
+            ):
                 return
             try:
                 payload = json.loads(state.state)
-                if not isinstance(payload, dict) or payload.get("id") != expected[0]:
-                    return  # Initial cached result / another client is not evidence.
+            except (ValueError, TypeError, AttributeError):
+                return  # An unpublished/empty initial entity is not a probe reply.
+            if not isinstance(payload, dict) or payload.get("id") != expected[0]:
+                return  # Initial cached result / another client is not evidence.
+            try:
                 for key, value in (("v", 1), ("slave", expected[1]), ("reg", expected[2])):
                     if type(payload.get(key)) is not int or payload[key] != value:
                         raise ValueError("Mismatched correlated response")

@@ -72,6 +72,9 @@ class FakeClient:
 
     async def execute_service(self, service, data):
         self.calls.append(data)
+        # The initial state subscription may arrive after the probe was sent.
+        self.callback(TextSensorState(key=1, state="", missing_state=True))
+        self.callback(TextSensorState(key=1, state=""))
         payload = dict(
             v=1,
             id="0" * 32,
