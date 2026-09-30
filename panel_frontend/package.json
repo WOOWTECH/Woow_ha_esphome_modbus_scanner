@@ -1,7 +1,7 @@
 {
   "name": "woow-esphome-modbus-scanner-panel",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0-dev.3",
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",

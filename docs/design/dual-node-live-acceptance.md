@@ -1,8 +1,12 @@
 # Dual-node physical and frontend validation (2026-09-30)
 
-**Outcome: both enrolled ESPHome nodes work with the physical provider, but the
-frontend is NOT fully accepted. Six confirmed UI defects remain.** This is an
-experimental feature branch, not a production release.
+> **Historical report:** the six defects below were subsequently fixed and
+> re-tested in 0.3.0.dev3. See [UI reacceptance: 124/124](ui-reacceptance.md),
+> including the real HA frontend/WebSocket and a further select-display fix.
+
+**Initial outcome: both enrolled ESPHome nodes worked with the physical provider,
+but the frontend was NOT fully accepted; six UI defects were open at that time.**
+This is an experimental feature branch, not a production release.
 
 ## What was actually deployed and tested
 

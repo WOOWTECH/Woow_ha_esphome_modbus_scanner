@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "設定 Woow ESPHome Modbus Scanner",
-        "description": "本機實驗版本。兩欄留空則僅模擬；實體掃描必須使用 Guanjie 唯讀橋接 v1 韌體，普通 ESPHome 裝置不支援。實體測試請呼叫服務，側欄仍保留上游模擬流程。所有已登入的 HA 使用者皆可呼叫掃描服務。",
+        "description": "實驗版本。所有欄位留空則僅模擬；實體閘道必須使用 Guanjie 唯讀橋接 v1 韌體。每台須成對填寫主機與 MAC。側欄支援實體 FC03 掃描，所有已登入的 HA 使用者皆可操作。",
         "data": {
           "host": "ESPHome 主機位址（選填）",
           "mac": "預期 ESPHome MAC 位址（選填）",
@@ -14,7 +14,7 @@
       },
       "reconfigure": {
         "title": "重新設定掃描閘道",
-        "description": "本機實驗版本。兩欄留空則僅模擬；實體掃描必須使用 Guanjie 唯讀橋接 v1 韌體，普通 ESPHome 裝置不支援。實體測試請呼叫服務，側欄仍保留上游模擬流程。所有已登入的 HA 使用者皆可呼叫掃描服務。",
+        "description": "實驗版本。所有欄位留空則僅模擬；實體閘道必須使用 Guanjie 唯讀橋接 v1 韌體。每台須成對填寫主機與 MAC。側欄支援實體 FC03 掃描，所有已登入的 HA 使用者皆可操作。",
         "data": {
           "host": "ESPHome 主機位址（選填）",
           "mac": "預期 ESPHome MAC 位址（選填）",

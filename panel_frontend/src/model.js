@@ -28,6 +28,16 @@ export const INTEGER_BOUNDS = Object.freeze({
   register_address: [0, 65535], register_count: [1, 125],
   timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
+export const PHYSICAL_REGISTERS = Object.freeze([0x6201, 0x6202, 0x6203, 0x6205, 0x6206, 0x6105, 0x6101, 0x6102, 0x6103, 0x6104, 0x6106, 0x6111, 0x6112]);
+export const PHYSICAL_DEFAULTS = Object.freeze({start_id:1, end_id:3, address:1, probe_type:"holding_register", register_address:0x6201, register_count:1, timeout_ms:700, retries:0, inter_request_delay_ms:250, pause_normal_polling:true});
+const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
+export function boundsFor(form) {
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[1,32], end_id:[1,32], address:[1,32], register_count:[1,1], timeout_ms:[700,700]} : INTEGER_BOUNDS;
+}
+export function selectGateway(form, gateway) {
+  const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, safety_confirmed:false};
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export function normalizeResponse(value) {
@@ -40,10 +50,18 @@ export function validateForm(form, single = false, text = {}) {
   const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
   for (const name of names) {
     const number = Number(form[name]);
-    const [minimum, maximum] = INTEGER_BOUNDS[name];
-    if (!Number.isInteger(number) || number < minimum || number > maximum) {
+    const [minimum, maximum] = boundsFor(form)[name];
+    const raw = form[name];
+    const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
+    if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
+  }
+  if (form.provider === "esphome") {
+    const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
+    if (form.probe_type !== "holding_register") errors.probe_type = message;
+    if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
+    if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
   if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
@@ -57,7 +75,8 @@ function sharedPayload(form) {
     register_address: Number(form.register_address), register_count: Number(form.register_count),
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
-    pause_normal_polling: form.pause_normal_polling === true, mock_profile: form.mock_profile,
+    pause_normal_polling: form.pause_normal_polling === true,
+    ...(form.provider === "mock" ? {mock_profile: form.mock_profile} : {}),
   };
 }
 export function startPayload(form) {
@@ -79,10 +98,17 @@ export function sanitizePreferences(value) {
   if (PROBE_TYPES.includes(source.probe_type)) form.probe_type = source.probe_type;
   if (PROFILES.includes(source.mock_profile)) form.mock_profile = source.mock_profile;
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
-  if (source.safety_confirmed === true || source.safety_confirmed === false) form.safety_confirmed = source.safety_confirmed;
-  // v0.2.0 is deliberately fixed to the one mock provider and gateway.
-  form.provider = DEFAULTS.provider;
-  form.gateway_id = DEFAULTS.gateway_id;
+  // A stored acknowledgement is not consent for a new browser session.
+  form.safety_confirmed = false;
+  if (source.provider === "esphome") {
+    form.provider = "esphome";
+    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
+    // Migrate old incompatible preferences, without silently changing provider.
+    for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];
+    if (!PHYSICAL_REGISTERS.includes(form.register_address)) form.register_address = PHYSICAL_DEFAULTS.register_address;
+    for (const key of ["start_id", "end_id", "address"]) if (form[key] > 32) form[key] = PHYSICAL_DEFAULTS[key];
+    if (form.start_id > form.end_id) {form.start_id = 1; form.end_id = 3;}
+  }
   return {form, advancedOpen: value.advancedOpen === true};
 }
 
@@ -92,7 +118,11 @@ export function sanitizeRecent(value) {
 }
 
 export function safePreferences(form, advancedOpen = false) {
-  return sanitizePreferences({form: Object.fromEntries(Object.keys(DEFAULTS).map((key) => [key, form[key]])), advancedOpen});
+  const values = Object.fromEntries(Object.keys(DEFAULTS).map((key) => {
+    const value = form[key];
+    return [key, key in INTEGER_BOUNDS && typeof value === "string" && /^[+-]?\d+$/.test(value) ? Number(value) : value];
+  }));
+  return sanitizePreferences({form: values, advancedOpen});
 }
 
 export function errorMessage(error) {

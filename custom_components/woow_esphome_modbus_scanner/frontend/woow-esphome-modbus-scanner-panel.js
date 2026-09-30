@@ -32,17 +32,26 @@ const panelStyles = i$3`
 `;
 
 const en = {
-  title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "v0.2.0 — MOCK ONLY",
-  banner: "This panel never contacts ESPHome or physical Modbus hardware. Results are deterministic training evidence, not an inventory.",
-  tutorial: "View v0.2.0 tutorial source", download: "Future v0.2.0 release download", tutorialLinks:"Tutorial and download links", gateway: "Gateway", availableGateway: "Available gateway",
-  simulated: "simulated", simulatedGateway:"Simulated RS-485 Gateway", notRefreshed: "not refreshed", gatewayHelp:"Only the fixed mock gateway is available in v0.2.0; refresh to verify that the integration service is loaded.", futureDevice: "ESPHome device (future)", futureUnavailable: "Unavailable in mock-only v0.2.0",
-  futureHelp: "No physical provider or safe low-level ESPHome transaction API is implemented. This selector is intentionally disabled.", refreshGateways: "Refresh gateways",
+  title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
+  physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
+  physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
+  physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
+  physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
+  physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
+  physicalProfiles: "Mock profiles do not apply to physical gateways. Results below must identify their actual provider and gateway.",
+  physicalPause: "Required. Firmware drains the current transaction, reads once, then automatically restores polling even if the client disconnects.",
+  missingGateway: "Saved gateway is unavailable. Explicitly select an available gateway; no automatic fallback to mock.",
+  resultGateway: "Result source (may differ from the next scan selection)",
+  banner: "This selected simulated gateway never contacts ESPHome or physical Modbus hardware. Its results are training evidence, not an inventory. Explicitly select an enrolled ESPHome gateway for physical reads.",
+  tutorial: "View mock tutorial source", download: "Download mock tutorial", tutorialLinks:"Tutorial and download links", gateway: "Gateway", availableGateway: "Available gateway",
+  simulated: "simulated", simulatedGateway:"Simulated RS-485 Gateway", notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies safe bridge defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
+  futureHelp: "This identity summary is intentionally disabled; choose the transport using Available gateway above. The backend verifies the enrolled MAC before any read.", refreshGateways: "Refresh gateways",
   scanRange: "Scan range", startId: "Start Slave ID", startHelp: "Inclusive; Modbus unicast addresses are 1–247.", endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", profile: "Mock quick profile", profileHelp: "Choose a deterministic fixture. The selected profile's addresses, outcomes, and terminal state are described below.", quickProfiles: "Mock quick profiles",
   advanced: "Advanced read-only probe settings", probe: "Probe type", deviceIdentification: "Device identification (optional Modbus capability)", holdingRegister: "Holding register read", inputRegister: "Input register read",
-  probeHelp: "Mock outcomes do not change; future providers may only use these read operations.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
+  probeHelp: "In simulated mode these probe options do not change the fixture outcome.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
   timeout: "Timeout (ms)", timeoutHelp: "Per attempt; mock uses it only for the worst-case estimate.", retries: "Retries", retriesHelp: "Additional attempts after the first; mock does not retry.", delay: "Inter-request delay (ms)", delayHelp: "Minimum requested gap; mock has a built-in 10 ms minimum.",
-  pause: "Pause normal polling", pauseHelp: "Recorded only. Mock has no normal polling; a future adapter must restore it in finally.", safety: "I understand scans are best-effort and a future physical scan may disrupt polling.", start: "Start scan", test: "Test address", cancel: "Cancel",
+  pause: "Pause normal polling", pauseHelp: "Mock mode has no normal polling. Physical mode requires automatic polling suspension and restoration.", safety: "I understand scans are best-effort and a physical scan can disrupt polling.", start: "Start scan", test: "Test address", cancel: "Cancel",
   statusTitle: "Status and progress", recent: "Recent scan ID (this browser only)", storage: "Preferences and IDs stay in localStorage. Tokens, hosts, frames, replies, and credentials are never stored.", phase: "Phase", noRecent: "No recent scan", noScanId: "No scan ID", progress: "Scan progress", addresses: "addresses", responders: "responders", terminalError: "Terminal error", refreshStatus: "Refresh status", refreshResults: "Refresh results",
   evidence: "Responder evidence", evidenceHelp: "Timeouts are counted but intentionally omitted. A response is not proof of a unique physical device.", tableLabel: "Sortable responder evidence table", noEvidence: "No responder evidence loaded.",
   columns: {address:"Address",outcome:"Outcome",latency_ms:"Latency ms",exception_code:"Exception",vendor:"Vendor",product:"Product",detail:"Detail"},
@@ -69,11 +78,20 @@ const en = {
 };
 
 const zh = {
-  ...en, title:"Modbus 掃描器",menu:"開啟 Home Assistant 選單",mock:"v0.2.0 — 僅限模擬",
-  banner:"此面板絕不連線至 ESPHome 或實體 Modbus 硬體。結果是可重現的訓練證據，不是設備清冊。",tutorial:"查看 v0.2.0 教學原始檔",download:"未來 v0.2.0 發行版下載",tutorialLinks:"教學與下載連結",
-  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",notRefreshed:"尚未重新整理",gatewayHelp:"v0.2.0 僅提供固定的模擬閘道；請重新整理以確認整合服務已載入。",futureDevice:"ESPHome 裝置（未來功能）",futureUnavailable:"僅限模擬的 v0.2.0 無法使用",futureHelp:"目前未實作實體提供者或安全的底層 ESPHome 交易 API，因此刻意停用此選擇器。",refreshGateways:"重新整理閘道",
+  ...en, title:"Modbus 掃描器",menu:"開啟 Home Assistant 選單",mock:"模擬模式 — 僅限模擬",
+  physicalTitle:"實驗功能 — 實體 MODBUS",
+  physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
+  physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
+  physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
+  physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
+  physicalProfiles:"模擬情境不適用於實體閘道。下方結果會另行標明實際提供者與閘道。",
+  physicalPause:"必要設定。韌體等候當前交易結束，單次讀取後自動恢復輪詢；客戶端斷線也會恢復。",
+  missingGateway:"儲存的閘道目前無法使用。請明確選擇可用閘道，不會自動退回模擬。",
+  resultGateway:"結果來源（可能與下一次掃描選擇不同）",
+  banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
+  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
   scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:"包含此值；Modbus 單播位址為 1–247。",endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",profile:"模擬快速情境",profileHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickProfiles:"模擬快速情境",
-  advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"模擬結果不受影響；未來提供者只能使用這些讀取操作。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"僅記錄設定。模擬沒有一般輪詢；未來介面必須在 finally 中恢復。",safety:"我了解掃描僅提供盡力而為的結果，且未來的實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
+  advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，選擇不同探測類型不會改變固定情境的結果。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",
   ready:"準備就緒。請重新整理閘道以確認服務可用。",correcting:"請修正標示的欄位。",started:"掃描已開始。",testStarted:"位址測試已開始。",statusRefreshed:"狀態已重新整理。",resultsRefreshed:"結果已重新整理。",cancelRequested:"已要求取消；目前交易可能會先完成。",recentSelected:"已選擇最近掃描。請重新整理狀態或結果；伺服器歷程僅存於記憶體。",serviceUnavailable:"Home Assistant 連線無法使用。請重新連線後再試。",invalidResponse:"Home Assistant 回傳空白或無效的服務回應。",startMissing:"開始回應未包含掃描 ID。",noChosen:"請先開始掃描或選擇最近的掃描 ID。",noResultsId:"沒有可用於結果的掃描 ID。",noCancel:"沒有可取消的進行中掃描。",unknownState:"掃描 ID 未知或已過期。已清除舊狀態與結果；請開始新掃描或選擇其他最近 ID。",gatewayCount:(n)=>`有 ${n} 個閘道可用。`,noGateway:"沒有可用閘道。請重新載入整合並檢查 Home Assistant 記錄。",finished:(status)=>`掃描已${status === "completed" ? "完成" : "終止"}；已自動載入結果。`,pollingStopped:(error)=>`狀態輪詢已停止：${error} 請用「重新整理狀態」重試。`,terminalLoadFailed:(error)=>`無法載入終止結果：${error}`,
@@ -119,6 +137,16 @@ const INTEGER_BOUNDS = Object.freeze({
   register_address: [0, 65535], register_count: [1, 125],
   timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
+const PHYSICAL_REGISTERS = Object.freeze([0x6201, 0x6202, 0x6203, 0x6205, 0x6206, 0x6105, 0x6101, 0x6102, 0x6103, 0x6104, 0x6106, 0x6111, 0x6112]);
+const PHYSICAL_DEFAULTS = Object.freeze({start_id:1, end_id:3, address:1, probe_type:"holding_register", register_address:0x6201, register_count:1, timeout_ms:700, retries:0, inter_request_delay_ms:250, pause_normal_polling:true});
+const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
+function boundsFor(form) {
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[1,32], end_id:[1,32], address:[1,32], register_count:[1,1], timeout_ms:[700,700]} : INTEGER_BOUNDS;
+}
+function selectGateway(form, gateway) {
+  const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, safety_confirmed:false};
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function normalizeResponse(value) {
@@ -131,10 +159,18 @@ function validateForm(form, single = false, text = {}) {
   const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
   for (const name of names) {
     const number = Number(form[name]);
-    const [minimum, maximum] = INTEGER_BOUNDS[name];
-    if (!Number.isInteger(number) || number < minimum || number > maximum) {
+    const [minimum, maximum] = boundsFor(form)[name];
+    const raw = form[name];
+    const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
+    if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
+  }
+  if (form.provider === "esphome") {
+    const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
+    if (form.probe_type !== "holding_register") errors.probe_type = message;
+    if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
+    if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
   if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
@@ -148,7 +184,8 @@ function sharedPayload(form) {
     register_address: Number(form.register_address), register_count: Number(form.register_count),
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
-    pause_normal_polling: form.pause_normal_polling === true, mock_profile: form.mock_profile,
+    pause_normal_polling: form.pause_normal_polling === true,
+    ...(form.provider === "mock" ? {mock_profile: form.mock_profile} : {}),
   };
 }
 function startPayload(form) {
@@ -170,10 +207,17 @@ function sanitizePreferences(value) {
   if (PROBE_TYPES.includes(source.probe_type)) form.probe_type = source.probe_type;
   if (PROFILES.includes(source.mock_profile)) form.mock_profile = source.mock_profile;
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
-  if (source.safety_confirmed === true || source.safety_confirmed === false) form.safety_confirmed = source.safety_confirmed;
-  // v0.2.0 is deliberately fixed to the one mock provider and gateway.
-  form.provider = DEFAULTS.provider;
-  form.gateway_id = DEFAULTS.gateway_id;
+  // A stored acknowledgement is not consent for a new browser session.
+  form.safety_confirmed = false;
+  if (source.provider === "esphome") {
+    form.provider = "esphome";
+    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
+    // Migrate old incompatible preferences, without silently changing provider.
+    for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];
+    if (!PHYSICAL_REGISTERS.includes(form.register_address)) form.register_address = PHYSICAL_DEFAULTS.register_address;
+    for (const key of ["start_id", "end_id", "address"]) if (form[key] > 32) form[key] = PHYSICAL_DEFAULTS[key];
+    if (form.start_id > form.end_id) {form.start_id = 1; form.end_id = 3;}
+  }
   return {form, advancedOpen: value.advancedOpen === true};
 }
 
@@ -183,7 +227,11 @@ function sanitizeRecent(value) {
 }
 
 function safePreferences(form, advancedOpen = false) {
-  return sanitizePreferences({form: Object.fromEntries(Object.keys(DEFAULTS).map((key) => [key, form[key]])), advancedOpen});
+  const values = Object.fromEntries(Object.keys(DEFAULTS).map((key) => {
+    const value = form[key];
+    return [key, key in INTEGER_BOUNDS && typeof value === "string" && /^[+-]?\d+$/.test(value) ? Number(value) : value];
+  }));
+  return sanitizePreferences({form: values, advancedOpen});
 }
 
 function errorMessage(error) {
@@ -258,6 +306,21 @@ class WoowEsphomeModbusScannerPanel extends i {
     this._recent = sanitizeRecent([scanId, ...this._recent]);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(this._recent)); } catch (_error) { /* optional */ }
   }
+  _selectGateway(gatewayId) {
+    if (this._busy || this._status?.status === "running") return;
+    const gateway = this._gateways.find((item) => item.gateway_id === gatewayId);
+    if (!gateway) return;
+    this._operationGeneration += 1;
+    this._stopPolling();
+    this._currentScanId = "";
+    this._status = null;
+    this._results = null;
+    this._message = "";
+    this._errors = {};
+    this._form = selectGateway(this._form, gateway);
+    if (gateway.provider === "esphome") this._advancedOpen = true;
+    this._persist();
+  }
   _set(name, value) {
     this._form = {...this._form, [name]: value};
     this._errors = {...this._errors, [name]: undefined};
@@ -293,16 +356,15 @@ class WoowEsphomeModbusScannerPanel extends i {
       if (!Array.isArray(payload.gateways)) throw new Error(this._text.noGateway);
       this._gateways = payload.gateways;
       this._loaded = true;
-      if (this._gateways.length && !this._gateways.some((item) => item.gateway_id === this._form.gateway_id)) {
-        this._set("provider", this._gateways[0].provider);
-        this._set("gateway_id", this._gateways[0].gateway_id);
-      }
-      this._message = this._gateways.length ? this._text.gatewayCount(this._gateways.length) : this._text.noGateway;
+      // Never silently replace a saved physical gateway with mock mode.
+      const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
+      this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
     });
   }
   async _start(single = false) {
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp});
+    if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     this._errors = errors;
     if (Object.keys(errors).length) {
       this._message = t.correcting;
@@ -444,8 +506,10 @@ class WoowEsphomeModbusScannerPanel extends i {
     });
   }
   _field(name, label, min, max, help) {
+    [min, max] = boundsFor(this._form)[name] || [min, max];
+    const fixed = this._form.provider === "esphome" && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
-    return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
+    return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
   }
   _sortHeader(key, label) {
     const active = this._sort.key === key;
@@ -461,28 +525,30 @@ class WoowEsphomeModbusScannerPanel extends i {
     const counts = this._status?.outcome_counts || this._results?.outcome_counts || {};
     const progress = Number(this._status?.progress_percent || 0);
     const selectedProfile = this._form.mock_profile;
+    const physical = this._form.provider === "esphome";
+    const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     return b`
       <header class="top ${this.narrow ? "narrow" : ""}"><button class="menu secondary" @click=${this._menu} aria-label=${t.menu}><ha-icon icon="mdi:menu"></ha-icon></button><ha-icon icon="mdi:radar"></ha-icon><h1>${t.title}</h1></header>
       <main class="shell">
-        <aside class="banner"><div><strong>${t.mock}</strong><p>${t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
+        <aside class="banner"><div><strong>${physical ? t.physicalTitle : t.mock}</strong><p>${physical ? t.physicalBanner : t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
         <div class="grid"><div>
           <section class="card" aria-labelledby="gateway-title"><h2 id="gateway-title">${t.gateway}</h2>
-            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} @change=${(event) => { const gateway = this._gateways.find((item) => item.gateway_id === event.target.value); this._set("gateway_id", event.target.value); if (gateway) this._set("provider", gateway.provider); }} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${this._gateways.length ? this._gateways.map((item) => b`<option value=${item.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`) : b`<option value=${this._form.gateway_id}>${this._form.gateway_id} (${t.notRefreshed})</option>`}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? b`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : A}</div>
-            <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
+            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? b`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : A}${this._gateways.map((item) => b`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? b`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : A}</div>
+            <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${physical ? this._form.gateway_id : t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
-            ${this._field("start_id", t.startId, 1, 247, t.startHelp)}${this._field("end_id", t.endId, 1, 247, t.endHelp)}${this._field("address", t.address, 1, 247, t.addressHelp)}
-            <div class="field"><label for="profile">${t.profile}</label><select id="profile" .value=${selectedProfile} @change=${(event) => this._set("mock_profile", event.target.value)} aria-describedby="profile-help">${PROFILES.map((profile) => b`<option value=${profile}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${t.profileHelp}</small></div>
-          </div><div class="profiles" aria-label=${t.quickProfiles}>${PROFILES.map((profile) => { const selected = selectedProfile === profile; return b`<button class="secondary ${selected ? "selected" : ""}" @click=${() => this._set("mock_profile", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? b`<span class="sr-only">${t.selected}</span>` : A}</button>`; })}</div>
-          <div class="profile-description" role="note"><strong>${t.profileNames[selectedProfile]}</strong><p>${t.profiles[selectedProfile]}</p></div>
+            ${this._field("start_id", t.startId, 1, 247, physical ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, physical ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, physical ? t.physicalRange : t.addressHelp)}
+            <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedProfile} @change=${(event) => this._set("mock_profile", event.target.value)} aria-describedby="profile-help">${PROFILES.map((profile) => b`<option value=${profile} .selected=${profile === selectedProfile}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
+          </div><div class="profiles" aria-label=${t.quickProfiles}>${PROFILES.map((profile) => { const selected = selectedProfile === profile; return b`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_profile", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? b`<span class="sr-only">${t.selected}</span>` : A}</button>`; })}</div>
+          <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.profileNames[selectedProfile]}</strong><p>${physical ? t.physicalProfiles : t.profiles[selectedProfile]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification">${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register">${t.inputRegister}</option></select><small>${t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
-            <div class="field check"><label><input type="checkbox" .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${t.pauseHelp}</small></div>
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${physical}>${t.inputRegister}</option></select><small>${physical ? t.physicalHelp : t.probeHelp}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, physical ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, physical ? t.physicalHelp : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, physical ? t.physicalHelp : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
+            <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${physical ? t.physicalPause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? b`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : A}</div>
-          <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
+          <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
           </section>
         </div><div>
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
@@ -494,7 +560,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp}</p><div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="7">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp}</p>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="7">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

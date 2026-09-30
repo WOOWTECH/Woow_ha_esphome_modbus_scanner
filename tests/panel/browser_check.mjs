@@ -7,7 +7,7 @@ import {resolve, sep} from "node:path";
 import {chromium} from "../../panel_frontend/node_modules/playwright/index.mjs";
 
 const root = resolve(process.cwd(), "..");
-const screenshots = resolve(root, "docs/screenshots");
+const screenshots = process.env.SCANNER_SCREENSHOTS_DIR ? resolve(process.env.SCANNER_SCREENSHOTS_DIR) : resolve(root, "docs/screenshots");
 const bundleUrl = "/custom_components/woow_esphome_modbus_scanner/frontend/woow-esphome-modbus-scanner-panel.js";
 const shell = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>html,body{margin:0}ha-icon{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;font:700 18px/1 sans-serif}</style><script>customElements.define('ha-icon',class extends HTMLElement{static get observedAttributes(){return ['icon']}connectedCallback(){this.setAttribute('aria-hidden','true');this.draw()}attributeChangedCallback(){this.draw()}draw(){const glyphs={'mdi:menu':'☰','mdi:radar':'◉','mdi:refresh':'↻','mdi:play':'▶','mdi:crosshairs-gps':'⌖','mdi:stop':'■','mdi:table-refresh':'▦','mdi:check-circle':'●','mdi:circle-outline':'○'};this.textContent=glyphs[this.getAttribute('icon')]||'◆'}});</script></head><body><woow-esphome-modbus-scanner-panel></woow-esphome-modbus-scanner-panel><script type="module">import '${bundleUrl}';
 window.calls=[]; window.menuEvents=0; window.mode='normal'; window.polls=0; window.statusDeferred=[]; window.resultsDeferred=[]; window.cancelDeferred=[]; document.body.addEventListener('hass-toggle-menu',()=>window.menuEvents++);
@@ -52,7 +52,7 @@ await mkdir(screenshots, {recursive:true});
 await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
 let browser;
 try {
-  browser = await chromium.launch({headless: true});
+  browser = await chromium.launch({headless: true, executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH || undefined});
   const base = `http://127.0.0.1:${server.address().port}/`;
   const page = await browser.newPage({viewport: {width: 1280, height: 1000}});
   const errors=[]; page.on("pageerror", (error)=>errors.push(error.message));
@@ -76,7 +76,8 @@ try {
   await panel.locator(".profiles").getByRole("button", {name:/Found default/}).click();
   check(await panel.locator("#profile").inputValue()==="found_default", "default profile was not restored before baseline screenshots");
   await page.evaluate(() => panel._form={...panel._form,gateway_id:""});
-  await panel.getByRole("button", {name:"Start scan"}).click();
+  check(await panel.getByRole("button", {name:"Start scan"}).isDisabled(), "missing gateway must disable start");
+  await page.evaluate(() => panel._start(false)); // Fault-injection also exercises the handler guard.
   check(await panel.locator("#gateway").evaluate((e)=>e===e.getRootNode().activeElement), "gateway error not focused");
   check(await panel.locator("#gateway").getAttribute("aria-invalid")==="true" && (await panel.locator("#gateway").getAttribute("aria-describedby")).includes("gateway-error"), "gateway error association missing");
   await page.evaluate(() => panel._set("gateway_id","mock:rs485-gateway"));
@@ -220,6 +221,21 @@ try {
   check(await stored.locator('details').getAttribute('open')!==null, 'advanced disclosure restore failed');
   check(await storagePage.evaluate(() => panel._form.provider==='mock'&&panel._form.gateway_id==='mock:rs485-gateway'&&panel._form.token===undefined&&panel._recent.length===1), 'storage allowlist/fixed mock/recent sanitization failed');
   await storagePage.close();
+
+  // Dynamic options must reflect the saved value after asynchronous discovery.
+  // A missing physical gateway must remain physical and fail closed, not show mock.
+  const restorePage=await browser.newPage();
+  await restorePage.addInitScript(() => localStorage.setItem('woow-esphome-modbus-scanner.preferences.v1',JSON.stringify({form:{provider:'esphome',gateway_id:'esphome:aabbccddeeff',mock_profile:'possible_collision'}})));
+  await restorePage.goto(base);
+  const restored=restorePage.locator('woow-esphome-modbus-scanner-panel');
+  await restored.getByText('Saved gateway is unavailable. Explicitly select an available gateway; no automatic fallback to mock.',{exact:true}).waitFor();
+  check(await restored.getByRole('button',{name:'Test address',exact:true}).isDisabled(),'missing physical gateway allows reads');
+  check(await restored.locator('#gateway').inputValue()==='esphome:aabbccddeeff','missing gateway displayed as mock');
+  await restorePage.evaluate(async () => {panel._gateways=[...panel._gateways,{provider:'esphome',gateway_id:'esphome:aabbccddeeff',name:'Synthetic bridge',simulated:false}];await panel.updateComplete;});
+  check(await restored.locator('#gateway').inputValue()==='esphome:aabbccddeeff','late option insertion changed the displayed gateway');
+  check(await restored.getByRole('button',{name:'Test address',exact:true}).isEnabled(),'discovered physical gateway remains disabled');
+  check(await restored.locator('#profile').inputValue()==='possible_collision','restored mock profile display disagrees with stored value');
+  await restorePage.close();
 
   // Traditional Chinese is selected from hass.locale.language and English-only labels disappear.
   const zhPage=await browser.newPage({viewport:{width:800,height:700}}); await zhPage.goto(base+'?lang=zh-Hant');

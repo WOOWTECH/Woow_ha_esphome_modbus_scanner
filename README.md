@@ -1,11 +1,28 @@
 # Woow ESPHome Modbus Scanner
 
-> **Local experimental branch 0.3.0.dev1:** adds a restricted Guanjie FC03
+> **Local experimental branch 0.3.0.dev3:** adds a restricted Guanjie FC03
 > firmware bridge and ESPHome provider. See [the bridge contract and test
 > instructions](docs/adr/0004-experimental-guanjie-fc03-bridge.md). This is not
 > an upstream release; the documentation below describes upstream v0.2.0.
-> Physical service support does not make the mock-oriented sidebar/tutorial
-> a physical scanner UI. HACS updates may overwrite these local changes.
+> The sidebar now supports enrolled physical gateways with validated FC03 defaults,
+> explicit hardware warnings and persistent gateway selection. The old tutorial
+> remains mock-only. HACS updates may overwrite these local changes.
+> [UI reacceptance report: 124/124](docs/design/ui-reacceptance.md).
+
+### Experimental physical sidebar
+
+Hard-refresh HA after updating. Select an enrolled ESPHome gateway, then use
+**Test address** without changing advanced fields. Defaults are FC03, register
+25089 (0x6201), count 1, 700 ms, with automatic polling suspension/restoration.
+For a range, confirm the warning and press **Start scan** (default 1–3; maximum 32).
+Reload preserves the selected gateway and valid numeric preferences, but resets
+consent. An unavailable saved gateway blocks reads rather than falling back to
+mock. The result table identifies its own provider/gateway, including old history.
+All authenticated HA users can generate these physical reads; this is experimental,
+not a production security certification. No extra ESPHome device selector is needed.
+
+The following sections document the upstream **v0.2.0 mock release**, not the
+physical branch capabilities above.
 
 A HACS-compatible Home Assistant custom integration for safe, provider-backed,
 best-effort Modbus address discovery. Version **0.2.0** is intentionally

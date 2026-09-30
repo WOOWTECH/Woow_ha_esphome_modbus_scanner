@@ -4,6 +4,7 @@ import {stringsFor} from "./i18n.js";
 import {
   DEFAULTS, DOMAIN, OUTCOMES, PROFILES, SERVICES, errorMessage, normalizeResponse,
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
+  selectGateway, boundsFor,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -72,6 +73,21 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     this._recent = sanitizeRecent([scanId, ...this._recent]);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(this._recent)); } catch (_error) { /* optional */ }
   }
+  _selectGateway(gatewayId) {
+    if (this._busy || this._status?.status === "running") return;
+    const gateway = this._gateways.find((item) => item.gateway_id === gatewayId);
+    if (!gateway) return;
+    this._operationGeneration += 1;
+    this._stopPolling();
+    this._currentScanId = "";
+    this._status = null;
+    this._results = null;
+    this._message = "";
+    this._errors = {};
+    this._form = selectGateway(this._form, gateway);
+    if (gateway.provider === "esphome") this._advancedOpen = true;
+    this._persist();
+  }
   _set(name, value) {
     this._form = {...this._form, [name]: value};
     this._errors = {...this._errors, [name]: undefined};
@@ -107,16 +123,15 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       if (!Array.isArray(payload.gateways)) throw new Error(this._text.noGateway);
       this._gateways = payload.gateways;
       this._loaded = true;
-      if (this._gateways.length && !this._gateways.some((item) => item.gateway_id === this._form.gateway_id)) {
-        this._set("provider", this._gateways[0].provider);
-        this._set("gateway_id", this._gateways[0].gateway_id);
-      }
-      this._message = this._gateways.length ? this._text.gatewayCount(this._gateways.length) : this._text.noGateway;
+      // Never silently replace a saved physical gateway with mock mode.
+      const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
+      this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
     });
   }
   async _start(single = false) {
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp});
+    if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     this._errors = errors;
     if (Object.keys(errors).length) {
       this._message = t.correcting;
@@ -258,8 +273,10 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     });
   }
   _field(name, label, min, max, help) {
+    [min, max] = boundsFor(this._form)[name] || [min, max];
+    const fixed = this._form.provider === "esphome" && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
-    return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
+    return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
   }
   _sortHeader(key, label) {
     const active = this._sort.key === key;
@@ -275,28 +292,30 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const counts = this._status?.outcome_counts || this._results?.outcome_counts || {};
     const progress = Number(this._status?.progress_percent || 0);
     const selectedProfile = this._form.mock_profile;
+    const physical = this._form.provider === "esphome";
+    const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     return html`
       <header class="top ${this.narrow ? "narrow" : ""}"><button class="menu secondary" @click=${this._menu} aria-label=${t.menu}><ha-icon icon="mdi:menu"></ha-icon></button><ha-icon icon="mdi:radar"></ha-icon><h1>${t.title}</h1></header>
       <main class="shell">
-        <aside class="banner"><div><strong>${t.mock}</strong><p>${t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
+        <aside class="banner"><div><strong>${physical ? t.physicalTitle : t.mock}</strong><p>${physical ? t.physicalBanner : t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
         <div class="grid"><div>
           <section class="card" aria-labelledby="gateway-title"><h2 id="gateway-title">${t.gateway}</h2>
-            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} @change=${(event) => { const gateway = this._gateways.find((item) => item.gateway_id === event.target.value); this._set("gateway_id", event.target.value); if (gateway) this._set("provider", gateway.provider); }} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${this._gateways.length ? this._gateways.map((item) => html`<option value=${item.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`) : html`<option value=${this._form.gateway_id}>${this._form.gateway_id} (${t.notRefreshed})</option>`}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? html`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : nothing}</div>
-            <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
+            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? html`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : nothing}${this._gateways.map((item) => html`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? html`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : nothing}</div>
+            <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${physical ? this._form.gateway_id : t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
-            ${this._field("start_id", t.startId, 1, 247, t.startHelp)}${this._field("end_id", t.endId, 1, 247, t.endHelp)}${this._field("address", t.address, 1, 247, t.addressHelp)}
-            <div class="field"><label for="profile">${t.profile}</label><select id="profile" .value=${selectedProfile} @change=${(event) => this._set("mock_profile", event.target.value)} aria-describedby="profile-help">${PROFILES.map((profile) => html`<option value=${profile}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${t.profileHelp}</small></div>
-          </div><div class="profiles" aria-label=${t.quickProfiles}>${PROFILES.map((profile) => { const selected = selectedProfile === profile; return html`<button class="secondary ${selected ? "selected" : ""}" @click=${() => this._set("mock_profile", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
-          <div class="profile-description" role="note"><strong>${t.profileNames[selectedProfile]}</strong><p>${t.profiles[selectedProfile]}</p></div>
+            ${this._field("start_id", t.startId, 1, 247, physical ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, physical ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, physical ? t.physicalRange : t.addressHelp)}
+            <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedProfile} @change=${(event) => this._set("mock_profile", event.target.value)} aria-describedby="profile-help">${PROFILES.map((profile) => html`<option value=${profile} .selected=${profile === selectedProfile}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
+          </div><div class="profiles" aria-label=${t.quickProfiles}>${PROFILES.map((profile) => { const selected = selectedProfile === profile; return html`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_profile", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
+          <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.profileNames[selectedProfile]}</strong><p>${physical ? t.physicalProfiles : t.profiles[selectedProfile]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification">${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register">${t.inputRegister}</option></select><small>${t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
-            <div class="field check"><label><input type="checkbox" .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${t.pauseHelp}</small></div>
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${physical}>${t.inputRegister}</option></select><small>${physical ? t.physicalHelp : t.probeHelp}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, physical ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, physical ? t.physicalHelp : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, physical ? t.physicalHelp : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
+            <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${physical ? t.physicalPause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? html`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : nothing}</div>
-          <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
+          <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
           </section>
         </div><div>
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
@@ -308,7 +327,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp}</p><div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="7">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp}</p>${this._results ? html`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : nothing}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="7">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => html`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

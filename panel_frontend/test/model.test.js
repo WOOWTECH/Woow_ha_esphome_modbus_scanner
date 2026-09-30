@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULTS, SERVICES, normalizeResponse, safePreferences, sanitizePreferences,
-  sanitizeRecent, startPayload, testPayload, validateForm,
+  sanitizeRecent, startPayload, testPayload, validateForm, selectGateway, boundsFor, PHYSICAL_REGISTERS,
 } from "../src/model.js";
 
 test("defines the exact six public services", () => {
@@ -55,6 +55,60 @@ test("malformed and obsolete preferences are sanitized by exact type, enum, and 
   assert.deepEqual(malformed, {form:{...DEFAULTS, address:7, timeout_ms:10}, advancedOpen:false});
   assert.deepEqual(sanitizePreferences(null), {form:{...DEFAULTS}, advancedOpen:false});
   assert.deepEqual(sanitizePreferences({form:[]}), {form:{...DEFAULTS}, advancedOpen:false});
+});
+
+test("physical gateway selection supplies a valid FC03 profile and resets consent", () => {
+  const form = selectGateway({...DEFAULTS, safety_confirmed:true}, {provider:"esphome", gateway_id:"esphome:aabbccddeeff"});
+  assert.deepEqual(validateForm(form, true), {});
+  assert.equal(form.probe_type, "holding_register");
+  assert.equal(form.register_address, 25089);
+  assert.equal(form.register_count, 1);
+  assert.equal(form.timeout_ms, 700);
+  assert.equal(form.pause_normal_polling, true);
+  assert.equal(form.safety_confirmed, false);
+  assert.equal("mock_profile" in testPayload(form), false);
+  assert.equal(selectGateway(form, {provider:"mock", gateway_id:"mock:rs485-gateway"}).timeout_ms, 500);
+});
+
+test("physical limits, probe, whitelist and polling are validated before a call", () => {
+  const form = selectGateway(DEFAULTS, {provider:"esphome", gateway_id:"esphome:aabbccddeeff"});
+  assert.deepEqual(boundsFor(form).end_id, [1,32]);
+  assert.deepEqual(boundsFor(form).register_count, [1,1]);
+  assert.deepEqual(boundsFor(form).timeout_ms, [700,700]);
+  for (const register_address of PHYSICAL_REGISTERS) assert.deepEqual(validateForm({...form,register_address},true), {});
+  for (const [key, value] of Object.entries({address:33, register_count:2, timeout_ms:500, register_address:0, probe_type:"input_register", pause_normal_polling:false})) {
+    assert.ok(validateForm({...form,[key]:value},true)[key], key);
+  }
+});
+
+test("persisted physical selection and edited DOM numbers round-trip", () => {
+  const form = {...selectGateway(DEFAULTS, {provider:"esphome",gateway_id:"esphome:aabbccddeeff"}), end_id:"8", register_address:"24833", retries:"2", inter_request_delay_ms:"750", safety_confirmed:true, host:"private", token:"secret"};
+  const restored = sanitizePreferences(JSON.parse(JSON.stringify(safePreferences(form,true))));
+  assert.equal(restored.form.gateway_id, form.gateway_id);
+  assert.equal(restored.form.provider, "esphome");
+  assert.equal(restored.form.end_id, 8);
+  assert.equal(restored.form.register_address, 24833);
+  assert.equal(restored.form.retries, 2);
+  assert.equal(restored.form.inter_request_delay_ms, 750);
+  assert.equal(restored.form.safety_confirmed, false);
+  assert.equal(restored.form.host, undefined);
+  assert.equal(restored.form.token, undefined);
+});
+
+test("old incompatible physical preferences migrate without selecting mock", () => {
+  const {form} = sanitizePreferences({form:{...DEFAULTS,provider:"esphome",gateway_id:"esphome:aabbccddeeff",end_id:247}});
+  assert.equal(form.provider,"esphome");
+  assert.deepEqual(validateForm(form,true),{});
+  assert.equal(form.end_id,3);
+  const invalid = sanitizePreferences({form:{...form,gateway_id:"https://private/token"}}).form;
+  assert.equal(invalid.provider,"esphome");
+  assert.equal(invalid.gateway_id,"");
+  assert.ok(validateForm(invalid,true).gateway_id);
+});
+
+test("empty, boolean and scientific-notation numeric inputs are not silently coerced", () => {
+  for (const value of ["", " ", true, null, "1e2"]) assert.ok(validateForm({...DEFAULTS,retries:value},true).retries);
+  assert.equal(validateForm({...DEFAULTS,retries:"2"},true).retries,undefined);
 });
 
 test("recent storage accepts only unique canonical UUIDs", () => {

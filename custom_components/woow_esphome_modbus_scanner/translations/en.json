@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Set up Woow ESPHome Modbus Scanner",
-        "description": "Experimental local build. Leave both fields empty for mock only. Physical scanning requires the Guanjie read-only bridge v1 firmware; configuring an ordinary ESPHome node does not add that capability. Physical scans are available through services; the sidebar retains its upstream mock workflow. All authenticated HA users can invoke scan services.",
+        "description": "Experimental build. Leave all fields empty for mock only. Physical gateways require Guanjie read-only bridge v1 firmware. Provide a host/MAC pair per gateway. The sidebar supports physical FC03 scans; all authenticated HA users can operate them.",
         "data": {
           "host": "ESPHome host (optional)",
           "mac": "Expected ESPHome MAC address (optional)",
@@ -14,7 +14,7 @@
       },
       "reconfigure": {
         "title": "Reconfigure scanner gateways",
-        "description": "Experimental local build. Leave both fields empty for mock only. Physical scanning requires the Guanjie read-only bridge v1 firmware; configuring an ordinary ESPHome node does not add that capability. Physical scans are available through services; the sidebar retains its upstream mock workflow. All authenticated HA users can invoke scan services.",
+        "description": "Experimental build. Leave all fields empty for mock only. Physical gateways require Guanjie read-only bridge v1 firmware. Provide a host/MAC pair per gateway. The sidebar supports physical FC03 scans; all authenticated HA users can operate them.",
         "data": {
           "host": "ESPHome host (optional)",
           "mac": "Expected ESPHome MAC address (optional)",
