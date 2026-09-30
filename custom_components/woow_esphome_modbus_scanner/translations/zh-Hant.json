@@ -5,13 +5,32 @@
       "user": {
         "title": "設定 Woow ESPHome Modbus Scanner",
         "description": "本機實驗版本。兩欄留空則僅模擬；實體掃描必須使用 Guanjie 唯讀橋接 v1 韌體，普通 ESPHome 裝置不支援。實體測試請呼叫服務，側欄仍保留上游模擬流程。所有已登入的 HA 使用者皆可呼叫掃描服務。",
-        "data": {"host": "ESPHome 主機位址（選填）", "mac": "預期 ESPHome MAC 位址（選填）"}
+        "data": {
+          "host": "ESPHome 主機位址（選填）",
+          "mac": "預期 ESPHome MAC 位址（選填）",
+          "host_2": "第二台 ESPHome 主機（選填）",
+          "mac_2": "第二台 MAC（選填）"
+        }
+      },
+      "reconfigure": {
+        "title": "重新設定掃描閘道",
+        "description": "本機實驗版本。兩欄留空則僅模擬；實體掃描必須使用 Guanjie 唯讀橋接 v1 韌體，普通 ESPHome 裝置不支援。實體測試請呼叫服務，側欄仍保留上游模擬流程。所有已登入的 HA 使用者皆可呼叫掃描服務。",
+        "data": {
+          "host": "ESPHome 主機位址（選填）",
+          "mac": "預期 ESPHome MAC 位址（選填）",
+          "host_2": "第二台 ESPHome 主機（選填）",
+          "mac_2": "第二台 MAC（選填）"
+        }
       }
     },
     "error": {
       "gateway_pair_required": "請同時填寫主機位址與 MAC，或兩欄皆留空。",
-      "invalid_mac": "MAC 格式必須為 AA:BB:CC:DD:EE:FF。"
+      "invalid_mac": "MAC 格式必須為 AA:BB:CC:DD:EE:FF。",
+      "duplicate_gateway": "兩台不可使用相同主機或 MAC。"
     },
-    "abort": {"already_configured": "Woow ESPHome Modbus Scanner 已完成設定。"}
+    "abort": {
+      "already_configured": "Woow ESPHome Modbus Scanner 已完成設定。",
+      "reconfigure_successful": "已重新設定。"
+    }
   }
 }

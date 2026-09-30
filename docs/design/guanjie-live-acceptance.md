@@ -1,5 +1,9 @@
 # Guanjie bridge: initial physical acceptance
 
+Later coverage: [dual-node physical and frontend validation](dual-node-live-acceptance.md),
+including two full 1–32 scans and six confirmed frontend defects. The observations
+below are the earlier, narrower acceptance, not the latest overall verdict.
+
 Date: 2026-09-30 (UTC+08:00). Local experimental branch `0.3.0.dev1`.
 These observations are from actual HA services, not mock-provider outcomes.
 Private hosts, MACs, credentials, and per-request identifiers are not published.

@@ -5,13 +5,32 @@
       "user": {
         "title": "Set up Woow ESPHome Modbus Scanner",
         "description": "Experimental local build. Leave both fields empty for mock only. Physical scanning requires the Guanjie read-only bridge v1 firmware; configuring an ordinary ESPHome node does not add that capability. Physical scans are available through services; the sidebar retains its upstream mock workflow. All authenticated HA users can invoke scan services.",
-        "data": {"host": "ESPHome host (optional)", "mac": "Expected ESPHome MAC address (optional)"}
+        "data": {
+          "host": "ESPHome host (optional)",
+          "mac": "Expected ESPHome MAC address (optional)",
+          "host_2": "Second ESPHome host (optional)",
+          "mac_2": "Second expected MAC (optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure scanner gateways",
+        "description": "Experimental local build. Leave both fields empty for mock only. Physical scanning requires the Guanjie read-only bridge v1 firmware; configuring an ordinary ESPHome node does not add that capability. Physical scans are available through services; the sidebar retains its upstream mock workflow. All authenticated HA users can invoke scan services.",
+        "data": {
+          "host": "ESPHome host (optional)",
+          "mac": "Expected ESPHome MAC address (optional)",
+          "host_2": "Second ESPHome host (optional)",
+          "mac_2": "Second expected MAC (optional)"
+        }
       }
     },
     "error": {
       "gateway_pair_required": "Provide both host and MAC, or leave both empty.",
-      "invalid_mac": "Enter a MAC address in AA:BB:CC:DD:EE:FF format."
+      "invalid_mac": "Enter a MAC address in AA:BB:CC:DD:EE:FF format.",
+      "duplicate_gateway": "Gateways must have distinct hosts and MACs."
     },
-    "abort": {"already_configured": "Woow ESPHome Modbus Scanner is already configured."}
+    "abort": {
+      "already_configured": "Woow ESPHome Modbus Scanner is already configured.",
+      "reconfigure_successful": "Gateways reconfigured."
+    }
   }
 }
