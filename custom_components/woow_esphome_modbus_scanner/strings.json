@@ -3,34 +3,59 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Woow ESPHome Modbus Scanner",
-        "description": "Experimental build. Leave all fields empty for mock only. Physical gateways require Guanjie read-only bridge v1 firmware. Provide a host/MAC pair per gateway. The sidebar supports physical FC03 scans; all authenticated HA users can operate them.",
+        "title": "Set up scanner gateways",
+        "description": "Leave host/MAC pairs empty for mock only. All active Home Assistant users and internal automations may use physical operations. PSK configures this integration only, not ESP firmware. Use HTTPS or a trusted management network.",
         "data": {
-          "host": "ESPHome host (optional)",
-          "mac": "Expected ESPHome MAC address (optional)",
-          "host_2": "Second ESPHome host (optional)",
-          "mac_2": "Second expected MAC (optional)"
+          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)",
+          "noise_psk": "API encryption key (optional)", "clear_psk": "Explicitly clear gateway 1 key (only for unencrypted firmware)",
+          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)",
+          "noise_psk_2": "Second API encryption key (optional)", "clear_psk_2": "Explicitly clear gateway 2 key (only for unencrypted firmware)"
         }
       },
       "reconfigure": {
         "title": "Reconfigure scanner gateways",
-        "description": "Experimental build. Leave all fields empty for mock only. Physical gateways require Guanjie read-only bridge v1 firmware. Provide a host/MAC pair per gateway. The sidebar supports physical FC03 scans; all authenticated HA users can operate them.",
+        "description": "Blank keys retain existing keys for the same MAC; stored keys are never displayed. Changing this form does not enable or disable firmware encryption. All active Home Assistant users and internal automations may use physical operations.",
         "data": {
-          "host": "ESPHome host (optional)",
-          "mac": "Expected ESPHome MAC address (optional)",
-          "host_2": "Second ESPHome host (optional)",
-          "mac_2": "Second expected MAC (optional)"
+          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)",
+          "noise_psk": "Replacement API key (blank retains existing)", "clear_psk": "Explicitly clear gateway 1 key",
+          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)",
+          "noise_psk_2": "Replacement second API key (blank retains existing)", "clear_psk_2": "Explicitly clear gateway 2 key"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Verify ESPHome API credentials",
+        "description": "Enter replacement keys. Blank retains a stored key. This checks API identity and bridge support only; it does not issue a Modbus transaction or change firmware.",
+        "data": {
+          "noise_psk": "Gateway 1 API encryption key", "clear_psk": "Explicitly clear gateway 1 key",
+          "noise_psk_2": "Gateway 2 API encryption key", "clear_psk_2": "Explicitly clear gateway 2 key"
         }
       }
     },
     "error": {
       "gateway_pair_required": "Provide both host and MAC, or leave both empty.",
-      "invalid_mac": "Enter a MAC address in AA:BB:CC:DD:EE:FF format.",
-      "duplicate_gateway": "Gateways must have distinct hosts and MACs."
+      "invalid_mac": "Enter a MAC in AA:BB:CC:DD:EE:FF format.",
+      "duplicate_gateway": "Gateways must have distinct hosts and MACs.",
+      "invalid_psk": "Use a base64-encoded 32-byte ESPHome API key.",
+      "conflicting_psk": "Do not enter a replacement key and select clear for the same gateway.",
+      "invalid_auth": "API authentication failed. Check the key and the firmware encryption setting.",
+      "cannot_connect": "Could not verify gateway API identity and bridge support. Existing settings were not changed."
     },
     "abort": {
-      "already_configured": "Woow ESPHome Modbus Scanner is already configured.",
-      "reconfigure_successful": "Gateways reconfigured."
+      "already_configured": "This integration is already configured.",
+      "reconfigure_successful": "Gateways reconfigured.",
+      "reauth_successful": "API credentials verified and updated.",
+      "no_physical_gateways": "No physical gateways are configured."
+    }
+  },
+  "exceptions": {
+    "invalid_request": {"message": "Invalid scanner request: {reason}"},
+    "physical_permission": {"message": "An active HA user identity or internal automation context is required."},
+    "gateway_failure": {"message": "Gateway operation failed ({code}). Check gateway health and API configuration."}
+  },
+  "issues": {
+    "gateway_action_required": {
+      "title": "Scanner gateway requires attention",
+      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and versioned bridge firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual device maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
     }
   }
 }

@@ -3,12 +3,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include "profile_generated.h"
 
 namespace esphome::guanjie {
 // The PDF uses actual hexadecimal wire addresses, not 40001-style offsets.
-inline constexpr std::array<uint16_t, 13> REGISTERS = {
-    0x6201, 0x6202, 0x6203, 0x6205, 0x6206, 0x6105,
-    0x6101, 0x6102, 0x6103, 0x6104, 0x6106, 0x6111, 0x6112};
+inline constexpr auto REGISTERS = bridge_profile::REGISTERS;
 struct Write { uint16_t reg; uint16_t value; };
 struct Transaction { uint8_t slave; uint8_t function; uint16_t reg; uint16_t value; uint32_t epoch; };
 inline bool valid_address(float x) { return std::isfinite(x) && x >= 1 && x <= 32 && std::floor(x) == x; }
@@ -32,13 +31,18 @@ inline float temperature1(uint16_t v) {
 class Protocol {
  public:
   uint8_t requested{1}, active{1};
-  uint32_t epoch{0};
+  uint32_t epoch{0}, core_poll_seq{0};
   std::array<uint16_t,13> values{};
   std::array<bool,13> valid{};
   std::array<uint32_t,13> observed{};
   bool dirty{true}, in_flight{false}, verifying{false}, maintenance{false};
   uint16_t last_humidity{0};
-  const char *result{"Awaiting first read"};
+  const char *result{"No control command recorded"};
+  uint32_t result_uptime_ms{0};
+  bool result_recorded{false};
+  void record_result(const char *message, uint32_t now) {
+    result=message; result_uptime_ms=now; result_recorded=true; dirty=true;
+  }
   Transaction transaction{};
 
   bool ready(uint32_t now) const {
@@ -46,40 +50,49 @@ class Protocol {
     for (size_t i=0;i<6;++i) if (!valid[i] || now-observed[i]>15000) return false;
     return true;
   }
+  uint32_t core_age(uint32_t now) const {
+    uint32_t age=0;
+    for (size_t i=0;i<6;++i) {
+      if (!valid[i]) return UINT32_MAX;
+      const uint32_t observed_age=now-observed[i];
+      if (observed_age>age) age=observed_age;
+    }
+    return age;
+  }
   bool change_address(float x, uint32_t now) {
-    if (!valid_address(x)) { result="Rejected: address must be integer 1-32"; dirty=true; return false; }
+    if (!valid_address(x)) { record_result("Rejected: address must be integer 1-32",now); dirty=true; return false; }
     if (requested==static_cast<uint8_t>(x)) return true;
     requested=static_cast<uint8_t>(x); ++epoch;
     invalidate(); last_humidity=0; count_=0; pos_=0; verifying=false;
-    not_before_=now+1000; result="Switching address; writes blocked"; dirty=true;
+    not_before_=now+1000; record_result("Switching address; writes blocked",now); dirty=true;
     return true;
   }
   void invalidate() { valid.fill(false); dirty=true; }
-  void pause_for_maintenance() {
+  void pause_for_maintenance(bool record_command=true, uint32_t now=0) {
     maintenance=true; ++epoch; count_=0; verifying=false; invalidate();
-    result="WiFi reset pending; draining transaction";
+    if (record_command) record_result("WiFi reset pending; draining transaction",now);
   }
-  void resume_after_maintenance_failure() {
-    maintenance=false;poll_=0;invalidate();result="WiFi reset failed; credentials may need checking";
+  void resume_after_maintenance_failure(uint32_t now=0) {
+    maintenance=false;poll_=0;invalidate();record_result("WiFi reset failed; credentials may need checking",now);
   }
   bool submit(const Write *items, size_t count, uint32_t now) {
     if (!ready(now) || count_!=0 || count==0 || count>writes_.size()) {
-      result="Rejected: offline, stale state or command busy"; dirty=true; return false;
+      record_result("Rejected: offline, stale state or command busy",now); dirty=true; return false;
     }
     for (size_t i=0;i<count;++i) {
       if (items[i].reg<0x6201 || items[i].reg>0x6206 || items[i].reg==0x6204 ||
           !valid_register(items[i].reg,items[i].value)) {
-        result="Rejected: unsupported register/value"; dirty=true; return false;
+        record_result("Rejected: unsupported register/value",now); dirty=true; return false;
       }
     }
     for (size_t i=0;i<count;++i) writes_[i]=items[i];
-    count_=count; pos_=0; result="Command pending readback"; dirty=true; return true;
+    count_=count; pos_=0; record_result("Command pending readback",now); dirty=true; return true;
   }
   bool next(uint32_t now, Transaction &out) {
     if (maintenance || in_flight || static_cast<int32_t>(now-not_before_)<0) return false;
     if (active!=requested) { active=requested; poll_=0; dirty=true; }
     if (count_ && !ready(now)) {
-      count_=0; verifying=false; invalidate(); result="Aborted: state became stale";
+      count_=0; verifying=false; invalidate(); record_result("Aborted: state became stale",now);
     }
     if (count_) {
       const auto &w=writes_[pos_];
@@ -102,20 +115,20 @@ class Protocol {
     if (n!=4 || pdu[0]!=3 || pdu[1]!=2 || !valid_register(transaction.reg,word(pdu+2))) {
       failure(now); return;
     }
-    const bool was_ready=ready(now);
     const uint16_t value=word(pdu+2);
     int idx=register_index(transaction.reg);
     if (idx>=0) { values[idx]=value; valid[idx]=true; observed[idx]=now; }
     if (transaction.reg==0x6203 && valid_humidity(value)) last_humidity=value;
     in_flight=false; dirty=true;
-    if (!was_ready && ready(now) && !verifying) result="Read polling established";
+    if (idx==5 && !verifying && !count_ && ready(now)) ++core_poll_seq;
+    // Background polling must not overwrite historical control outcomes.
     if (verifying) {
       if (value!=transaction.value) {
         count_=0; verifying=false; invalidate(); poll_=0;
-        result="Write readback mismatch; sequence aborted"; not_before_=now+1000; return;
+        record_result("Write readback mismatch; sequence aborted",now); not_before_=now+1000; return;
       }
       verifying=false;
-      if (++pos_==count_) { count_=0; pos_=0; result="Write confirmed by readback"; }
+      if (++pos_==count_) { count_=0; pos_=0; record_result("Write confirmed by readback",now); }
       not_before_=now+150;
     } else {
       advance_poll(now);
@@ -127,8 +140,9 @@ class Protocol {
     in_flight=false;
     int idx=register_index(transaction.reg);
     if (count_ || idx<6) {
+      if (count_) record_result("Command failed: no valid response; writes blocked",now);
       count_=0; verifying=false; invalidate(); poll_=0;
-      result="No valid response; writes blocked"; not_before_=now+1000;
+      not_before_=now+1000;
     } else {
       // An undocumented/absent optional sensor must not starve core control polling.
       valid[idx]=false; dirty=true; advance_poll(now);
@@ -138,7 +152,13 @@ class Protocol {
   void expire(uint32_t now) {
     bool stale=false;
     for(size_t i=0;i<valid.size();++i) if(valid[i] && now-observed[i]>15000) {valid[i]=false;stale=true;}
-    if(stale) {dirty=true; result="Stale data; awaiting poll";}
+    if(stale) dirty=true;
+  }
+  const char *polling_health(uint32_t now) const {
+    if (!ready(now)) return "Core data stale or unavailable";
+    for (size_t i=6;i<valid.size();++i)
+      if (!valid[i] || now-observed[i]>15000) return "Core ready; optional data unavailable";
+    return "All polling data fresh";
   }
   bool command_pending() const { return count_!=0; }
  private:

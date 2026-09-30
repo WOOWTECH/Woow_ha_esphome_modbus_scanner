@@ -1,0 +1,28 @@
+{
+  "profile_id": "guanjie-ind17-fc03",
+  "profile_version": 1,
+  "bridge_version": 1,
+  "read_only": true,
+  "limits": {
+    "slave_min": 1,
+    "slave_max": 32,
+    "register_count": 1,
+    "timeout_ms": 700,
+    "retries_max": 5,
+    "inter_request_delay_max_ms": 5000,
+    "polling_pause_required": true
+  },
+  "allowed_registers": [25089, 25090, 25091, 25093, 25094, 24837, 24833, 24834, 24835, 24836, 24838, 24849, 24850],
+  "defaults": {
+    "start_id": 1,
+    "end_id": 3,
+    "address": 1,
+    "probe_type": "holding_register",
+    "register_address": 25089,
+    "register_count": 1,
+    "timeout_ms": 700,
+    "retries": 0,
+    "inter_request_delay_ms": 250,
+    "pause_normal_polling": true
+  }
+}

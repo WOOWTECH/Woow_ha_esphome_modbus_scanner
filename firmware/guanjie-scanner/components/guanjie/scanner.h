@@ -15,7 +15,7 @@ class Scanner {
   uint8_t slave{0};
   uint16_t reg{0}, value{0};
   uint8_t exception{0};
-  uint32_t started{0}, deadline{0}, latency{0};
+  uint32_t started{0}, deadline{0}, latency{0}, lease_deadline{0};
   const char *outcome{"gateway_error"};
 
   static bool valid_id(const std::string &id) {
@@ -24,11 +24,18 @@ class Scanner {
     return true;
   }
   bool busy() const { return phase!=Phase::IDLE; }
-  bool begin(const std::string &id, int address, int address_reg) {
-    if (busy() || !valid_id(id) || address<1 || address>32 ||
+  bool begin(const std::string &id, int address, int address_reg, uint32_t now=0) {
+    if (busy() || !valid_id(id) || address<1 || address>bridge_profile::SLAVE_MAX ||
         address_reg<0 || address_reg>65535 || register_index(address_reg)<0) return false;
     request_id=id;slave=address;reg=address_reg;value=0;exception=0;latency=0;
-    outcome="gateway_error";phase=Phase::DRAIN;return true;
+    outcome="gateway_error";phase=Phase::DRAIN;lease_deadline=now+10000;return true;
+  }
+  bool expired(uint32_t now) const {
+    return busy() && static_cast<int32_t>(now-lease_deadline)>=0;
+  }
+  void abort(uint32_t now) {
+    outcome="gateway_error";value=0;exception=0;
+    phase=Phase::COOLDOWN;deadline=now+1000;lease_deadline=now+10000;
   }
   bool should_send(uint32_t now, bool normal_in_flight) {
     if (phase==Phase::DRAIN && !normal_in_flight) {

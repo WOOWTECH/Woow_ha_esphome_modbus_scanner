@@ -49,7 +49,7 @@ async def _wait_for_terminal(hass, scan_id):
     pytest.fail(f"scan {scan_id} did not finish")
 
 
-async def test_exactly_six_public_services_are_registered(hass):
+async def test_exact_public_services_are_registered(hass):
     async_register_services(hass)
     assert set(hass.services.async_services()[DOMAIN]) == set(PUBLIC_SERVICES)
 
@@ -254,20 +254,17 @@ def test_reserved_esphome_selector_is_optional_and_filtered():
         assert field["selector"]["device"]["filter"] == [{"integration": "esphome"}]
 
 
-def test_mock_provider_and_gateway_selectors_are_fixed_to_implemented_values():
+def test_selectors_support_only_implemented_providers_and_dynamic_gateway_ids():
     metadata = yaml.safe_load(
         Path("custom_components/woow_esphome_modbus_scanner/services.yaml").read_text()
     )
     for service in ("start_scan", "test_address"):
         fields = metadata[service]["fields"]
         provider = fields["provider"]["selector"]["select"]
-        gateway = fields["gateway_id"]["selector"]["select"]
-        assert provider["options"] == [{"label": "Mock (simulated)", "value": "mock"}]
-        assert gateway["options"] == [
-            {
-                "label": "Simulated RS-485 Gateway",
-                "value": "mock:rs485-gateway",
-            }
-        ]
+        assert provider["options"] == ["mock", "esphome"]
+        assert "text" in fields["gateway_id"]["selector"]
         assert provider.get("custom_value", False) is False
-        assert gateway.get("custom_value", False) is False
+        assert fields["probe_type"]["default"] == "holding_register"
+        assert fields["register_address"]["default"] == 0x6201
+        assert fields["timeout_ms"]["default"] == 700
+        assert fields["pause_normal_polling"]["default"] is True

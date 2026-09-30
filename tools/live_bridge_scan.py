@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import datetime
 import json
+from pathlib import Path
 
 from bridge_runtime import (
     ESPHomeGateway,
@@ -15,7 +16,8 @@ from bridge_runtime import (
 
 
 async def run(args):
-    gateway = ESPHomeGateway(args.host, args.mac)
+    key = Path(args.noise_psk_file).read_text().strip() if args.noise_psk_file else None
+    gateway = ESPHomeGateway(args.host, args.mac, noise_psk=key)
     provider = ESPHomeGatewayProvider([gateway])
     request = ScanRequest(
         provider="esphome",
@@ -53,6 +55,7 @@ async def run(args):
     except (GatewayProviderError, ValueError) as exc:
         report["status"] = "failed"
         report["error"] = str(exc)
+    report["health"] = provider.health[gateway.gateway_id]
     print(json.dumps(report, ensure_ascii=False), flush=True)
     return 0 if report["status"] == "completed" else 2
 
@@ -61,6 +64,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True)
     parser.add_argument("--mac", required=True)
+    parser.add_argument(
+        "--noise-psk-file", help="Private file containing the API key; never pass the key in argv"
+    )
     parser.add_argument("--start", type=int, default=1)
     parser.add_argument("--end", type=int, default=1)
     parser.add_argument("--register", type=lambda s: int(s, 0), default=0x6201)

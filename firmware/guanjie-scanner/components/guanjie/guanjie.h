@@ -55,6 +55,12 @@ class GuanjieClimate : public Component, public climate::Climate, public modbus:
   void set_forget_wifi_button(ForgetWifiButton *p) {p->set_owner(this);}
   void set_scanner_result(text_sensor::TextSensor *p) { scanner_result_=p; }
   void scanner_probe(const std::string &request_id, int slave, int reg);
+  void set_scanner_health(text_sensor::TextSensor *p) { scanner_health_=p; }
+  void set_polling_health(text_sensor::TextSensor *p) { polling_health_=p; }
+  void scanner_status(const std::string &request_id);
+  float control_result_uptime() const {
+    return protocol_.result_recorded ? protocol_.result_uptime_ms/1000.0f : NAN;
+  }
   void request_wifi_reset();
   void request_address(float value);
   void request_function(bool continuous,bool value);
@@ -70,6 +76,9 @@ class GuanjieClimate : public Component, public climate::Climate, public modbus:
                         const char *outcome, uint32_t latency, uint16_t value=0, uint8_t exception=0);
   Scanner scanner_;
   text_sensor::TextSensor *scanner_result_{nullptr};
+  text_sensor::TextSensor *scanner_health_{nullptr}, *polling_health_{nullptr};
+  uint32_t scanner_boot_id_{0};
+  bool scanner_fault_{false};
   Protocol protocol_;
   ESPPreferenceObject preference_;
   AddressNumber *address_number_{nullptr};

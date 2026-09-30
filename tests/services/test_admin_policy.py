@@ -1,4 +1,7 @@
-"""Permanent all-user policy tests at the six public service seams."""
+"""Mock operations and reading results retain all-user access.
+
+Physical authorization is separately covered by test_config_hardening.
+"""
 
 from homeassistant.core import Context
 import pytest
@@ -8,9 +11,9 @@ from custom_components.woow_esphome_modbus_scanner.const import DOMAIN, PUBLIC_S
 from custom_components.woow_esphome_modbus_scanner.services import async_register_services
 
 
-@pytest.mark.parametrize("service", PUBLIC_SERVICES)
-async def test_every_scanner_service_allows_non_admin_user(hass, service):
-    """The sidebar and all six actions are deliberately available to every HA user."""
+@pytest.mark.parametrize("service", [s for s in PUBLIC_SERVICES if s != "check_gateway"])
+async def test_mock_and_read_services_allow_non_admin_user(hass, service):
+    """No physical transport is used by these mock/read service calls."""
     async_register_services(hass)
     user = MockUser(groups=[])
     user.add_to_hass(hass)
@@ -30,6 +33,7 @@ async def test_every_scanner_service_allows_non_admin_user(hass, service):
 
     data = {
         "list_gateways": {},
+        "get_history": {},
         "start_scan": {"start_id": 1, "end_id": 1, "safety_confirmed": True},
         "get_scan_status": {"scan_id": scan_id},
         "get_scan_results": {"scan_id": scan_id},
@@ -47,6 +51,8 @@ async def test_every_scanner_service_allows_non_admin_user(hass, service):
     assert isinstance(response, dict)
     if service == "list_gateways":
         assert response["gateways"]
+    elif service == "get_history":
+        assert isinstance(response["scans"], list)
     else:
         assert response["scan_id"]
 

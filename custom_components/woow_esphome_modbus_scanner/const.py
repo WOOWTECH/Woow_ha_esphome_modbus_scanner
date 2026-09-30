@@ -2,15 +2,14 @@
 
 DOMAIN = "woow_esphome_modbus_scanner"
 NAME = "Woow ESPHome Modbus Scanner"
-VERSION = "0.3.0.dev3"
+VERSION = "0.4.0.dev1"
 
 PANEL_COMPONENT_NAME = "woow-esphome-modbus-scanner-panel"
 PANEL_URL_PATH = "woow-esphome-modbus-scanner"
 PANEL_TITLE = "Modbus Scanner"
 PANEL_ICON = "mdi:radar"
 PANEL_STATIC_URL = (
-    f"/woow_esphome_modbus_scanner/frontend/{VERSION}/"
-    "woow-esphome-modbus-scanner-panel.js"
+    f"/woow_esphome_modbus_scanner/frontend/{VERSION}/woow-esphome-modbus-scanner-panel.js"
 )
 
 DATA_COORDINATOR = "coordinator"
@@ -28,6 +27,8 @@ SERVICE_CANCEL_SCAN = "cancel_scan"
 SERVICE_TEST_ADDRESS = "test_address"
 
 PUBLIC_SERVICES = (
+    "check_gateway",
+    "get_history",
     SERVICE_LIST_GATEWAYS,
     SERVICE_START_SCAN,
     SERVICE_GET_SCAN_STATUS,

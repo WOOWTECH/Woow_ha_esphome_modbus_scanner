@@ -1,3 +1,4 @@
+import {hardeningText} from "./hardening-i18n.js";
 const en = {
   title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
   physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
@@ -72,4 +73,9 @@ export function languageFor(hass) {
   const language = hass?.locale?.language || hass?.language || "en";
   return String(language).toLowerCase().startsWith("zh") ? "zh-Hant" : "en";
 }
-export function stringsFor(hass) { return languageFor(hass) === "zh-Hant" ? zh : en; }
+export function stringsFor(hass) {
+  const language = languageFor(hass);
+  const base = language === "zh-Hant" ? zh : en;
+  const additions = hardeningText[language];
+  return {...base, ...additions, help:{...base.help, unknown:additions.historyHelp}};
+}

@@ -22,6 +22,7 @@ from custom_components.woow_esphome_modbus_scanner.const import (
 @pytest.fixture(autouse=True)
 def bypass_panel_registration(monkeypatch):
     """Keep lifecycle tests focused on generation/service ownership."""
+
     async def register_panel(_hass):
         return None
 
@@ -37,7 +38,8 @@ def bypass_panel_registration(monkeypatch):
 
 def _assert_unloaded(hass, coordinator):
     domain_data = hass.data[DOMAIN]
-    assert set(domain_data) == {DATA_LIFECYCLE}
+    assert set(domain_data) == {DATA_LIFECYCLE, "history"}
+    assert not domain_data["history"].pending
     assert domain_data[DATA_LIFECYCLE].owner_entry_id is None
     assert coordinator._tasks == {}
     assert coordinator._active == {}
@@ -95,9 +97,7 @@ async def test_unload_removes_services_before_coordinator_shutdown(hass, monkeyp
     _assert_unloaded(hass, coordinator)
 
 
-async def test_overlapping_unload_then_setup_transfers_singleton_ownership(
-    hass, monkeypatch
-):
+async def test_overlapping_unload_then_setup_transfers_singleton_ownership(hass, monkeypatch):
     first = MockConfigEntry(domain=DOMAIN, title="First", data={})
     second = MockConfigEntry(domain=DOMAIN, title="Second", data={})
     first.add_to_hass(hass)
@@ -112,7 +112,9 @@ async def test_overlapping_unload_then_setup_transfers_singleton_ownership(
         shutdown_entered.set()
         await finish_shutdown.wait()
 
-    monkeypatch.setattr(type(first_coordinator), "async_shutdown", interleaved_shutdown)
+    monkeypatch.setattr(
+        first_coordinator, "async_shutdown", lambda: interleaved_shutdown(first_coordinator)
+    )
     unload = asyncio.create_task(async_unload_entry(hass, first))
     await shutdown_entered.wait()
     setup = asyncio.create_task(async_setup_entry(hass, second))
@@ -138,9 +140,7 @@ async def test_overlapping_unload_then_setup_transfers_singleton_ownership(
     assert hass.data[DOMAIN][DATA_COORDINATOR] is second_coordinator
 
 
-async def test_overlapping_duplicate_unload_cannot_remove_new_generation(
-    hass, monkeypatch
-):
+async def test_overlapping_duplicate_unload_cannot_remove_new_generation(hass, monkeypatch):
     entry = MockConfigEntry(domain=DOMAIN, title="Woow ESPHome Modbus Scanner", data={})
     entry.add_to_hass(hass)
     assert await async_setup_entry(hass, entry)
@@ -154,7 +154,9 @@ async def test_overlapping_duplicate_unload_cannot_remove_new_generation(
         shutdown_entered.set()
         await finish_shutdown.wait()
 
-    monkeypatch.setattr(type(first_coordinator), "async_shutdown", interleaved_shutdown)
+    monkeypatch.setattr(
+        first_coordinator, "async_shutdown", lambda: interleaved_shutdown(first_coordinator)
+    )
     first_unload = asyncio.create_task(async_unload_entry(hass, entry))
     await shutdown_entered.wait()
     setup_again = asyncio.create_task(async_setup_entry(hass, entry))
@@ -191,3 +193,25 @@ async def test_duplicate_setup_and_non_owner_unload_leave_owner_unchanged(hass):
     assert hass.data[DOMAIN][DATA_COORDINATOR_OWNER] == generation
     assert hass.data[DOMAIN][DATA_SERVICE_OWNER] == generation
     assert all(hass.services.has_service(DOMAIN, name) for name in PUBLIC_SERVICES)
+
+
+async def test_core_stop_cancels_work_and_flushes_terminal_history(hass):
+    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    assert await async_setup_entry(hass, entry)
+    started = await hass.services.async_call(
+        DOMAIN,
+        "start_scan",
+        {"start_id": 1, "end_id": 100, "inter_request_delay_ms": 1000, "safety_confirmed": True},
+        blocking=True,
+        return_response=True,
+    )
+    coordinator = hass.data[DOMAIN][DATA_COORDINATOR]
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert coordinator.status(started["scan_id"])["status"] == "cancelled"
+    history = hass.data[DOMAIN]["history"]
+    assert not history.pending
+    assert history.get(started["scan_id"])["status"]["status"] == "cancelled"

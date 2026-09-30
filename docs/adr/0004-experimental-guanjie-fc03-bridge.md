@@ -1,4 +1,10 @@
-# Experimental Guanjie FC03 bridge (local 0.3.0.dev1)
+# Experimental Guanjie FC03 bridge (historical local 0.3.0.dev1)
+
+> Historical decision record. The current `0.4.0.dev1` deployment adds encrypted
+> native API access, firmware health/watchdog, verified recovery and an actual
+> physical sidebar. See [current acceptance](../design/hardening-live-acceptance.md)
+> and [upgrade/rollback](../design/hardening-upgrade-rollback.md). The plaintext
+> installation notes below describe the original prototype, not current devices.
 
 This is a local development change, not an upstream release or generic ESPHome
 Modbus support. The upstream sidebar/tutorial remain mock-oriented. Use HA

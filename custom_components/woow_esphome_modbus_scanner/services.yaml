@@ -1,297 +1,146 @@
 list_gateways:
   name: List gateways
-  description: >-
-    List mock and explicitly configured experimental ESPHome gateways.
-    Physical reads require Guanjie bridge v1 firmware; availability is verified on connection.
-
+  description: Enrollment, capabilities, last health observations and caller permissions. Enrollment is not proof of connectivity.
+check_gateway:
+  name: Check gateway API
+  description: Verify MAC, bridge signature and supported health metadata without issuing a Modbus transaction. Physical-operation authorization applies.
+  fields:
+    gateway_id:
+      name: Physical gateway
+      required: true
+      selector:
+        text:
+get_history:
+  name: Get saved scan history
+  description: Return up to 20 terminal snapshots. Stored or interrupted jobs are never replayed automatically.
 start_scan:
   name: Start scan
-  description: >-
-    Start a bounded background Slave-ID scan and return its scan_id. Results are
-    best-effort: a timeout does not prove absence and an address is not a unique
-    device identity.
+  description: Read-only best-effort discovery. Available to all active HA users and internal automations. Empty addresses normally time out.
   fields:
-    provider:
+    provider: &provider
       name: Provider
-      description: Physical ESPHome requires bridge v1, FC03/count 1, timeout 700 and pause polling.
       default: mock
       selector:
         select:
-          options:
-            - mock
-            - esphome
-    gateway_id:
+          options: [mock, esphome]
+    gateway_id: &gateway
       name: Gateway
-      description: Copy the gateway_id returned by list_gateways.
-      default: "mock:rs485-gateway"
+      description: Copy gateway_id from list_gateways; provider must match.
+      default: mock:rs485-gateway
       selector:
         text:
-    esphome_device_id:
+    esphome_device_id: &device
       name: ESPHome device
-      description: Optional device identity cross-check for an explicitly configured gateway.
+      description: Optional additional device MAC cross-check.
       selector:
         device:
           filter:
             - integration: esphome
     start_id:
       name: Start Slave ID
-      description: Inclusive first Modbus address (1–247).
-      required: true
+      description: Physical Guanjie 1–32; mock 1–247.
       default: 1
       selector:
-        number:
-          min: 1
-          max: 247
-          mode: box
+        number: {min: 1, max: 247, mode: box}
     end_id:
       name: End Slave ID
-      description: Inclusive final Modbus address (1–247).
-      required: true
-      default: 12
+      description: Physical Guanjie 1–32; mock 1–247.
+      default: 3
       selector:
-        number:
-          min: 1
-          max: 247
-          mode: box
-    probe_type:
+        number: {min: 1, max: 247, mode: box}
+    probe_type: &probe
       name: Probe type
-      description: Read-only probe requested for each address.
-      default: device_identification
+      description: Physical Guanjie supports holding_register (FC03) only.
+      default: holding_register
       selector:
         select:
-          options:
-            - label: Device identification
-              value: device_identification
-            - label: Holding register read
-              value: holding_register
-            - label: Input register read
-              value: input_register
-    register_address:
+          options: [device_identification, holding_register, input_register]
+    register_address: &register
       name: Register address
-      description: Zero-based address used only by register probes.
+      description: Physical default 25089 (0x6201); the versioned profile whitelist is enforced.
+      default: 25089
+      selector:
+        number: {min: 0, max: 65535, mode: box}
+    register_count: &count
+      name: Register count
+      description: Physical Guanjie requires exactly 1.
+      default: 1
+      selector:
+        number: {min: 1, max: 125, mode: box}
+    timeout_ms: &timeout
+      name: Timeout
+      description: Physical Guanjie requires exactly 700 ms.
+      default: 700
+      selector:
+        number: {min: 10, max: 10000, mode: box, unit_of_measurement: ms}
+    retries: &retries
+      name: Retries
+      description: Additional bounded attempts after a timeout.
       default: 0
       selector:
-        number:
-          min: 0
-          max: 65535
-          mode: box
-    register_count:
-      name: Register count
-      description: Registers requested by a register probe (1–125).
-      default: 1
-      selector:
-        number:
-          min: 1
-          max: 125
-          mode: box
-    timeout_ms:
-      name: Timeout
-      description: Per-attempt timeout; informational in deterministic mock mode.
-      default: 500
-      selector:
-        number:
-          min: 10
-          max: 10000
-          unit_of_measurement: ms
-          mode: box
-    retries:
-      name: Retries
-      description: Additional attempts after the first (0–5).
-      default: 1
-      selector:
-        number:
-          min: 0
-          max: 5
-          mode: box
-    inter_request_delay_ms:
+        number: {min: 0, max: 5, mode: box}
+    inter_request_delay_ms: &delay
       name: Inter-request delay
-      description: Minimum delay between address transactions.
-      default: 100
+      description: Cancellation-aware wait between addresses; does not remove firmware drain safeguards.
+      default: 250
       selector:
-        number:
-          min: 0
-          max: 5000
-          unit_of_measurement: ms
-          mode: box
-    pause_normal_polling:
+        number: {min: 0, max: 5000, mode: box, unit_of_measurement: ms}
+    pause_normal_polling: &pause
       name: Pause normal polling
-      description: >-
-        Records a future adapter request to pause normal gateway polling. Mock
-        mode has no normal polling and records no hardware side effects.
-      default: false
+      description: Required for physical reads; ESP owns arbitration and local restoration. No hardware effect in mock mode.
+      default: true
       selector:
         boolean:
-    mock_profile:
-      name: Simulation profile
-      description: Deterministic outcome profile for the mock gateway.
+    mock_profile: &mock_profile
+      name: Mock simulation profile
+      description: Used only by the mock provider, never to simulate a physical response.
       default: found_default
       selector:
         select:
-          options:
-            - found_default
-            - all_offline
-            - partial_timeout
-            - modbus_exception
-            - possible_collision
-            - gateway_disconnect
+          options: [found_default, all_offline, partial_timeout, modbus_exception, possible_collision, gateway_disconnect]
     safety_confirmed:
       name: Confirm scan safety
-      description: >-
-        I understand discovery is best-effort, may disrupt normal polling on a
-        future physical bus, and proves neither absence nor Slave-ID uniqueness.
+      description: I understand reads temporarily pause polling, are best-effort, and prove neither absence nor Slave-ID uniqueness.
       required: true
       selector:
         boolean:
-
 get_scan_status:
   name: Get scan status
-  description: Return progress, timestamps, outcome counts, and terminal errors.
+  description: Progress, operation phase, execution budget, errors and separate recovery/cleanup evidence.
   fields:
-    scan_id:
+    scan_id: &scan_id
       name: Scan ID
-      description: UUID returned by start_scan or test_address.
       required: true
       selector:
         text:
-
 get_scan_results:
   name: Get scan results
-  description: >-
-    Return normalized responder details and complete counts. Timeouts are counted
-    but omitted from responders; uniqueness is never claimed.
+  description: Read-only responder evidence including raw register values. Timeouts are counted, not listed as responders. Results never prove uniqueness.
   fields:
-    scan_id:
-      name: Scan ID
-      description: UUID returned by start_scan or test_address.
-      required: true
-      selector:
-        text:
-
+    scan_id: *scan_id
 cancel_scan:
   name: Cancel scan
-  description: Request cooperative cancellation after the current transaction.
+  description: Cooperative cancellation; an in-flight RTU frame and bounded recovery check may finish first. Physical authorization applies.
   fields:
-    scan_id:
-      name: Scan ID
-      description: UUID of an active or retained scan.
-      required: true
-      selector:
-        text:
-
+    scan_id: *scan_id
 test_address:
   name: Test address
-  description: >-
-    Test exactly one Slave ID through the same read-only coordinator and return a
-    scan_id. The explicit range safety confirmation is implicit for one address.
+  description: One read-only Slave-ID test. Range confirmation is implicit; physical-operation authorization still applies.
   fields:
-    provider:
-      name: Provider
-      description: Physical ESPHome requires bridge v1, FC03/count 1, timeout 700 and pause polling.
-      default: mock
-      selector:
-        select:
-          options:
-            - mock
-            - esphome
-    gateway_id:
-      name: Gateway
-      description: Copy the gateway_id returned by list_gateways.
-      default: "mock:rs485-gateway"
-      selector:
-        text:
-    esphome_device_id:
-      name: ESPHome device
-      description: Optional device identity cross-check for an explicitly configured gateway.
-      selector:
-        device:
-          filter:
-            - integration: esphome
+    provider: *provider
+    gateway_id: *gateway
+    esphome_device_id: *device
     address:
       name: Slave ID
-      description: Single Modbus address to test (1–247).
-      required: true
+      description: Physical Guanjie 1–32; mock 1–247.
       default: 1
       selector:
-        number:
-          min: 1
-          max: 247
-          mode: box
-    probe_type:
-      name: Probe type
-      description: Read-only probe requested for this address.
-      default: device_identification
-      selector:
-        select:
-          options:
-            - label: Device identification
-              value: device_identification
-            - label: Holding register read
-              value: holding_register
-            - label: Input register read
-              value: input_register
-    register_address:
-      name: Register address
-      description: Zero-based address used only by register probes.
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 65535
-          mode: box
-    register_count:
-      name: Register count
-      description: Registers requested by a register probe (1–125).
-      default: 1
-      selector:
-        number:
-          min: 1
-          max: 125
-          mode: box
-    timeout_ms:
-      name: Timeout
-      description: Per-attempt timeout; informational in deterministic mock mode.
-      default: 500
-      selector:
-        number:
-          min: 10
-          max: 10000
-          unit_of_measurement: ms
-          mode: box
-    retries:
-      name: Retries
-      description: Additional attempts after the first (0–5).
-      default: 1
-      selector:
-        number:
-          min: 0
-          max: 5
-          mode: box
-    inter_request_delay_ms:
-      name: Inter-request delay
-      description: Minimum delay before any following address; none for one ID.
-      default: 100
-      selector:
-        number:
-          min: 0
-          max: 5000
-          unit_of_measurement: ms
-          mode: box
-    pause_normal_polling:
-      name: Pause normal polling
-      description: Future adapter intent; no effect in mock mode.
-      default: false
-      selector:
-        boolean:
-    mock_profile:
-      name: Simulation profile
-      description: Deterministic outcome profile for the mock gateway.
-      default: found_default
-      selector:
-        select:
-          options:
-            - found_default
-            - all_offline
-            - partial_timeout
-            - modbus_exception
-            - possible_collision
-            - gateway_disconnect
+        number: {min: 1, max: 247, mode: box}
+    probe_type: *probe
+    register_address: *register
+    register_count: *count
+    timeout_ms: *timeout
+    retries: *retries
+    inter_request_delay_ms: *delay
+    pause_normal_polling: *pause
+    mock_profile: *mock_profile

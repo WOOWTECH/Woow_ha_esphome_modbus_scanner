@@ -9,6 +9,7 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
@@ -25,6 +26,7 @@ from .const import (
     PANEL_URL_PATH,
     VERSION,
 )
+from .history import ScanHistory
 from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -96,6 +98,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         lifecycle.pending_entry_id = entry.entry_id
         lifecycle.pending_generation = generation
         try:
+            domain_data = hass.data[DOMAIN]
+            if "history" not in domain_data:
+                history = ScanHistory(hass)
+                await history.async_load()
+                domain_data["history"] = history
             await _async_register_panel(hass)
         except BaseException:
             if (
@@ -110,6 +117,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         lifecycle.owner_entry_id = entry.entry_id
         lifecycle.owner_generation = generation
         async_register_services(hass, entry.entry_id, generation)
+
+        async def stop_scanner(_event):
+            # Core shutdown is not a config-entry unload. Cooperatively finish
+            # ESP-owned work before HA's final task cancellation/storage flush.
+            if (lifecycle.owner_entry_id, lifecycle.owner_generation) != (
+                entry.entry_id,
+                generation,
+            ):
+                return
+            data = hass.data[DOMAIN]
+            if data.get(DATA_COORDINATOR_OWNER) == (entry.entry_id, generation):
+                await data[DATA_COORDINATOR].async_shutdown()
+            await data["history"].async_flush()
+
+        entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_scanner))
         return True
 
 
@@ -122,10 +144,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     elif lifecycle.pending_entry_id == entry.entry_id:
         observed_owner = (entry.entry_id, lifecycle.pending_generation)
     async with lifecycle.lock:
-        if observed_owner is None or (
-            lifecycle.owner_entry_id,
-            lifecycle.owner_generation,
-        ) != observed_owner:
+        if (
+            observed_owner is None
+            or (
+                lifecycle.owner_entry_id,
+                lifecycle.owner_generation,
+            )
+            != observed_owner
+        ):
             # A stale, overlapping, or defensive duplicate unload must not tear
             # down a newer generation or a different owning entry. A pending
             # setup becomes the matching owner before releasing this lock.
@@ -145,6 +171,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         frontend.async_remove_panel(hass, PANEL_URL_PATH)
         if coordinator is not None:
             await coordinator.async_shutdown()
+            if history := domain_data.get("history"):
+                await history.async_flush()
             if (
                 domain_data.get(DATA_COORDINATOR) is coordinator
                 and domain_data.get(DATA_COORDINATOR_OWNER) == owner
@@ -152,10 +180,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 domain_data.pop(DATA_COORDINATOR, None)
                 domain_data.pop(DATA_COORDINATOR_OWNER, None)
 
-        if (
-            lifecycle.owner_entry_id == entry.entry_id
-            and lifecycle.owner_generation == owner[1]
-        ):
+        if lifecycle.owner_entry_id == entry.entry_id and lifecycle.owner_generation == owner[1]:
             lifecycle.owner_entry_id = None
             lifecycle.owner_generation = 0
         return True

@@ -1,5 +1,8 @@
+import {PHYSICAL_PROFILE} from "./profile-generated.js";
+export {PHYSICAL_PROFILE} from "./profile-generated.js";
 export const DOMAIN = "woow_esphome_modbus_scanner";
 export const SERVICES = Object.freeze([
+  "check_gateway", "get_history",
   "list_gateways",
   "start_scan",
   "get_scan_status",
@@ -28,11 +31,12 @@ export const INTEGER_BOUNDS = Object.freeze({
   register_address: [0, 65535], register_count: [1, 125],
   timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
-export const PHYSICAL_REGISTERS = Object.freeze([0x6201, 0x6202, 0x6203, 0x6205, 0x6206, 0x6105, 0x6101, 0x6102, 0x6103, 0x6104, 0x6106, 0x6111, 0x6112]);
-export const PHYSICAL_DEFAULTS = Object.freeze({start_id:1, end_id:3, address:1, probe_type:"holding_register", register_address:0x6201, register_count:1, timeout_ms:700, retries:0, inter_request_delay_ms:250, pause_normal_polling:true});
+export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
+export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 export function boundsFor(form) {
-  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[1,32], end_id:[1,32], address:[1,32], register_count:[1,1], timeout_ms:[700,700]} : INTEGER_BOUNDS;
+  const l = PHYSICAL_PROFILE.limits;
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
 }
 export function selectGateway(form, gateway) {
   const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
@@ -83,6 +87,33 @@ export function startPayload(form) {
   return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true};
 }
 export function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
+export function supportedGateway(gateway) {
+  return gateway?.provider === "mock" || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
+}
+export function serviceYaml(form) {
+  if (Object.keys(validateForm(form)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
+  const lines = Object.entries(startPayload(form)).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`);
+  return `action: ${DOMAIN}.start_scan\ndata:\n${lines.join("\n")}\n`;
+}
+
+/** Deliberately excludes gateway identity, vendor strings, free text and credentials. */
+export function evidenceExport(status, results) {
+  const integer = (value, max) => Number.isInteger(value) && value >= 0 && value <= max ? value : null;
+  return {
+    schema_version:1, source:DOMAIN, best_effort:true, uniqueness_guaranteed:false,
+    provider:["mock","esphome"].includes(results?.provider) ? results.provider : "unknown",
+    status:["running","completed","cancelled","failed"].includes(results?.status) ? results.status : "unknown",
+    recovery_status:["unknown","pending","verified","failed"].includes(status?.recovery_status) ? status.recovery_status : "unknown",
+    outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],247) ?? 0])),
+    responders:(results?.responders || []).slice(0,247).map((row) => ({
+      address:integer(row.address,247), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
+      latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
+      register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
+      attempts:integer(row.attempts,6),
+    })),
+    privacy:"Identities and free-text fields omitted; numeric register evidence retained.",
+  };
+}
 
 /** Return only validated, non-secret preferences from untrusted browser storage. */
 export function sanitizePreferences(value) {
@@ -106,8 +137,8 @@ export function sanitizePreferences(value) {
     // Migrate old incompatible preferences, without silently changing provider.
     for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];
     if (!PHYSICAL_REGISTERS.includes(form.register_address)) form.register_address = PHYSICAL_DEFAULTS.register_address;
-    for (const key of ["start_id", "end_id", "address"]) if (form[key] > 32) form[key] = PHYSICAL_DEFAULTS[key];
-    if (form.start_id > form.end_id) {form.start_id = 1; form.end_id = 3;}
+    for (const key of ["start_id", "end_id", "address"]) if (form[key] > PHYSICAL_PROFILE.limits.slave_max) form[key] = PHYSICAL_DEFAULTS[key];
+    if (form.start_id > form.end_id) {form.start_id = PHYSICAL_DEFAULTS.start_id; form.end_id = PHYSICAL_DEFAULTS.end_id;}
   }
   return {form, advancedOpen: value.advancedOpen === true};
 }

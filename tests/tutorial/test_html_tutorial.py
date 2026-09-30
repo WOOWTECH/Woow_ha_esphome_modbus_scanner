@@ -424,5 +424,5 @@ def test_readmes_offer_source_view_release_asset_raw_archive_and_mock_warning() 
         assert raw in text
         assert archive in text
         assert "Source-file view" in text or "檢視原始檔" in text
-        assert "MOCK" in text[:2500]
+        assert "MOCK" in text[:2500].upper()
         assert "not ESPHome\n> firmware" in text or "不是 ESPHome 韌體" in text

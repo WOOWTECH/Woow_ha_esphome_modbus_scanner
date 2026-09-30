@@ -1,5 +1,6 @@
 #include "guanjie.h"
 #include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/application.h"
 #include "nvs.h"
 
@@ -21,9 +22,10 @@ class WifiPreferenceStore {
 void GuanjieClimate::request_wifi_reset() {
   if(scanner_.busy())return;
   if(wifi_reset_requested_)return;
-  wifi_reset_requested_=true;protocol_.pause_for_maintenance();
+  wifi_reset_requested_=true;protocol_.pause_for_maintenance(true,millis());
 }
 void GuanjieClimate::setup() {
+  scanner_boot_id_=random_uint32();
   // Dedicated versioned preference key; never restore climate control settings on boot.
   preference_=global_preferences->make_preference<uint8_t>(0x474A0001);
   uint8_t address=1;
@@ -60,9 +62,18 @@ void GuanjieClimate::loop() {
       return;
     }
     ESP_LOGE(TAG,"WiFi-only reset failed at stage %u; not rebooting",static_cast<unsigned>(result));
-    protocol_.resume_after_maintenance_failure();
+    protocol_.resume_after_maintenance_failure(millis());
   }
   if (scanner_.busy()) {
+    if (scanner_.expired(now)) {
+      // Unknown native-hub state: latch a fault instead of forcing another
+      // master transaction or claiming polling recovery. Operator intervention
+      // via the existing device maintenance path is required.
+      scanner_fault_=true;
+      protocol_.pause_for_maintenance(false);
+      scanner_.abort(now);
+      ESP_LOGE(TAG,"Scanner watchdog: transport state unknown; further reads blocked");
+    }
     if (scanner_.should_send(now,protocol_.in_flight)) {
       this->set_address(scanner_.slave);
       if (!this->read_holding_registers(scanner_.reg,1))
@@ -120,16 +131,31 @@ void GuanjieClimate::scanner_publish_(const std::string &id,int slave,int reg,
     id.c_str(),slave,reg,outcome,static_cast<unsigned long>(latency),value,exception);
   scanner_result_->publish_state(buffer);
 }
+void GuanjieClimate::scanner_status(const std::string &id) {
+  if (!scanner_health_ || !Scanner::valid_id(id)) return;
+  const uint32_t now=millis();
+  char buffer[256];
+  const int size=snprintf(buffer,sizeof(buffer),
+    "{\"v\":1,\"id\":\"%s\",\"hash\":\"%s\",\"boot\":%lu,\"seq\":%lu,\"ms\":%lu,\"core\":%s,\"busy\":%s,\"addr\":%u,\"target\":%u,\"age\":%lu,\"fault\":%s}",
+    id.c_str(),bridge_profile::HASH,static_cast<unsigned long>(scanner_boot_id_),
+    static_cast<unsigned long>(protocol_.core_poll_seq),static_cast<unsigned long>(now),
+    protocol_.ready(now)?"true":"false",(scanner_.busy() || protocol_.maintenance)?"true":"false",
+    protocol_.active,protocol_.requested,static_cast<unsigned long>(protocol_.core_age(now)),
+    scanner_fault_?"true":"false");
+  if (size>0 && static_cast<size_t>(size)<sizeof(buffer)) scanner_health_->publish_state(buffer);
+  if (polling_health_) polling_health_->publish_state(scanner_fault_?
+    "Scanner transport fault; manual maintenance required":protocol_.polling_health(now));
+}
 void GuanjieClimate::scanner_probe(const std::string &id,int slave,int reg) {
   if (!Scanner::valid_id(id)) return;
-  if (wifi_reset_requested_ || protocol_.maintenance || protocol_.command_pending() ||
-      !scanner_.begin(id,slave,reg)) {
+  if (scanner_fault_ || wifi_reset_requested_ || protocol_.maintenance || protocol_.command_pending() ||
+      !scanner_.begin(id,slave,reg,millis())) {
     scanner_publish_(id,slave,reg,"gateway_error",0);
   }
 }
 void GuanjieClimate::request_address(float value) {
-  if(scanner_.busy()) {protocol_.result="Address change rejected during scan";protocol_.dirty=true;return;}
-  if(protocol_.maintenance) {protocol_.result="Address change rejected during WiFi reset";protocol_.dirty=true;return;}
+  if(scanner_.busy()) {protocol_.record_result("Address change rejected during scan",millis());protocol_.dirty=true;return;}
+  if(protocol_.maintenance) {protocol_.record_result("Address change rejected during maintenance",millis());return;}
   if (!valid_address(value)) {
     protocol_.change_address(value,millis());return;
   }
@@ -140,23 +166,23 @@ void GuanjieClimate::request_address(float value) {
     uint8_t previous=protocol_.requested;
     preference_.save(&previous);
     global_preferences->sync();
-    protocol_.result="Address not changed: flash save failed";protocol_.dirty=true;return;
+    protocol_.record_result("Address not changed: flash save failed",millis());protocol_.dirty=true;return;
   }
   protocol_.change_address(value,millis());address_number_->publish_state(value);
 }
 void GuanjieClimate::request_function(bool continuous,bool value) {
-  if(scanner_.busy()) {protocol_.result="Control rejected during scan";protocol_.dirty=true;return;}
+  if(scanner_.busy()) {protocol_.record_result("Control rejected during scan",millis());protocol_.dirty=true;return;}
   Write command;
   if (continuous) {
     if (!value && !valid_humidity(protocol_.last_humidity)) {
-      protocol_.result="Choose target humidity first; no setpoint known for this slave";protocol_.dirty=true;return;
+      protocol_.record_result("Choose target humidity first; no setpoint known for this slave",millis());protocol_.dirty=true;return;
     }
     command={0x6203,static_cast<uint16_t>(value?0:protocol_.last_humidity)};
   } else command={0x6206,static_cast<uint16_t>(value?1:0)};
   protocol_.submit(&command,1,millis());
 }
 void GuanjieClimate::control(const climate::ClimateCall &call) {
-  if(scanner_.busy()) {protocol_.result="Control rejected during scan";protocol_.dirty=true;return;}
+  if(scanner_.busy()) {protocol_.record_result("Control rejected during scan",millis());protocol_.dirty=true;return;}
   if(call.get_mode().has_value() && *call.get_mode()==climate::CLIMATE_MODE_OFF) {
     Write off{0x6201,0};protocol_.submit(&off,1,millis());return;
   }
@@ -164,11 +190,11 @@ void GuanjieClimate::control(const climate::ClimateCall &call) {
   // ESPHome/HA generic climate UIs may offer temperature: it is never a supported machine command.
   if (call.get_target_temperature().has_value() || call.get_target_temperature_low().has_value() ||
       call.get_target_temperature_high().has_value()) {
-    protocol_.result="Rejected: IN-D17 has humidity control, not target temperature";protocol_.dirty=true;return;
+    protocol_.record_result("Rejected: IN-D17 has humidity control, not target temperature",millis());protocol_.dirty=true;return;
   }
   if (call.get_target_humidity().has_value()) {
     float h=*call.get_target_humidity();
-    if (!valid_humidity(h)) { protocol_.result="Rejected: humidity must be integer 20-90";protocol_.dirty=true;return; }
+    if (!valid_humidity(h)) { protocol_.record_result("Rejected: humidity must be integer 20-90",millis());protocol_.dirty=true;return; }
     commands[n++]={0x6203,static_cast<uint16_t>(h)};
   }
   if (call.get_fan_mode().has_value()) {
@@ -176,7 +202,7 @@ void GuanjieClimate::control(const climate::ClimateCall &call) {
     if(fan==climate::CLIMATE_FAN_LOW)value=1;
     else if(fan==climate::CLIMATE_FAN_MEDIUM)value=2;
     else if(fan==climate::CLIMATE_FAN_HIGH)value=3;
-    else {protocol_.result="Rejected: unsupported fan mode";protocol_.dirty=true;return;}
+    else {protocol_.record_result("Rejected: unsupported fan mode",millis());protocol_.dirty=true;return;}
     commands[n++]={0x6202,value};
   }
   if(call.get_mode().has_value()) {
@@ -184,11 +210,13 @@ void GuanjieClimate::control(const climate::ClimateCall &call) {
     if(mode==climate::CLIMATE_MODE_DRY || mode==climate::CLIMATE_MODE_FAN_ONLY) {
       commands[n++]={0x6205,static_cast<uint16_t>(mode==climate::CLIMATE_MODE_DRY)};
       commands[n++]={0x6201,1};
-    } else {protocol_.result="Rejected: unsupported HVAC mode";protocol_.dirty=true;return;}
+    } else {protocol_.record_result("Rejected: unsupported HVAC mode",millis());protocol_.dirty=true;return;}
   }
   if(n) protocol_.submit(commands.data(),n,millis());
 }
 void GuanjieClimate::publish_() {
+  if (polling_health_) polling_health_->publish_state(scanner_fault_?
+    "Scanner transport fault; manual maintenance required":protocol_.polling_health(millis()));
   protocol_.dirty=false;
   const bool ready=protocol_.ready(millis());
   online_->publish_state(ready);

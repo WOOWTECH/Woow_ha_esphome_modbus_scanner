@@ -3,34 +3,59 @@
   "config": {
     "step": {
       "user": {
-        "title": "設定 Woow ESPHome Modbus Scanner",
-        "description": "實驗版本。所有欄位留空則僅模擬；實體閘道必須使用 Guanjie 唯讀橋接 v1 韌體。每台須成對填寫主機與 MAC。側欄支援實體 FC03 掃描，所有已登入的 HA 使用者皆可操作。",
+        "title": "設定掃描閘道",
+        "description": "主機／MAC 留空僅使用模擬。所有啟用中的 Home Assistant 使用者與內部自動化皆可操作實機。PSK 只設定此整合，不會改動 ESP 韌體。請使用 HTTPS 或可信管理網路。",
         "data": {
-          "host": "ESPHome 主機位址（選填）",
-          "mac": "預期 ESPHome MAC 位址（選填）",
-          "host_2": "第二台 ESPHome 主機（選填）",
-          "mac_2": "第二台 MAC（選填）"
+          "host": "ESPHome 主機（選填）", "mac": "預期 MAC（選填）",
+          "noise_psk": "API 加密金鑰（選填）", "clear_psk": "明確清除閘道 1 金鑰（僅限未加密韌體）",
+          "host_2": "第二台 ESPHome 主機（選填）", "mac_2": "第二台預期 MAC（選填）",
+          "noise_psk_2": "第二台 API 加密金鑰（選填）", "clear_psk_2": "明確清除閘道 2 金鑰（僅限未加密韌體）"
         }
       },
       "reconfigure": {
         "title": "重新設定掃描閘道",
-        "description": "實驗版本。所有欄位留空則僅模擬；實體閘道必須使用 Guanjie 唯讀橋接 v1 韌體。每台須成對填寫主機與 MAC。側欄支援實體 FC03 掃描，所有已登入的 HA 使用者皆可操作。",
+        "description": "金鑰留空會依相同 MAC 保留既有金鑰，不會顯示已儲存的金鑰。此表單不會啟用或停用韌體加密。所有啟用中的 Home Assistant 使用者與內部自動化皆可操作實機。",
         "data": {
-          "host": "ESPHome 主機位址（選填）",
-          "mac": "預期 ESPHome MAC 位址（選填）",
-          "host_2": "第二台 ESPHome 主機（選填）",
-          "mac_2": "第二台 MAC（選填）"
+          "host": "ESPHome 主機（選填）", "mac": "預期 MAC（選填）",
+          "noise_psk": "替換 API 金鑰（留空保留）", "clear_psk": "明確清除閘道 1 金鑰",
+          "host_2": "第二台 ESPHome 主機（選填）", "mac_2": "第二台預期 MAC（選填）",
+          "noise_psk_2": "替換第二台 API 金鑰（留空保留）", "clear_psk_2": "明確清除閘道 2 金鑰"
+        }
+      },
+      "reauth_confirm": {
+        "title": "核對 ESPHome API 認證",
+        "description": "輸入替換金鑰，留空則保留原值。只核對 API 身分與橋接支援，不發出 Modbus 交易，也不改動韌體。",
+        "data": {
+          "noise_psk": "閘道 1 API 加密金鑰", "clear_psk": "明確清除閘道 1 金鑰",
+          "noise_psk_2": "閘道 2 API 加密金鑰", "clear_psk_2": "明確清除閘道 2 金鑰"
         }
       }
     },
     "error": {
-      "gateway_pair_required": "請同時填寫主機位址與 MAC，或兩欄皆留空。",
-      "invalid_mac": "MAC 格式必須為 AA:BB:CC:DD:EE:FF。",
-      "duplicate_gateway": "兩台不可使用相同主機或 MAC。"
+      "gateway_pair_required": "請同時填入主機與 MAC，或兩者都留空。",
+      "invalid_mac": "請使用 AA:BB:CC:DD:EE:FF 格式的 MAC。",
+      "duplicate_gateway": "兩台閘道必須使用不同主機與 MAC。",
+      "invalid_psk": "請使用 Base64 編碼、解碼後為 32 位元組的 ESPHome API 金鑰。",
+      "conflicting_psk": "同一閘道不可同時輸入新金鑰又勾選清除。",
+      "invalid_auth": "API 認證失敗，請核對金鑰與韌體加密設定。",
+      "cannot_connect": "無法核對閘道 API 身分與橋接支援；未變更既有設定。"
     },
     "abort": {
-      "already_configured": "Woow ESPHome Modbus Scanner 已完成設定。",
-      "reconfigure_successful": "已重新設定。"
+      "already_configured": "此整合已完成設定。",
+      "reconfigure_successful": "已重新設定閘道。",
+      "reauth_successful": "已核對並更新 API 認證。",
+      "no_physical_gateways": "尚未設定實體閘道。"
+    }
+  },
+  "exceptions": {
+    "invalid_request": {"message": "掃描要求無效：{reason}"},
+    "physical_permission": {"message": "需要有效且啟用中的 Home Assistant 使用者，或 HA 內部自動化情境。"},
+    "gateway_failure": {"message": "閘道操作失敗（{code}），請檢查健康資訊與 API 設定。"}
+  },
+  "issues": {
+    "gateway_action_required": {
+      "title": "掃描閘道需要處理",
+      "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及橋接韌體版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
     }
   }
 }

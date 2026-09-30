@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -64,6 +65,8 @@ class GatewayInfo:
     name: str
     capabilities: tuple[str, ...]
     mock_profiles: tuple[str, ...] = ()
+    profile: dict[str, Any] | None = None
+    health: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
@@ -74,6 +77,8 @@ class GatewayInfo:
             "capabilities": list(self.capabilities),
             "mock_profiles": list(self.mock_profiles),
             "simulated": self.provider == "mock",
+            **({"profile": deepcopy(self.profile)} if self.profile is not None else {}),
+            **({"health": deepcopy(self.health)} if self.health is not None else {}),
         }
 
 
@@ -137,6 +142,18 @@ class ScanRequest:
         delays = max(0, self.address_count - 1) * self.inter_request_delay_ms
         return self.address_count * per_address + delays
 
+    @property
+    def execution_budget_ms(self) -> int:
+        """Operation ceiling includes connect/discovery, API waits, recovery and cleanup."""
+        if self.provider == "esphome":
+            return (
+                35000
+                + self.address_count * (self.retries + 1) * 11000
+                + max(0, self.address_count - 1) * self.inter_request_delay_ms
+                + 33000
+            )
+        return self.estimated_worst_case_ms + 10000
+
     def validate(self, *, require_safety: bool = True) -> None:
         """Validate all transport-independent safety bounds."""
         if not isinstance(self.provider, str) or not self.provider:
@@ -189,6 +206,9 @@ class ProbeResult:
     detail: str
     exception_code: int | None = None
     identity: dict[str, str] | None = None
+    register_address: int | None = None
+    raw_value: int | None = None
+    attempts: int | None = None
 
     @property
     def is_responder(self) -> bool:
@@ -208,6 +228,12 @@ class ProbeResult:
             "latency_ms": self.latency_ms,
             "detail": self.detail,
         }
+        if self.register_address is not None:
+            result.update(
+                register_address=self.register_address,
+                raw_value=self.raw_value,
+                attempts=self.attempts,
+            )
         if self.exception_code is not None:
             result["exception_code"] = self.exception_code
         if self.identity is not None:

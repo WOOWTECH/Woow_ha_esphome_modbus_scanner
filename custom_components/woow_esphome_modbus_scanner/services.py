@@ -12,7 +12,7 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError, Unauthorized
 import voluptuous as vol
 
 from .const import (
@@ -29,6 +29,7 @@ from .const import (
     SERVICE_START_SCAN,
     SERVICE_TEST_ADDRESS,
 )
+from .issues import report_gateway_issue
 from .modbus_scan.coordinator import (
     GatewayBusyError,
     ModbusScanCoordinator,
@@ -48,6 +49,8 @@ from .modbus_scan.models import (
     ProbeType,
     ScanRequest,
 )
+from .modbus_scan.profile_generated import PROFILE
+from .modbus_scan.provider import GatewayProviderError
 
 
 def _exact_int(value: object) -> int:
@@ -95,25 +98,44 @@ _PROVIDER_FIELDS = {
     vol.Optional("esphome_device_id"): str,
 }
 _PROBE_FIELDS = {
-    vol.Optional("probe_type", default=ProbeType.DEVICE_IDENTIFICATION.value): _probe_type,
-    vol.Optional("register_address", default=0): vol.All(
+    vol.Optional("probe_type"): _probe_type,
+    vol.Optional("register_address"): vol.All(
         _exact_int, vol.Range(min=0, max=MAX_REGISTER_ADDRESS)
     ),
-    vol.Optional("register_count", default=1): vol.All(
-        _exact_int, vol.Range(min=1, max=MAX_REGISTER_COUNT)
-    ),
-    vol.Optional("timeout_ms", default=500): vol.All(
+    vol.Optional("register_count"): vol.All(_exact_int, vol.Range(min=1, max=MAX_REGISTER_COUNT)),
+    vol.Optional("timeout_ms"): vol.All(
         _exact_int, vol.Range(min=MIN_TIMEOUT_MS, max=MAX_TIMEOUT_MS)
     ),
-    vol.Optional("retries", default=1): vol.All(_exact_int, vol.Range(min=0, max=MAX_RETRIES)),
-    vol.Optional("inter_request_delay_ms", default=100): vol.All(
+    vol.Optional("retries"): vol.All(_exact_int, vol.Range(min=0, max=MAX_RETRIES)),
+    vol.Optional("inter_request_delay_ms"): vol.All(
         _exact_int, vol.Range(min=0, max=MAX_INTER_REQUEST_DELAY_MS)
     ),
-    vol.Optional("pause_normal_polling", default=False): bool,
+    vol.Optional("pause_normal_polling"): bool,
     vol.Optional("mock_profile", default=MockProfile.FOUND_DEFAULT.value): vol.In(
         [item.value for item in MockProfile]
     ),
 }
+
+
+def _apply_profile_defaults(data):
+    """Only absent fields get defaults; explicit unsupported values stay rejected."""
+    defaults = {
+        "probe_type": ProbeType.DEVICE_IDENTIFICATION,
+        "register_address": 0,
+        "register_count": 1,
+        "timeout_ms": 500,
+        "retries": 1,
+        "inter_request_delay_ms": 100,
+        "pause_normal_polling": False,
+    }
+    if data["provider"] == "esphome":
+        defaults = {key: PROFILE["defaults"][key] for key in defaults}
+    for key, value in defaults.items():
+        data.setdefault(key, value)
+    data["probe_type"] = ProbeType(data["probe_type"])
+    return data
+
+
 _START_SCAN_SCHEMA = vol.Schema(
     {
         **_PROVIDER_FIELDS,
@@ -134,6 +156,8 @@ _TEST_ADDRESS_SCHEMA = vol.Schema(
     }
 )
 _LIST_GATEWAYS_SCHEMA = vol.Schema({})
+_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _apply_profile_defaults)
+_TEST_ADDRESS_SCHEMA = vol.All(_TEST_ADDRESS_SCHEMA, _apply_profile_defaults)
 
 
 _Owner = tuple[str, int]
@@ -163,7 +187,12 @@ def _coordinator(
                     [ESPHomeGateway(**gateway) for gateway in entry.data["gateways"]]
                 )
             )
-        coordinator = ModbusScanCoordinator(hass, providers)
+        coordinator = ModbusScanCoordinator(
+            hass,
+            providers,
+            history=domain_data.get("history"),
+            issue_callback=lambda gateway, code: report_gateway_issue(hass, gateway, code),
+        )
         domain_data[DATA_COORDINATOR] = coordinator
         domain_data[DATA_COORDINATOR_OWNER] = owner
     elif domain_data.get(DATA_COORDINATOR_OWNER) != owner:
@@ -195,11 +224,35 @@ def _scan_request(
 
 
 def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
+    if isinstance(err, (ValueError, ScanNotFoundError)):
+        return ServiceValidationError(
+            str(err),
+            translation_domain=DOMAIN,
+            translation_key="invalid_request",
+            translation_placeholders={"reason": str(err)},
+        )
     return HomeAssistantError(str(err))
 
 
+async def _physical_allowed(call: ServiceCall, owner: _Owner) -> bool:
+    """All active HA users and internal automations, per the approved policy."""
+    if call.context.user_id is None:
+        return True
+    user = await call.hass.auth.async_get_user(call.context.user_id)
+    return bool(user and user.is_active)
+
+
+async def _authorize_physical(call: ServiceCall, owner: _Owner, provider: str) -> None:
+    if provider == "esphome" and not await _physical_allowed(call, owner):
+        raise Unauthorized(context=call.context)
+
+
 async def _handle_list_gateways(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    return _coordinator(call.hass, owner).list_gateways()
+    result = _coordinator(call.hass, owner).list_gateways()
+    allowed = await _physical_allowed(call, owner)
+    for gateway in result["gateways"]:
+        gateway["can_operate"] = gateway["provider"] == "mock" or allowed
+    return result
 
 
 def _validate_selected_device(call: ServiceCall) -> None:
@@ -217,6 +270,7 @@ def _validate_selected_device(call: ServiceCall) -> None:
 
 
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _authorize_physical(call, owner, call.data["provider"])
     try:
         _validate_selected_device(call)
         request = _scan_request(call.data, safety_confirmed=call.data["safety_confirmed"])
@@ -241,12 +295,16 @@ async def _handle_get_scan_results(call: ServiceCall, owner: _Owner) -> ServiceR
 
 async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     try:
-        return await _coordinator(call.hass, owner).cancel(call.data["scan_id"])
+        coordinator = _coordinator(call.hass, owner)
+        state = coordinator.status(call.data["scan_id"])
+        await _authorize_physical(call, owner, state["provider"])
+        return await coordinator.cancel(call.data["scan_id"])
     except ScanNotFoundError as err:
         raise _as_home_assistant_error(err) from err
 
 
 async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _authorize_physical(call, owner, call.data["provider"])
     try:
         _validate_selected_device(call)
         request = _scan_request(call.data, safety_confirmed=True, address=call.data["address"])
@@ -255,7 +313,36 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
         raise _as_home_assistant_error(err) from err
 
 
+async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _authorize_physical(call, owner, "esphome")
+    try:
+        return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
+    except ValueError as err:
+        raise _as_home_assistant_error(err) from err
+    except GatewayProviderError as err:
+        report_gateway_issue(call.hass, call.data["gateway_id"], err.code)
+        raise HomeAssistantError(
+            str(err),
+            translation_domain=DOMAIN,
+            translation_key="gateway_failure",
+            translation_placeholders={"code": err.code},
+        ) from err
+    except GatewayBusyError as err:
+        raise HomeAssistantError(str(err)) from err
+
+
+async def _handle_get_history(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    return _coordinator(call.hass, owner).history()
+
+
 _SERVICE_DEFINITIONS = (
+    (
+        "check_gateway",
+        _handle_check_gateway,
+        vol.Schema({vol.Required("gateway_id"): str}),
+        SupportsResponse.ONLY,
+    ),
+    ("get_history", _handle_get_history, vol.Schema({}), SupportsResponse.ONLY),
     (
         SERVICE_LIST_GATEWAYS,
         _handle_list_gateways,
@@ -300,7 +387,7 @@ def async_register_services(
     entry_id: str = "direct-registration",
     generation: int = 0,
 ) -> None:
-    """Register six services bound to one owner generation."""
+    """Register the public services bound to one owner generation."""
     owner = (entry_id, generation)
     domain_data = hass.data.setdefault(DOMAIN, {})
     domain_data[DATA_SERVICE_OWNER] = owner

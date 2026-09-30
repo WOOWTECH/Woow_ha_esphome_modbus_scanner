@@ -14,9 +14,24 @@ IsCancelled = Callable[[], bool]
 class GatewayProviderError(Exception):
     """A gateway transport failed and the current scan cannot continue."""
 
-    def __init__(self, message: str, *, address: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        address: int | None = None,
+        code: str = "GATEWAY_ERROR",
+        phase: str = "probe",
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.address = address
+        self.code = code
+        self.phase = phase
+        self.retryable = retryable
+
+    def as_dict(self) -> dict:
+        """Only controlled messages/codes may cross this boundary."""
+        return {"code": self.code, "phase": self.phase, "retryable": self.retryable}
 
 
 class GatewayProvider(Protocol):

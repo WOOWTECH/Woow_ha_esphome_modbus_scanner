@@ -6,6 +6,7 @@ import asyncio
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -13,6 +14,8 @@ from homeassistant.core import HomeAssistant
 
 from .models import ProbeResult, ScanOutcome, ScanPhase, ScanRequest
 from .provider import GatewayProvider, GatewayProviderError
+
+SHUTDOWN_GRACE_SECONDS = 35
 
 
 class ScanNotFoundError(LookupError):
@@ -23,9 +26,7 @@ class GatewayBusyError(RuntimeError):
     """A scan already owns the provider/gateway concurrency key."""
 
     def __init__(self, provider: str, gateway_id: str, scan_id: str) -> None:
-        super().__init__(
-            f"Gateway {provider}/{gateway_id} is busy with active scan {scan_id}"
-        )
+        super().__init__(f"Gateway {provider}/{gateway_id} is busy with active scan {scan_id}")
         self.scan_id = scan_id
 
 
@@ -47,6 +48,15 @@ class _ScanState:
     emitted_addresses: set[int] = field(default_factory=set)
     cancellation_requested: bool = False
     error: str | None = None
+    error_info: dict[str, Any] | None = None
+    operation_phase: str = "scheduled"
+    attempt: int | None = None
+    recovery_status: str = "unknown"
+    recovery_error_code: str | None = None
+    cleanup_status: str = "unknown"
+    started_clock: float = field(default_factory=monotonic)
+    elapsed_ms: int = 0
+    events: deque = field(default_factory=lambda: deque(maxlen=32))
 
 
 class ModbusScanCoordinator:
@@ -58,10 +68,15 @@ class ModbusScanCoordinator:
         providers: list[GatewayProvider],
         *,
         max_history: int = 20,
+        history=None,
+        issue_callback=None,
     ) -> None:
         self._hass = hass
         self._providers = {provider.provider_id: provider for provider in providers}
         self._max_history = max_history
+        self._history = history
+        self._issue_callback = issue_callback
+        self._issues_failed = False
         self._scans: dict[str, _ScanState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._active: dict[tuple[str, str], str] = {}
@@ -113,10 +128,14 @@ class ModbusScanCoordinator:
                 self._active.pop(request.gateway_key, None)
             raise
         self._tasks[scan_id] = task
+        if self._history:
+            self._history.started(self.status(scan_id))
         return self.status(scan_id)
 
     def status(self, scan_id: str) -> dict[str, Any]:
         """Return a serializable lifecycle snapshot."""
+        if scan_id not in self._scans and self._history and (record := self._history.get(scan_id)):
+            return record["status"]
         state = self._get(scan_id)
         total = state.request.address_count
         return {
@@ -142,12 +161,25 @@ class ModbusScanCoordinator:
             "started_at": state.started_at,
             "finished_at": state.finished_at,
             "estimated_worst_case_ms": state.request.estimated_worst_case_ms,
+            "execution_budget_ms": state.request.execution_budget_ms,
+            "elapsed_ms": int((monotonic() - state.started_clock) * 1000)
+            if state.phase == ScanPhase.RUNNING
+            else state.elapsed_ms,
+            "operation_phase": state.operation_phase,
+            "attempt": state.attempt,
+            "events": [dict(event) for event in state.events],
+            "recovery_status": state.recovery_status,
+            "recovery_error_code": state.recovery_error_code,
+            "cleanup_status": state.cleanup_status,
             "cancellation_requested": state.cancellation_requested,
             "error": state.error,
+            "error_info": state.error_info,
         }
 
     def results(self, scan_id: str) -> dict[str, Any]:
         """Return bounded responder details and complete outcome counts."""
+        if scan_id not in self._scans and self._history and (record := self._history.get(scan_id)):
+            return record["results"]
         state = self._get(scan_id)
         return {
             "scan_id": state.scan_id,
@@ -156,20 +188,25 @@ class ModbusScanCoordinator:
             "status": state.phase.value,
             "phase": state.phase.value,
             "responders": [
-                result.as_dict()
-                for result in state.retained_results
-                if result.is_responder
+                result.as_dict() for result in state.retained_results if result.is_responder
             ],
             "outcome_counts": self._serialized_counts(state),
             "completed_addresses": state.completed_addresses,
             "total_addresses": state.request.address_count,
+            "events": [dict(event) for event in state.events],
             "best_effort": True,
             "uniqueness_guaranteed": False,
+            "recovery_status": state.recovery_status,
+            "recovery_error_code": state.recovery_error_code,
+            "cleanup_status": state.cleanup_status,
             "error": state.error,
+            "error_info": state.error_info,
         }
 
     async def cancel(self, scan_id: str) -> dict[str, Any]:
-        """Request cooperative cancellation after the current mock transaction."""
+        """Request cooperative cancellation after the current transaction."""
+        if scan_id not in self._scans:
+            return self.status(scan_id)  # History is terminal; never replay it.
         state = self._get(scan_id)
         if state.phase == ScanPhase.RUNNING:
             state.cancellation_requested = True
@@ -188,19 +225,24 @@ class ModbusScanCoordinator:
         return self.status(scan_id)
 
     async def async_shutdown(self) -> None:
-        """Cancel and await every active task during config-entry unload."""
+        """Allow bounded cooperative recovery before forcing task cancellation."""
         self._shutting_down = True
         active_scans: list[tuple[str, asyncio.Task[None]]] = []
         for scan_id, task in tuple(self._tasks.items()):
             state = self._scans.get(scan_id)
             if state is not None and state.phase == ScanPhase.RUNNING:
                 state.cancellation_requested = True
-                task.cancel()
                 active_scans.append((scan_id, task))
         if active_scans:
-            await asyncio.gather(
-                *(task for _scan_id, task in active_scans), return_exceptions=True
+            # Response <=6s + fresh recovery <=25s + disconnect <=3s.
+            # Immediate Task.cancel() intentionally skips recovery in the
+            # provider; reserve that fallback for an expired grace period.
+            _, pending = await asyncio.wait(
+                [task for _scan_id, task in active_scans], timeout=SHUTDOWN_GRACE_SECONDS
             )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*(task for _scan_id, task in active_scans), return_exceptions=True)
         for scan_id, _task in active_scans:
             state = self._scans.get(scan_id)
             if state is not None and state.phase == ScanPhase.RUNNING:
@@ -223,16 +265,62 @@ class ModbusScanCoordinator:
             if normalized.outcome != ScanOutcome.TIMEOUT:
                 state.retained_results.append(normalized)
 
+        def progress(update):
+            for key, choices in {
+                "operation_phase": {
+                    "connect",
+                    "verify_identity",
+                    "verify_bridge",
+                    "probe",
+                    "inter_request_delay",
+                    "recovery",
+                    "finished",
+                },
+                "recovery_status": {"unknown", "pending", "verified", "failed"},
+                "cleanup_status": {"unknown", "pending", "closed", "forced", "failed"},
+            }.items():
+                if update.get(key) in choices:
+                    if key == "operation_phase" and update[key] != state.operation_phase:
+                        state.events.append(
+                            {
+                                "phase": update[key],
+                                "elapsed_ms": int((monotonic() - state.started_clock) * 1000),
+                            }
+                        )
+                    setattr(state, key, update[key])
+            if update.get("recovery_error_code") in {
+                "FIRMWARE_FAULT",
+                "DEVICE_RESTARTED",
+                "PROFILE_MISMATCH",
+                "RESTORE_UNCONFIRMED",
+                "API_DISCONNECTED",
+                "RESPONSE_INVALID",
+            }:
+                state.recovery_error_code = update["recovery_error_code"]
+            if (
+                type(update.get("current_address")) is int
+                and state.request.start_id <= update["current_address"] <= state.request.end_id
+            ):
+                state.current_address = update["current_address"]
+            if (
+                type(update.get("attempt")) is int
+                and 1 <= update["attempt"] <= state.request.retries + 1
+            ):
+                state.attempt = update["attempt"]
+
         try:
-            await provider.run_scan(
-                state.request, emit, lambda: state.cancellation_requested
-            )
+            kwargs = {"progress": progress} if getattr(provider, "supports_progress", False) else {}
+            cleanup_reserve_ms = 3000 if state.request.provider == "esphome" else 0
+            async with asyncio.timeout(
+                (state.request.execution_budget_ms - cleanup_reserve_ms) / 1000
+            ):
+                await provider.run_scan(
+                    state.request, emit, lambda: state.cancellation_requested, **kwargs
+                )
             if state.cancellation_requested:
                 state.phase = ScanPhase.CANCELLED
             else:
-                requested_addresses = set(
-                    range(state.request.start_id, state.request.end_id + 1)
-                )
+                requested_addresses = set(range(state.request.start_id, state.request.end_id + 1))
                 missing = sorted(requested_addresses - state.emitted_addresses)
                 if missing:
                     raise GatewayProviderError(
@@ -241,24 +329,53 @@ class ModbusScanCoordinator:
                         address=missing[0],
                     )
                 state.phase = ScanPhase.COMPLETED
+                if (
+                    self._issue_callback
+                    and state.cleanup_status == "closed"
+                    and state.recovery_status == "verified"
+                ):
+                    self._report_issue(state.request.gateway_id, None)
+        except TimeoutError:
+            state.error_info = {
+                "code": "JOB_DEADLINE",
+                "phase": state.operation_phase,
+                "retryable": False,
+            }
+            self._record_gateway_error(
+                state, "Scan operation deadline exceeded", state.current_address
+            )
         except GatewayProviderError as err:
+            state.error_info = err.as_dict()
+            self._report_issue(state.request.gateway_id, err.code)
             self._record_gateway_error(state, str(err), err.address)
         except asyncio.CancelledError:
             state.cancellation_requested = True
             state.phase = ScanPhase.CANCELLED
             raise
-        except Exception as err:  # noqa: BLE001 - isolates provider failures per scan
-            self._record_gateway_error(state, f"Provider failure: {err}", None)
+        except Exception:  # noqa: BLE001 - never expose transport-library exception text
+            state.error_info = {"code": "INTERNAL_ERROR", "phase": "provider", "retryable": False}
+            self._record_gateway_error(
+                state, "Unexpected provider failure; inspect redacted diagnostics", None
+            )
         finally:
+            state.elapsed_ms = int((monotonic() - state.started_clock) * 1000)
             state.finished_at = _utc_now()
+            state.events.append({"phase": state.phase.value, "elapsed_ms": state.elapsed_ms})
             if self._active.get(state.request.gateway_key) == state.scan_id:
                 self._active.pop(state.request.gateway_key, None)
+            if state.recovery_error_code:
+                self._report_issue(state.request.gateway_id, state.recovery_error_code)
             self._record_terminal(state.scan_id)
             self._tasks.pop(state.scan_id, None)
 
-    def _record_gateway_error(
-        self, state: _ScanState, message: str, address: int | None
-    ) -> None:
+    def _report_issue(self, gateway_id, code):
+        if self._issue_callback:
+            try:
+                self._issue_callback(gateway_id, code)
+            except Exception:  # noqa: BLE001 - never replace the primary outcome
+                self._issues_failed = True
+
+    def _record_gateway_error(self, state: _ScanState, message: str, address: int | None) -> None:
         state.phase = ScanPhase.FAILED
         state.error = message
         failed_address = address
@@ -318,8 +435,7 @@ class ModbusScanCoordinator:
                 address=result.address,
             )
         if result.exception_code is not None and (
-            type(result.exception_code) is not int
-            or not 0 <= result.exception_code <= 255
+            type(result.exception_code) is not int or not 0 <= result.exception_code <= 255
         ):
             raise GatewayProviderError(
                 "Provider result exception_code must be an integer from 0 to 255",
@@ -337,6 +453,23 @@ class ModbusScanCoordinator:
                 "Provider result identity must contain only string keys and values",
                 address=result.address,
             )
+        if result.register_address is not None:
+            if (
+                type(result.register_address) is not int
+                or result.register_address != state.request.register_address
+            ):
+                raise GatewayProviderError("Provider returned an unexpected register")
+            if result.raw_value is not None and (
+                result.outcome != ScanOutcome.RESPONDED
+                or type(result.raw_value) is not int
+                or not 0 <= result.raw_value <= 65535
+            ):
+                raise GatewayProviderError("Invalid typed register value")
+            if (
+                type(result.attempts) is not int
+                or not 1 <= result.attempts <= state.request.retries + 1
+            ):
+                raise GatewayProviderError("Invalid probe attempt count")
         return ProbeResult(
             address=result.address,
             outcome=result.outcome,
@@ -344,9 +477,29 @@ class ModbusScanCoordinator:
             detail=result.detail,
             exception_code=result.exception_code,
             identity=dict(identity) if identity is not None else None,
+            register_address=result.register_address,
+            raw_value=result.raw_value,
+            attempts=result.attempts,
         )
 
+    def history(self):
+        return {
+            "scans": self._history.summaries()
+            if self._history
+            else [self.status(s) for s in reversed(self._terminal_order)]
+        }
+
+    async def check_gateway(self, gateway_id):
+        provider = self._providers.get("esphome")
+        if provider is None or not hasattr(provider, "check_gateway"):
+            raise ValueError("No physical gateways are configured")
+        if existing := self._active.get(("esphome", gateway_id)):
+            raise GatewayBusyError("esphome", gateway_id, existing)
+        return {"gateway_id": gateway_id, "health": await provider.check_gateway(gateway_id)}
+
     def _record_terminal(self, scan_id: str) -> None:
+        if self._history:
+            self._history.remember(self.status(scan_id), self.results(scan_id))
         self._terminal_order.append(scan_id)
         while len(self._terminal_order) > self._max_history:
             oldest = self._terminal_order.popleft()

@@ -6,7 +6,10 @@ esphome:
   on_boot:
     priority: -100
     then:
-      - lambda: id(dehumidifier).set_scanner_result(id(scanner_result));
+      - lambda: |-
+          id(dehumidifier).set_scanner_result(id(scanner_result));
+          id(dehumidifier).set_scanner_health(id(scanner_health));
+          id(dehumidifier).set_polling_health(id(polling_health));
 esp32:
   board: esp32dev
   flash_size: 4MB
@@ -20,8 +23,15 @@ external_components:
 logger:
   level: INFO
 api:
+  encryption:
+    key: !secret scanner_api_key
   reboot_timeout: 0s
   actions:
+    - action: modbus_scanner_status_v1
+      variables:
+        request_id: string
+      then:
+        - lambda: id(dehumidifier).scanner_status(request_id);
     - action: modbus_scanner_probe_v1
       variables:
         request_id: string
@@ -110,12 +120,29 @@ climate:
     low_pressure_fault:
       name: 低壓開關異常 Low Pressure
 sensor:
+  - platform: template
+    name: Last Control Result Uptime
+    entity_category: diagnostic
+    unit_of_measurement: s
+    accuracy_decimals: 3
+    update_interval: 5s
+    lambda: return id(dehumidifier).control_result_uptime();
   - platform: wifi_signal
     name: WiFi 訊號
     update_interval: 60s
   - platform: uptime
     name: 運行時間 Uptime
 text_sensor:
+  - platform: template
+    id: scanner_health
+    name: Modbus Scanner Health
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: polling_health
+    name: Modbus Polling Health
+    entity_category: diagnostic
+    update_interval: never
   - platform: template
     id: scanner_result
     name: Modbus Scanner Result

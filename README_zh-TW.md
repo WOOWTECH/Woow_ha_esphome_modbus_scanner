@@ -1,6 +1,13 @@
 # Woow ESPHome Modbus Scanner
 
-> **本機實驗分支 0.3.0.dev3：**新增限定貫捷 IN-D17 的 FC03 韌體橋接及
+> **實驗版 0.4.0.dev1 已部署至 HA 與兩台既有 ESP32。**
+> 所有啟用中的 HA 使用者及內部自動化皆可操作。兩台裝置均使用獨立 API
+> 加密金鑰，且原生 ESPHome 與本整合已同步更新。已實作新輪詢復原驗證、
+> 有界歷程／事件、診斷、Repairs 及重新認證。請看[本次實測驗收](docs/design/hardening-live-acceptance.md)、
+> [授權邊界](docs/design/authorization-boundary.md)與[升級／回復程序](docs/design/hardening-upgrade-rollback.md)。
+> 這不是上游正式發行版，也不是所有硬體／長期耐久情境的認證。
+
+> **歷史基線 0.3.0.dev3：**新增限定貫捷 IN-D17 的 FC03 韌體橋接及
 > ESPHome provider。請看[實體橋接契約與測試方式](docs/adr/0004-experimental-guanjie-fc03-bridge.md)。
 > 這不是上游發行版。側欄已支援實體閘道、正確 FC03 預設值、真機警告及
 > 閘道記憶；舊教學仍是模擬版。HACS 更新可能覆蓋這些本機修改。
@@ -43,10 +50,11 @@ English: [README.md](README.md)
 因此 `start_scan` 的 `safety_confirmed` 只接受真正的布林值 `true`，不接受
 數字或字串形式的 truthy 值。
 
-**永久全使用者政策：**六個掃描服務與側邊欄刻意不做 admin/user 權限檢查，
-所有已驗證 HA 使用者都能操作。這方便目前 mock 工作台，但對未來實體 provider
-是明確風險：任一使用者可能產生匯流排流量、干擾正常輪詢或看到 responder
-證據。安裝者必須管控 HA 帳號，啟用實體硬體前也必須重新評估此政策。
+**全使用者政策：**目前八個服務與側欄開放給啟用中的已驗證 HA 使用者，
+不區分管理員／一般角色；既有內部自動化亦可使用。已停用或不存在的具名
+使用者不能操作實機。使用者可產生唯讀匯流排流量並查看回應證據，因此仍須
+管控 HA 帳號。`check_gateway` 只查 API；`get_history` 讀取有界保存快照。
+API 加密不代表另外對原生 ESPHome 動作施加 per-user 限制。
 
 ## 安裝
 

@@ -29,6 +29,8 @@ def test_manifest_identity_and_hacs_layout():
 def test_services_yaml_exposes_exact_public_names():
     metadata = yaml.safe_load((INTEGRATION / "services.yaml").read_text())
     assert set(metadata) == {
+        "check_gateway",
+        "get_history",
         "list_gateways",
         "start_scan",
         "get_scan_status",

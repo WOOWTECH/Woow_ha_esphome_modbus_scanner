@@ -1,6 +1,15 @@
 # Woow ESPHome Modbus Scanner
 
-> **Local experimental branch 0.3.0.dev3:** adds a restricted Guanjie FC03
+> **Experimental 0.4.0.dev1: deployed to HA and both existing ESP32 devices.**
+> All active HA users and internal automations may operate scanners. Both devices
+> now use individual encrypted API keys in native ESPHome and this integration.
+> Fresh polling recovery, bounded history/events, diagnostics, Repairs and reauth
+> are implemented. See [live acceptance](docs/design/hardening-live-acceptance.md),
+> [authorization boundary](docs/design/authorization-boundary.md), and
+> [upgrade/rollback](docs/design/hardening-upgrade-rollback.md).
+> This is not an upstream release or a universal hardware/endurance certification.
+
+> **Historical baseline 0.3.0.dev3:** added a restricted Guanjie FC03
 > firmware bridge and ESPHome provider. See [the bridge contract and test
 > instructions](docs/adr/0004-experimental-guanjie-fc03-bridge.md). This is not
 > an upstream release; the documentation below describes upstream v0.2.0.
@@ -52,12 +61,13 @@ physical scan may disrupt normal polling even when all probes are read-only.
 `start_scan` therefore accepts only the literal JSON/YAML boolean
 `safety_confirmed: true`; truthy numbers and strings are rejected.
 
-**Permanent all-user policy:** all six scanner services and the sidebar are
-available to every authenticated Home Assistant user; there is deliberately no
-admin/user permission gate. This makes the mock workbench convenient, but it is
-an explicit future physical-provider risk: any HA user could generate bus
-traffic, disrupt normal polling, or expose responder evidence. Installers must
-control HA accounts and must reassess this policy before enabling real hardware.
+**All-user policy:** the current eight services and sidebar are available to
+active authenticated HA users, without an admin/user role gate. Internal
+automations remain allowed; inactive or unknown named callers cannot perform
+physical operations. Users can generate read-only bus traffic and see responder
+evidence, so installers must control HA accounts. `check_gateway` is API-only;
+`get_history` returns bounded saved snapshots. API encryption does not add
+per-user restrictions to native ESPHome actions.
 
 ## Installation
 
