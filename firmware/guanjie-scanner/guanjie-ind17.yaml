@@ -1,0 +1,130 @@
+# Pinned to the native ModbusClientDevice API shipped in ESPHome 2026.9.0.
+esphome:
+  name: guanjie-scanner-example
+  friendly_name: Guanjie Scanner Example
+  min_version: 2026.9.0
+  on_boot:
+    priority: -100
+    then:
+      - lambda: id(dehumidifier).set_scanner_result(&id(scanner_result));
+esp32:
+  board: esp32dev
+  flash_size: 4MB
+  framework:
+    type: arduino
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [guanjie]
+logger:
+  level: INFO
+api:
+  reboot_timeout: 0s
+  actions:
+    - action: modbus_scanner_probe_v1
+      variables:
+        request_id: string
+        slave: int
+        reg: int
+      then:
+        - lambda: id(dehumidifier).scanner_probe(request_id, slave, reg);
+ota:
+  - platform: esphome
+    password: !secret guanjie_ota_password
+wifi:
+  ap:
+    ssid: guanjie-scanner-example
+  reboot_timeout: 0s
+  fast_connect: false
+captive_portal:
+# No Ethernet pins, no hard-coded network credentials, no boot-time control writes.
+uart:
+  id: rs485_uart
+  tx_pin: GPIO32
+  rx_pin: GPIO35
+  baud_rate: 9600
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+modbus:
+  id: rs485_bus
+  uart_id: rs485_uart
+  flow_control_pin: GPIO33
+  send_wait_time: 700ms
+  turnaround_time: 150ms
+climate:
+  - platform: guanjie
+    id: dehumidifier
+    name: 除濕機 Climate
+    modbus_id: rs485_bus
+    address: 1
+    forget_wifi:
+      name: 重新配對WiFi Forget WiFi
+      disabled_by_default: false
+    target_address:
+      name: Modbus 目標站號 Target Address
+      mode: box
+    active_address:
+      name: Modbus 生效站號 Active Address
+    online:
+      name: Modbus 通訊正常 Online
+    communication_status:
+      name: Modbus 通訊狀態 Communication
+    command_result:
+      name: 最近命令結果 Command Result
+    air_cleaning:
+      name: 清淨功能 Air Cleaning
+      restore_mode: DISABLED
+    continuous_drying:
+      name: 連續除濕 Continuous
+      restore_mode: DISABLED
+    temperature:
+      name: 溫度1 Temperature1
+    humidity1_raw:
+      name: 濕度1 原始值 Humidity1 Raw
+    temperature2_raw:
+      name: 溫度2 原始值 Temperature2 Raw
+    humidity2_raw:
+      name: 濕度2 原始值 Humidity2 Raw
+    pipe_temperature_raw:
+      name: 管溫 原始值 Pipe Raw
+    fan_hours:
+      name: 風扇累積時數 Fan Hours
+    filter_threshold_hours:
+      name: 濾網提醒時數 Filter Hours
+    compressor_running:
+      name: 壓縮機運轉 Compressor
+    fan_running:
+      name: 風扇運轉 Fan Running
+    pipe_sensor_fault:
+      name: 管溫感測異常 Pipe Fault
+    humidity_sensor_fault:
+      name: 濕度感測異常 Humidity Fault
+    room_sensor_fault:
+      name: 室溫感測異常 Room Fault
+    water_full_fault:
+      name: 水滿開關異常 Water Full
+    high_pressure_fault:
+      name: 高壓開關異常 High Pressure
+    low_pressure_fault:
+      name: 低壓開關異常 Low Pressure
+sensor:
+  - platform: wifi_signal
+    name: WiFi 訊號
+    update_interval: 60s
+  - platform: uptime
+    name: 運行時間 Uptime
+text_sensor:
+  - platform: template
+    id: scanner_result
+    name: Modbus Scanner Result
+    entity_category: diagnostic
+    update_interval: never
+  - platform: wifi_info
+    ip_address:
+      name: IP 位址
+button:
+  - platform: restart
+    name: 控制器重啟 Restart
+    entity_category: diagnostic

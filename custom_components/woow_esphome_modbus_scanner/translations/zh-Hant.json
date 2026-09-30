@@ -4,11 +4,14 @@
     "step": {
       "user": {
         "title": "設定 Woow ESPHome Modbus Scanner",
-        "description": "建立唯一的掃描器設定項目。0.2.0 版僅提供可重現的模擬掃描，不會存取 ESPHome 或 Modbus 實體硬體。"
+        "description": "本機實驗版本。兩欄留空則僅模擬；實體掃描必須使用 Guanjie 唯讀橋接 v1 韌體，普通 ESPHome 裝置不支援。實體測試請呼叫服務，側欄仍保留上游模擬流程。所有已登入的 HA 使用者皆可呼叫掃描服務。",
+        "data": {"host": "ESPHome 主機位址（選填）", "mac": "預期 ESPHome MAC 位址（選填）"}
       }
     },
-    "abort": {
-      "already_configured": "Woow ESPHome Modbus Scanner 已完成設定。"
-    }
+    "error": {
+      "gateway_pair_required": "請同時填寫主機位址與 MAC，或兩欄皆留空。",
+      "invalid_mac": "MAC 格式必須為 AA:BB:CC:DD:EE:FF。"
+    },
+    "abort": {"already_configured": "Woow ESPHome Modbus Scanner 已完成設定。"}
   }
 }

@@ -1,8 +1,8 @@
 list_gateways:
   name: List gateways
   description: >-
-    List available read-only scan gateways and capabilities. Version 0.2.0
-    returns one deterministic simulated gateway and never accesses hardware.
+    List mock and explicitly configured experimental ESPHome gateways.
+    Physical reads require Guanjie bridge v1 firmware; availability is verified on connection.
 
 start_scan:
   name: Start scan
@@ -13,27 +13,22 @@ start_scan:
   fields:
     provider:
       name: Provider
-      description: Gateway provider; only the deterministic mock is implemented.
+      description: Physical ESPHome requires bridge v1, FC03/count 1, timeout 700 and pause polling.
       default: mock
       selector:
         select:
           options:
-            - label: Mock (simulated)
-              value: mock
+            - mock
+            - esphome
     gateway_id:
       name: Gateway
-      description: Provider-owned gateway identifier.
+      description: Copy the gateway_id returned by list_gateways.
       default: "mock:rs485-gateway"
       selector:
-        select:
-          options:
-            - label: Simulated RS-485 Gateway
-              value: "mock:rs485-gateway"
+        text:
     esphome_device_id:
-      name: ESPHome device (future)
-      description: >-
-        Optional Home Assistant ESPHome device reserved for a future physical
-        adapter. Version 0.2.0 mock scans do not contact or require this device.
+      name: ESPHome device
+      description: Optional device identity cross-check for an explicitly configured gateway.
       selector:
         device:
           filter:
@@ -191,27 +186,22 @@ test_address:
   fields:
     provider:
       name: Provider
-      description: Gateway provider; only the deterministic mock is implemented.
+      description: Physical ESPHome requires bridge v1, FC03/count 1, timeout 700 and pause polling.
       default: mock
       selector:
         select:
           options:
-            - label: Mock (simulated)
-              value: mock
+            - mock
+            - esphome
     gateway_id:
       name: Gateway
-      description: Provider-owned gateway identifier.
+      description: Copy the gateway_id returned by list_gateways.
       default: "mock:rs485-gateway"
       selector:
-        select:
-          options:
-            - label: Simulated RS-485 Gateway
-              value: "mock:rs485-gateway"
+        text:
     esphome_device_id:
-      name: ESPHome device (future)
-      description: >-
-        Optional Home Assistant ESPHome device reserved for a future physical
-        adapter. Version 0.2.0 mock tests do not contact or require this device.
+      name: ESPHome device
+      description: Optional device identity cross-check for an explicitly configured gateway.
       selector:
         device:
           filter:

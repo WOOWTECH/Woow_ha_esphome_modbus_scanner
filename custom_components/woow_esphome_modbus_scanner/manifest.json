@@ -3,10 +3,10 @@
   "name": "Woow ESPHome Modbus Scanner",
   "codeowners": ["@WOOWTECH"],
   "config_flow": true,
-  "dependencies": ["frontend", "http", "panel_custom"],
+  "dependencies": ["frontend", "http", "panel_custom", "esphome"],
   "documentation": "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner",
   "integration_type": "service",
-  "iot_class": "calculated",
+  "iot_class": "local_polling",
   "issue_tracker": "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/issues",
-  "version": "0.2.0"
+  "version": "0.3.0.dev1"
 }

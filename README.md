@@ -1,5 +1,12 @@
 # Woow ESPHome Modbus Scanner
 
+> **Local experimental branch 0.3.0.dev1:** adds a restricted Guanjie FC03
+> firmware bridge and ESPHome provider. See [the bridge contract and test
+> instructions](docs/adr/0004-experimental-guanjie-fc03-bridge.md). This is not
+> an upstream release; the documentation below describes upstream v0.2.0.
+> Physical service support does not make the mock-oriented sidebar/tutorial
+> a physical scanner UI. HACS updates may overwrite these local changes.
+
 A HACS-compatible Home Assistant custom integration for safe, provider-backed,
 best-effort Modbus address discovery. Version **0.2.0** is intentionally
 hardware-free: it ships only a deterministic `MockGatewayProvider` and never

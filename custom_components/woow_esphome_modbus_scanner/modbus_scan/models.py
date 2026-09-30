@@ -131,7 +131,9 @@ class ScanRequest:
     @property
     def estimated_worst_case_ms(self) -> int:
         """Conservative request duration estimate without pre-enqueuing work."""
-        per_address = self.timeout_ms * (self.retries + 1)
+        # Physical bridge includes normal-transaction drain and pre/post quiet.
+        overhead = 2700 if self.provider == "esphome" else 0
+        per_address = (self.timeout_ms + overhead) * (self.retries + 1)
         delays = max(0, self.address_count - 1) * self.inter_request_delay_ms
         return self.address_count * per_address + delays
 

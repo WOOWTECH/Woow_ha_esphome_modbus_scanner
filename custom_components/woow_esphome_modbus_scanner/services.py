@@ -88,7 +88,7 @@ def _canonical_uuid(value: object) -> str:
 
 
 _PROVIDER_FIELDS = {
-    vol.Optional("provider", default="mock"): vol.In(["mock"]),
+    vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
@@ -105,9 +105,7 @@ _PROBE_FIELDS = {
     vol.Optional("timeout_ms", default=500): vol.All(
         _exact_int, vol.Range(min=MIN_TIMEOUT_MS, max=MAX_TIMEOUT_MS)
     ),
-    vol.Optional("retries", default=1): vol.All(
-        _exact_int, vol.Range(min=0, max=MAX_RETRIES)
-    ),
+    vol.Optional("retries", default=1): vol.All(_exact_int, vol.Range(min=0, max=MAX_RETRIES)),
     vol.Optional("inter_request_delay_ms", default=100): vol.All(
         _exact_int, vol.Range(min=0, max=MAX_INTER_REQUEST_DELAY_MS)
     ),
@@ -122,9 +120,7 @@ _START_SCAN_SCHEMA = vol.Schema(
         vol.Required("start_id"): vol.All(
             _exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)
         ),
-        vol.Required("end_id"): vol.All(
-            _exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)
-        ),
+        vol.Required("end_id"): vol.All(_exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)),
         **_PROBE_FIELDS,
         vol.Required("safety_confirmed"): _exact_true,
     }
@@ -133,9 +129,7 @@ _SCAN_ID_SCHEMA = vol.Schema({vol.Required("scan_id"): _canonical_uuid})
 _TEST_ADDRESS_SCHEMA = vol.Schema(
     {
         **_PROVIDER_FIELDS,
-        vol.Required("address"): vol.All(
-            _exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)
-        ),
+        vol.Required("address"): vol.All(_exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)),
         **_PROBE_FIELDS,
     }
 )
@@ -153,16 +147,23 @@ def _coordinator(
     if (
         domain_data is None
         or not domain_data.get(DATA_SERVICES_AVAILABLE, False)
-        or (
-            expected_owner is not None
-            and domain_data.get(DATA_SERVICE_OWNER) != expected_owner
-        )
+        or (expected_owner is not None and domain_data.get(DATA_SERVICE_OWNER) != expected_owner)
     ):
         raise HomeAssistantError("Modbus scan services are no longer available")
     owner = domain_data.get(DATA_SERVICE_OWNER)
     coordinator = domain_data.get(DATA_COORDINATOR)
     if coordinator is None:
-        coordinator = ModbusScanCoordinator(hass, [MockGatewayProvider()])
+        providers = [MockGatewayProvider()]
+        entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
+        if entry is not None and entry.data.get("gateways"):
+            from .modbus_scan.esphome_provider import ESPHomeGateway, ESPHomeGatewayProvider
+
+            providers.append(
+                ESPHomeGatewayProvider(
+                    [ESPHomeGateway(**gateway) for gateway in entry.data["gateways"]]
+                )
+            )
+        coordinator = ModbusScanCoordinator(hass, providers)
         domain_data[DATA_COORDINATOR] = coordinator
         domain_data[DATA_COORDINATOR_OWNER] = owner
     elif domain_data.get(DATA_COORDINATOR_OWNER) != owner:
@@ -197,34 +198,41 @@ def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
     return HomeAssistantError(str(err))
 
 
-async def _handle_list_gateways(
-    call: ServiceCall, owner: _Owner
-) -> ServiceResponse:
+async def _handle_list_gateways(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     return _coordinator(call.hass, owner).list_gateways()
+
+
+def _validate_selected_device(call: ServiceCall) -> None:
+    if call.data["provider"] != "esphome" or not call.data.get("esphome_device_id"):
+        return
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(call.hass).async_get(call.data["esphome_device_id"])
+    if device is None or not any(
+        kind == dr.CONNECTION_NETWORK_MAC
+        and "esphome:" + value.replace(":", "").lower() == call.data["gateway_id"]
+        for kind, value in device.connections
+    ):
+        raise ValueError("Selected ESPHome device does not match the configured gateway")
 
 
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     try:
-        request = _scan_request(
-            call.data, safety_confirmed=call.data["safety_confirmed"]
-        )
+        _validate_selected_device(call)
+        request = _scan_request(call.data, safety_confirmed=call.data["safety_confirmed"])
         return await _coordinator(call.hass, owner).start(request)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
 
 
-async def _handle_get_scan_status(
-    call: ServiceCall, owner: _Owner
-) -> ServiceResponse:
+async def _handle_get_scan_status(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     try:
         return _coordinator(call.hass, owner).status(call.data["scan_id"])
     except ScanNotFoundError as err:
         raise _as_home_assistant_error(err) from err
 
 
-async def _handle_get_scan_results(
-    call: ServiceCall, owner: _Owner
-) -> ServiceResponse:
+async def _handle_get_scan_results(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     try:
         return _coordinator(call.hass, owner).results(call.data["scan_id"])
     except ScanNotFoundError as err:
@@ -240,9 +248,8 @@ async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceRespon
 
 async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     try:
-        request = _scan_request(
-            call.data, safety_confirmed=True, address=call.data["address"]
-        )
+        _validate_selected_device(call)
+        request = _scan_request(call.data, safety_confirmed=True, address=call.data["address"])
         return await _coordinator(call.hass, owner).start(request)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
@@ -325,13 +332,8 @@ def async_unregister_services(
 ) -> None:
     """Make one generation's dispatched handlers fail closed, then remove them."""
     domain_data = hass.data.setdefault(DOMAIN, {})
-    expected_owner = (
-        None if entry_id is None or generation is None else (entry_id, generation)
-    )
-    if (
-        expected_owner is not None
-        and domain_data.get(DATA_SERVICE_OWNER) != expected_owner
-    ):
+    expected_owner = None if entry_id is None or generation is None else (entry_id, generation)
+    if expected_owner is not None and domain_data.get(DATA_SERVICE_OWNER) != expected_owner:
         return
     domain_data.pop(DATA_SERVICES_AVAILABLE, None)
     domain_data.pop(DATA_SERVICE_OWNER, None)

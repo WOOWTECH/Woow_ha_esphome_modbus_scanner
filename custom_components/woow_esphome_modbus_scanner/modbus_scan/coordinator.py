@@ -85,6 +85,8 @@ class ModbusScanCoordinator:
         provider = self._providers.get(request.provider)
         if provider is None:
             raise ValueError(f"Unsupported Modbus scan provider: {request.provider}")
+        if validator := getattr(provider, "validate_request", None):
+            validator(request)
         available_ids = {item.gateway_id for item in provider.list_gateways()}
         if request.gateway_id not in available_ids:
             raise ValueError(f"Unknown Modbus gateway: {request.gateway_id}")

@@ -4,11 +4,14 @@
     "step": {
       "user": {
         "title": "Set up Woow ESPHome Modbus Scanner",
-        "description": "Create the singleton scanner entry. Version 0.2.0 provides deterministic mock scanning only and does not access ESPHome or Modbus hardware."
+        "description": "Experimental local build. Leave both fields empty for mock only. Physical scanning requires the Guanjie read-only bridge v1 firmware; configuring an ordinary ESPHome node does not add that capability. Physical scans are available through services; the sidebar retains its upstream mock workflow. All authenticated HA users can invoke scan services.",
+        "data": {"host": "ESPHome host (optional)", "mac": "Expected ESPHome MAC address (optional)"}
       }
     },
-    "abort": {
-      "already_configured": "Woow ESPHome Modbus Scanner is already configured."
-    }
+    "error": {
+      "gateway_pair_required": "Provide both host and MAC, or leave both empty.",
+      "invalid_mac": "Enter a MAC address in AA:BB:CC:DD:EE:FF format."
+    },
+    "abort": {"already_configured": "Woow ESPHome Modbus Scanner is already configured."}
   }
 }

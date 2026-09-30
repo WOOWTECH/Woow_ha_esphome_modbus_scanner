@@ -77,4 +77,4 @@ def test_repository_contains_standalone_generated_panel_bundle():
     assert bundle.stat().st_size > 10_000
 
     manifest = json.loads((INTEGRATION / "manifest.json").read_text())
-    assert set(manifest["dependencies"]) == {"frontend", "http", "panel_custom"}
+    assert set(manifest["dependencies"]) == {"frontend", "http", "panel_custom", "esphome"}

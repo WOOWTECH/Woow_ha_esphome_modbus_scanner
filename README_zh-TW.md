@@ -1,5 +1,10 @@
 # Woow ESPHome Modbus Scanner
 
+> **本機實驗分支 0.3.0.dev1：**新增限定貫捷 IN-D17 的 FC03 韌體橋接及
+> ESPHome provider。請看[實體橋接契約與測試方式](docs/adr/0004-experimental-guanjie-fc03-bridge.md)。
+> 這不是上游發行版；下方文件仍描述原版 v0.2.0。實體掃描透過 HA 服務，
+> 側欄與教學仍是上游模擬流程。HACS 更新可能覆蓋這些本機修改。
+
 這是一個可由 HACS 安裝的 Home Assistant 自訂整合，用於安全、以提供者為
 邊界的 Modbus 位址盡力掃描。**0.2.0** 僅包含可重現的
 `MockGatewayProvider`；不會連線 ESPHome，也不會開啟 Modbus 實體傳輸。

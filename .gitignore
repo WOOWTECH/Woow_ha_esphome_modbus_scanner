@@ -13,3 +13,8 @@ node_modules/
 panel_frontend/dist/
 test-results/
 playwright-report/
+
+# Device credentials and compiled firmware must not enter source control.
+secrets.yaml
+.esphome/
+*.bin
