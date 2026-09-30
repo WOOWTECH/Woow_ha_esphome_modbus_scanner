@@ -109,6 +109,13 @@ History 最多 20 筆；突然中斷的 start checkpoint 會標成 `INTERRUPTED`
   YAML `pre` selector，且管理用 WebSocket 閒置後失效。均保留失敗紀錄並修正；
   正確金鑰及暫時帳號清理已重新確認。這些不冒充產品缺陷或刪除失敗證據。
 
+## 運維提醒
+
+部署末端 HA 檔案系統約剩 **1.5 GB（使用率 95%）**。沒有擅自刪除既有資料、
+編譯快取或回復映像；後續大量編譯／備份前，應另行安排容量整理。
+目前 GitHub workflow 只在 main push／對 main 的 PR 觸發；本分支的驗證是
+上述本機／隔離／實機結果，沒有宣稱未執行的遠端 CI 成功。
+
 ## 未做／不宣稱
 
 沒有 FC06/FC16 scanner actions、啟動除濕機、改寫持久 slave address、
