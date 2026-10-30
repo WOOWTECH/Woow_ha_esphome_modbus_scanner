@@ -25,8 +25,8 @@ class ProbeType(StrEnum):
     INPUT_REGISTER = "input_register"
 
 
-class MockProfile(StrEnum):
-    """Deterministic mock bus profiles."""
+class MockScenario(StrEnum):
+    """Deterministic Mock Scenarios (fixed outcome sets of the mock provider)."""
 
     FOUND_DEFAULT = "found_default"
     ALL_OFFLINE = "all_offline"
@@ -64,7 +64,7 @@ class GatewayInfo:
     gateway_id: str
     name: str
     capabilities: tuple[str, ...]
-    mock_profiles: tuple[str, ...] = ()
+    mock_scenarios: tuple[str, ...] = ()
     profile: dict[str, Any] | None = None
     health: dict[str, Any] | None = None
 
@@ -75,7 +75,7 @@ class GatewayInfo:
             "gateway_id": self.gateway_id,
             "name": self.name,
             "capabilities": list(self.capabilities),
-            "mock_profiles": list(self.mock_profiles),
+            "mock_scenarios": list(self.mock_scenarios),
             "simulated": self.provider == "mock",
             **({"profile": deepcopy(self.profile)} if self.profile is not None else {}),
             **({"health": deepcopy(self.health)} if self.health is not None else {}),
@@ -97,7 +97,7 @@ class ScanRequest:
     retries: int = 1
     inter_request_delay_ms: int = 100
     pause_normal_polling: bool = False
-    mock_profile: str = MockProfile.FOUND_DEFAULT
+    mock_scenario: str = MockScenario.FOUND_DEFAULT
     safety_confirmed: bool = False
 
     @classmethod
@@ -106,7 +106,7 @@ class ScanRequest:
         *,
         start_id: int = MIN_SLAVE_ID,
         end_id: int = 12,
-        profile: str = MockProfile.FOUND_DEFAULT,
+        scenario: str = MockScenario.FOUND_DEFAULT,
         safety_confirmed: bool = True,
         **overrides: Any,
     ) -> ScanRequest:
@@ -116,7 +116,7 @@ class ScanRequest:
             "gateway_id": "mock:rs485-gateway",
             "start_id": start_id,
             "end_id": end_id,
-            "mock_profile": profile,
+            "mock_scenario": scenario,
             "safety_confirmed": safety_confirmed,
             "inter_request_delay_ms": 0,
         }

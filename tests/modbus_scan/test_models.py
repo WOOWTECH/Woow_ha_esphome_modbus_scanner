@@ -43,7 +43,7 @@ def test_request_validation_is_provider_neutral():
         gateway_id="serial:/dev/ttyUSB0",
         start_id=1,
         end_id=2,
-        mock_profile="provider-owned-value",
+        mock_scenario="provider-owned-value",
         safety_confirmed=True,
     )
 

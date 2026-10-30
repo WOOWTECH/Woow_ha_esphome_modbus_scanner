@@ -61,6 +61,15 @@ async def test_list_gateways_returns_mock_capabilities(hass):
     assert gateway["gateway_id"] == "mock:rs485-gateway"
     assert gateway["simulated"] is True
     assert gateway["provider"] == "mock"
+    assert gateway["mock_scenarios"] == [
+        "found_default",
+        "all_offline",
+        "partial_timeout",
+        "modbus_exception",
+        "possible_collision",
+        "gateway_disconnect",
+    ]
+    assert "mock_profiles" not in gateway
 
 
 async def test_start_status_and_results_have_normalized_public_shapes(hass):
