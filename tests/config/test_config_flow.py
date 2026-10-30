@@ -40,7 +40,7 @@ async def test_second_entry_aborts_as_already_configured(hass):
 
 @pytest.mark.parametrize("failure", [None, "auth", "network"])
 async def test_reauth_verifies_api_before_saving(hass, failure):
-    from custom_components.woow_esphome_modbus_scanner.modbus_scan.esphome_provider import (
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provider import (
         ESPHomeGatewayProvider,
     )
     from custom_components.woow_esphome_modbus_scanner.modbus_scan.provider import (

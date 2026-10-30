@@ -12,10 +12,19 @@ from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 
-from .models import ProbeResult, ScanOutcome, ScanPhase, ScanRequest
+from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
 from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
+GENERIC_REQUEST_DEFAULTS: dict[str, Any] = {
+    "probe_type": ProbeType.DEVICE_IDENTIFICATION,
+    "register_address": 0,
+    "register_count": 1,
+    "timeout_ms": 500,
+    "retries": 1,
+    "inter_request_delay_ms": 100,
+    "pause_normal_polling": False,
+}
 
 
 class ScanNotFoundError(LookupError):
@@ -92,6 +101,20 @@ class ModbusScanCoordinator:
         ]
         return {"gateways": gateways}
 
+    def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
+        provider = self._providers.get(provider_id)
+        if provider is None:
+            return None
+        return next(
+            (item for item in provider.list_gateways() if item.gateway_id == gateway_id), None
+        )
+
+    def request_defaults(self, provider_id: str, gateway_id: str) -> dict[str, Any]:
+        """Probe defaults reported by the gateway's adapter, else generic defaults."""
+        gateway = self._gateway(provider_id, gateway_id)
+        reported = gateway.limits.defaults if gateway and gateway.limits else {}
+        return {**GENERIC_REQUEST_DEFAULTS, **reported}
+
     async def start(self, request: ScanRequest) -> dict[str, Any]:
         """Validate and schedule a scan without awaiting its address loop."""
         if self._shutting_down:
@@ -100,11 +123,11 @@ class ModbusScanCoordinator:
         provider = self._providers.get(request.provider)
         if provider is None:
             raise ValueError(f"Unsupported Modbus scan provider: {request.provider}")
-        if validator := getattr(provider, "validate_request", None):
-            validator(request)
-        available_ids = {item.gateway_id for item in provider.list_gateways()}
-        if request.gateway_id not in available_ids:
+        gateway = self._gateway(request.provider, request.gateway_id)
+        if gateway is None:
             raise ValueError(f"Unknown Modbus gateway: {request.gateway_id}")
+        if gateway.limits is not None:
+            gateway.limits.validate(request)
         if existing := self._active.get(request.gateway_key):
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 

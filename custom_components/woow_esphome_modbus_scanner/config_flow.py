@@ -91,7 +91,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input=None):
-        from .modbus_scan.esphome_provider import ESPHomeGateway, ESPHomeGatewayProvider
+        from .modbus_scan.adapters import build_physical_provider
         from .modbus_scan.provider import GatewayProviderError
 
         entry = self._get_reauth_entry()
@@ -115,11 +115,14 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             if error:
                 errors["base"] = error
             else:
-                provider = ESPHomeGatewayProvider([ESPHomeGateway(**g) for g in gateways])
+                provider = build_physical_provider(gateways)
                 try:
+                    if provider is None:
+                        raise GatewayProviderError("No physical adapter", code="BRIDGE_UNSUPPORTED")
                     async with asyncio.timeout(20):
-                        for gateway in provider.gateways:
-                            await provider.check_gateway(gateway)  # API only; never probes RTU.
+                        for gateway in provider.list_gateways():
+                            # API only; never probes RTU.
+                            await provider.check_gateway(gateway.gateway_id)
                 except GatewayProviderError as exc:
                     errors["base"] = (
                         "invalid_auth" if exc.code == "API_AUTH_FAILED" else "cannot_connect"

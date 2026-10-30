@@ -67,7 +67,7 @@ def generate():
         + "};\n}\n"
     )
     return {
-        "custom_components/woow_esphome_modbus_scanner/modbus_scan/profile_generated.py": py,
+        "custom_components/woow_esphome_modbus_scanner/modbus_scan/legacy_v1/profile.py": py,
         "panel_frontend/src/profile-generated.js": js,
         "firmware/guanjie-scanner/components/guanjie/profile_generated.h": h,
     }

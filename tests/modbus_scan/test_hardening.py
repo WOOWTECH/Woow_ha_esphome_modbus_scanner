@@ -15,13 +15,13 @@ from aioesphomeapi import (
 )
 import pytest
 
-from custom_components.woow_esphome_modbus_scanner.modbus_scan.esphome_provider import (
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.health import HealthSession
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.profile import PROFILE
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provider import (
     ESPHomeGateway,
     ESPHomeGatewayProvider,
 )
-from custom_components.woow_esphome_modbus_scanner.modbus_scan.health import HealthSession
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import ProbeType, ScanRequest
-from custom_components.woow_esphome_modbus_scanner.modbus_scan.profile_generated import PROFILE
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.provider import GatewayProviderError
 
 GATEWAY = ESPHomeGateway("192.0.2.1", "AA:BB:CC:DD:EE:FF")
