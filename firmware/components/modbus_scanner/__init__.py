@@ -19,7 +19,7 @@ import esphome.codegen as cg
 from esphome.components import modbus, text_sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_NAME, ENTITY_CATEGORY_DIAGNOSTIC
-from esphome.core import CORE, ID
+from esphome.core import CORE
 import esphome.final_validate as fv
 
 CODEOWNERS = ["@WOOWTECH"]
@@ -33,6 +33,7 @@ RESULT_SENSOR_NAME = "Modbus Scanner v2 Result"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
 CONF_BUS = "bus"
+CONF_BRIDGE_ID = "bridge_id"
 CONF_INFO_SENSOR = "info_sensor"
 CONF_RESULT_SENSOR = "result_sensor"
 _BRIDGE_KEY = "modbus_scanner_bridge"
@@ -71,6 +72,8 @@ CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ModbusScannerBus),
+            # Only the first entry's bridge is created; it serves every Bus on the node.
+            cv.GenerateID(CONF_BRIDGE_ID): cv.declare_id(ModbusScannerBridge),
             cv.GenerateID(modbus.CONF_MODBUS_ID): cv.use_id(modbus.ModbusClient),
             cv.Optional(CONF_BUS): _bus_name,
             cv.Optional(CONF_INFO_SENSOR, default={CONF_NAME: INFO_SENSOR_NAME}): _sensor(
@@ -123,9 +126,7 @@ def _hub_send_wait_ms(hub_id) -> int:
 async def _bridge(config):
     if _BRIDGE_KEY in CORE.data:
         return CORE.data[_BRIDGE_KEY]
-    bridge = cg.new_Pvariable(
-        ID("modbus_scanner_bridge", is_declaration=True, type=ModbusScannerBridge)
-    )
+    bridge = cg.new_Pvariable(config[CONF_BRIDGE_ID])
     await cg.register_component(bridge, {})
     info = await text_sensor.new_text_sensor(config[CONF_INFO_SENSOR])
     cg.add(bridge.set_info_sensor(info))
