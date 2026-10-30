@@ -108,10 +108,13 @@ data:
   end_id: 12
   probe_type: device_identification
   inter_request_delay_ms: 0
-  mock_profile: found_default
+  mock_scenario: found_default
   safety_confirmed: true
 response_variable: started
 ```
+
+`mock_scenario` 選擇模擬 provider 的固定結果情境。舊名稱 `mock_profile` 仍可作為
+已棄用別名使用；同時提供兩者會被拒絕。
 
 使用回傳的 `scan_id` 呼叫 `get_scan_status` 與 `get_scan_results`。
 `test_address` 走相同協調器，但只測一個位址。每個 provider/gateway 同時只允許
