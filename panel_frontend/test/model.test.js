@@ -116,3 +116,17 @@ test("recent storage accepts only unique canonical UUIDs", () => {
   assert.deepEqual(sanitizeRecent([valid, valid, "id", 4, {}, "11111111-1111-0111-8111-111111111111"]), [valid]);
   assert.deepEqual(sanitizeRecent({0:valid}), []);
 });
+
+test("mock payloads name the Mock Scenario with mock_scenario, never the deprecated alias", () => {
+  const form = {...DEFAULTS, mock_scenario: "all_offline", safety_confirmed: true};
+  for (const payload of [startPayload(form), testPayload(form)]) {
+    assert.equal(payload.mock_scenario, "all_offline");
+    assert.equal("mock_profile" in payload, false);
+  }
+});
+
+test("a Mock Scenario saved under the deprecated preference key is kept", () => {
+  assert.equal(sanitizePreferences({form: {mock_profile: "partial_timeout"}}).form.mock_scenario, "partial_timeout");
+  assert.equal(sanitizePreferences({form: {mock_scenario: "all_offline"}}).form.mock_scenario, "all_offline");
+  assert.equal("mock_profile" in sanitizePreferences({form: {mock_profile: "all_offline"}}).form, false);
+});

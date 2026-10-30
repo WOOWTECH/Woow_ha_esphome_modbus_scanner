@@ -106,7 +106,7 @@ async def test_cancellation_reaches_terminal_cancelled_state(hass):
 async def test_provider_failure_is_isolated_and_published(hass):
     coordinator = _coordinator(hass)
     scan = await coordinator.start(
-        ScanRequest.mock(end_id=12, profile="gateway_disconnect")
+        ScanRequest.mock(end_id=12, scenario="gateway_disconnect")
     )
     done = await coordinator.wait(scan["scan_id"])
     assert done["status"] == "failed"

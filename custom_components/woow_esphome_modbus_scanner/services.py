@@ -46,7 +46,7 @@ from .modbus_scan.models import (
     MAX_TIMEOUT_MS,
     MIN_SLAVE_ID,
     MIN_TIMEOUT_MS,
-    MockProfile,
+    MockScenario,
     ProbeType,
     ScanRequest,
 )
@@ -111,10 +111,22 @@ _PROBE_FIELDS = {
         _exact_int, vol.Range(min=0, max=MAX_INTER_REQUEST_DELAY_MS)
     ),
     vol.Optional("pause_normal_polling"): bool,
-    vol.Optional("mock_profile", default=MockProfile.FOUND_DEFAULT.value): vol.In(
-        [item.value for item in MockProfile]
-    ),
+    vol.Optional("mock_scenario"): vol.In([item.value for item in MockScenario]),
+    # Deprecated alias of mock_scenario, kept so existing scripts keep working.
+    vol.Optional("mock_profile"): vol.In([item.value for item in MockScenario]),
 }
+
+
+def _resolve_mock_scenario(data):
+    """Fold the deprecated mock_profile alias into mock_scenario."""
+    if "mock_scenario" in data and "mock_profile" in data:
+        raise vol.Invalid(
+            "mock_profile is a deprecated alias of mock_scenario; provide only mock_scenario"
+        )
+    data["mock_scenario"] = data.pop(
+        "mock_profile", data.get("mock_scenario", MockScenario.FOUND_DEFAULT.value)
+    )
+    return data
 
 
 def _with_gateway_defaults(coordinator: ModbusScanCoordinator, data) -> dict[str, Any]:
@@ -146,6 +158,8 @@ _TEST_ADDRESS_SCHEMA = vol.Schema(
     }
 )
 _LIST_GATEWAYS_SCHEMA = vol.Schema({})
+_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _resolve_mock_scenario)
+_TEST_ADDRESS_SCHEMA = vol.All(_TEST_ADDRESS_SCHEMA, _resolve_mock_scenario)
 
 
 _Owner = tuple[str, int]
@@ -202,7 +216,7 @@ def _scan_request(
         retries=data["retries"],
         inter_request_delay_ms=data["inter_request_delay_ms"],
         pause_normal_polling=data["pause_normal_polling"],
-        mock_profile=data["mock_profile"],
+        mock_scenario=data["mock_scenario"],
         safety_confirmed=safety_confirmed,
     )
 

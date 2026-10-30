@@ -10,7 +10,7 @@ export const SERVICES = Object.freeze([
   "cancel_scan",
   "test_address",
 ]);
-export const PROFILES = Object.freeze([
+export const MOCK_SCENARIOS = Object.freeze([
   "found_default", "all_offline", "partial_timeout", "modbus_exception",
   "possible_collision", "gateway_disconnect",
 ]);
@@ -24,7 +24,7 @@ export const DEFAULTS = Object.freeze({
   address: 1, probe_type: "device_identification", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_profile: "found_default", safety_confirmed: false,
+  mock_scenario: "found_default", safety_confirmed: false,
 });
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
@@ -80,7 +80,7 @@ function sharedPayload(form) {
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
     pause_normal_polling: form.pause_normal_polling === true,
-    ...(form.provider === "mock" ? {mock_profile: form.mock_profile} : {}),
+    ...(form.provider === "mock" ? {mock_scenario: form.mock_scenario} : {}),
   };
 }
 export function startPayload(form) {
@@ -127,7 +127,9 @@ export function sanitizePreferences(value) {
     if (typeof source[name] === "number" && Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) form[name] = source[name];
   }
   if (PROBE_TYPES.includes(source.probe_type)) form.probe_type = source.probe_type;
-  if (PROFILES.includes(source.mock_profile)) form.mock_profile = source.mock_profile;
+  // mock_profile is the deprecated pre-0.5 key for the same Mock Scenario.
+  const mockScenario = source.mock_scenario ?? source.mock_profile;
+  if (MOCK_SCENARIOS.includes(mockScenario)) form.mock_scenario = mockScenario;
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;

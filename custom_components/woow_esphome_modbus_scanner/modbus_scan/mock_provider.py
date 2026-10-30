@@ -7,7 +7,7 @@ import asyncio
 from .limits import ProbeLimits
 from .models import (
     GatewayInfo,
-    MockProfile,
+    MockScenario,
     ProbeResult,
     ScanOutcome,
     ScanRequest,
@@ -39,7 +39,7 @@ class MockGatewayProvider:
                     "input_register",
                     "cancellation",
                 ),
-                mock_profiles=tuple(profile.value for profile in MockProfile),
+                mock_scenarios=tuple(scenario.value for scenario in MockScenario),
                 limits=MOCK_LIMITS,
             ),
         )
@@ -56,8 +56,8 @@ class MockGatewayProvider:
             raise ValueError(f"Unsupported mock provider: {request.provider}")
         if request.gateway_id != MOCK_GATEWAY_ID:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
-        if request.mock_profile not in {item.value for item in MockProfile}:
-            raise ValueError(f"Unsupported mock_profile: {request.mock_profile}")
+        if request.mock_scenario not in {item.value for item in MockScenario}:
+            raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")
         delay_ms = max(self._step_delay_ms, request.inter_request_delay_ms)
         for address in range(request.start_id, request.end_id + 1):
             if cancelled():
@@ -70,21 +70,21 @@ class MockGatewayProvider:
                 if cancelled():
                     return
             if (
-                request.mock_profile == MockProfile.GATEWAY_DISCONNECT
+                request.mock_scenario == MockScenario.GATEWAY_DISCONNECT
                 and address >= max(request.start_id + 3, 4)
             ):
                 raise GatewayProviderError(
                     "Simulated gateway disconnected", address=address
                 )
-            emit(self._result_for(request.mock_profile, address))
+            emit(self._result_for(request.mock_scenario, address))
 
     @staticmethod
-    def _result_for(profile: str, address: int) -> ProbeResult:
+    def _result_for(scenario: str, address: int) -> ProbeResult:
         """Return the stable outcome table for one mock address."""
-        if profile == MockProfile.ALL_OFFLINE:
+        if scenario == MockScenario.ALL_OFFLINE:
             return _timeout(address)
 
-        if profile == MockProfile.FOUND_DEFAULT:
+        if scenario == MockScenario.FOUND_DEFAULT:
             if address == 1:
                 return _identified(address, "WOOWTECH", "WT-RS485-01")
             if address == 3:
@@ -95,19 +95,19 @@ class MockGatewayProvider:
                 return _identified(address, "Acme Controls", "ACM-12")
             return _timeout(address)
 
-        if profile == MockProfile.PARTIAL_TIMEOUT:
+        if scenario == MockScenario.PARTIAL_TIMEOUT:
             if address in {2, 11, 42}:
                 return _responded(address)
             if address in {7, 21}:
                 return _identified(address, "Mock Industries", f"MI-{address:03d}")
             return _timeout(address)
 
-        if profile == MockProfile.MODBUS_EXCEPTION:
+        if scenario == MockScenario.MODBUS_EXCEPTION:
             if address in {4, 9, 17}:
                 return _exception(address, code=2 if address != 9 else 3)
             return _timeout(address)
 
-        if profile == MockProfile.POSSIBLE_COLLISION:
+        if scenario == MockScenario.POSSIBLE_COLLISION:
             if address == 7:
                 return ProbeResult(
                     address=address,
