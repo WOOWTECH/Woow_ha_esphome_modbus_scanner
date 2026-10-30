@@ -48,7 +48,7 @@ struct FakePort : core::BusPort {
   std::vector<Frame> queued;
   std::vector<uint16_t> send_wait_history;
   bool accept{true};
-  bool queue_pdu(uint8_t slave, const uint8_t *pdu, size_t len) override {
+  bool queue_request(uint8_t slave, const uint8_t *pdu, size_t len) override {
     if (!accept)
       return false;
     queued.push_back({slave, std::vector<uint8_t>(pdu, pdu + len)});

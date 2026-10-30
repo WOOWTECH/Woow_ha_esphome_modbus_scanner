@@ -94,7 +94,7 @@ class BusPort {
   virtual ~BusPort() = default;
   /// Queue a request PDU (function code + data, no address/CRC) for `slave`. False means the hub
   /// refused it and no callback will follow; true means exactly one terminal callback follows.
-  virtual bool queue_pdu(uint8_t slave, const uint8_t *pdu, size_t len) = 0;
+  virtual bool queue_request(uint8_t slave, const uint8_t *pdu, size_t len) = 0;
   /// The hub-wide wait for a reply (ESPHome `modbus: send_wait_time`).
   virtual void set_send_wait_ms(uint16_t ms) = 0;
 };
@@ -241,7 +241,7 @@ class Bus {
     this->request_ = request;
     this->in_flight_ = true;
     this->sent_ = false;
-    if (!this->port_.queue_pdu(static_cast<uint8_t>(request.slave), pdu, sizeof(pdu))) {
+    if (!this->port_.queue_request(static_cast<uint8_t>(request.slave), pdu, sizeof(pdu))) {
       this->in_flight_ = false;
       return error::QUEUE_REJECTED;
     }
