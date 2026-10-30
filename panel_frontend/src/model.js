@@ -24,7 +24,7 @@ export const DEFAULTS = Object.freeze({
   address: 1, probe_type: "device_identification", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_scenario: "found_default", safety_confirmed: false,
+  mock_scenario: "found_default", safety_confirmed: false, bridge: "",
 });
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
@@ -34,13 +34,40 @@ export const INTEGER_BOUNDS = Object.freeze({
 export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
+/** Hard limits of bridge v2 Gateways (the contract file's hard_limits; a model test checks them). */
+export const V2_LIMITS = Object.freeze({
+  slave_min: 1, slave_max: 247, register_count_max: 4, timeout_ms_min: 100, timeout_ms_max: 2000,
+  probe_types: Object.freeze(["holding_register", "input_register"]),
+});
+export const V2_DEFAULTS = Object.freeze({
+  probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
+  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: false,
+});
+export function isBridgeV2(gateway) {
+  return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
+}
+const isV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 export function boundsFor(form) {
+  if (isV2Form(form)) {
+    const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
+    return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
+      register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
+  }
   const l = PHYSICAL_PROFILE.limits;
   return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
 }
 export function selectGateway(form, gateway) {
+  if (isBridgeV2(gateway)) {
+    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", safety_confirmed:false};
+  }
   const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
-  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, safety_confirmed:false};
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", safety_confirmed:false};
+}
+/** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
+export function formatRawValues(row) {
+  const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
+  const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
+  return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -61,7 +88,11 @@ export function validateForm(form, single = false, text = {}) {
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
   }
-  if (form.provider === "esphome") {
+  if (isV2Form(form)) {
+    const message = text.v2 || "Bridge v2 reads FC03/FC04 only and cannot pause Normal Polling yet.";
+    if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
+    if (form.pause_normal_polling === true) errors.pause_normal_polling = message;
+  } else if (form.provider === "esphome") {
     const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
     if (form.probe_type !== "holding_register") errors.probe_type = message;
     if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
@@ -88,7 +119,7 @@ export function startPayload(form) {
 }
 export function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 export function supportedGateway(gateway) {
-  return gateway?.provider === "mock" || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
+  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
 }
 export function serviceYaml(form) {
   if (Object.keys(validateForm(form)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
@@ -109,6 +140,7 @@ export function evidenceExport(status, results) {
       address:integer(row.address,247), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
       latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
       register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
+      raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,
       attempts:integer(row.attempts,6),
     })),
     privacy:"Identities and free-text fields omitted; numeric register evidence retained.",
@@ -133,8 +165,18 @@ export function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
-  if (source.provider === "esphome") {
+  if (source.provider === "esphome" && source.bridge === "v2") {
     form.provider = "esphome";
+    form.bridge = "v2";
+    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
+    const [countMin, countMax] = [1, V2_LIMITS.register_count_max];
+    if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
+    if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
+    if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
+    form.pause_normal_polling = false;
+  } else if (source.provider === "esphome") {
+    form.provider = "esphome";
+    form.bridge = "v1";
     form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
     // Migrate old incompatible preferences, without silently changing provider.
     for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];

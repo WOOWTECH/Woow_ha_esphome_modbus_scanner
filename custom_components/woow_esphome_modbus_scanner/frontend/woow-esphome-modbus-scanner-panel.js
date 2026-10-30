@@ -72,6 +72,8 @@ const en = {
   physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
   physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
   physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
+  v2Help: "Bridge v2: FC03 or FC04, any register, 1–4 registers, 100–2000 ms timeout.",
+  v2Pause: "Not available yet on bridge v2: Normal Polling keeps running during the probe.",
   physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
   physicalProfiles: "Mock scenarios do not apply to physical gateways. Results below must identify their actual provider and gateway.",
   physicalPause: "Required. Firmware drains the current transaction, reads once, then automatically restores polling even if the client disconnects.",
@@ -118,6 +120,8 @@ const zh = {
   physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
   physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
   physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
+  v2Help:"橋接 v2：FC03 或 FC04、任意暫存器、數量 1–4、逾時 100–2000 毫秒。",
+  v2Pause:"橋接 v2 尚不支援暫停：探測期間一般輪詢持續進行。",
   physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
   physicalProfiles:"模擬情境不適用於實體閘道。下方結果會另行標明實際提供者與閘道。",
   physicalPause:"必要設定。韌體等候當前交易結束，單次讀取後自動恢復輪詢；客戶端斷線也會恢復。",
@@ -217,7 +221,7 @@ const DEFAULTS = Object.freeze({
   address: 1, probe_type: "device_identification", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_scenario: "found_default", safety_confirmed: false,
+  mock_scenario: "found_default", safety_confirmed: false, bridge: "",
 });
 const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
@@ -227,13 +231,40 @@ const INTEGER_BOUNDS = Object.freeze({
 const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
+/** Hard limits of bridge v2 Gateways (the contract file's hard_limits; a model test checks them). */
+const V2_LIMITS = Object.freeze({
+  slave_min: 1, slave_max: 247, register_count_max: 4, timeout_ms_min: 100, timeout_ms_max: 2000,
+  probe_types: Object.freeze(["holding_register", "input_register"]),
+});
+const V2_DEFAULTS = Object.freeze({
+  probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
+  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: false,
+});
+function isBridgeV2(gateway) {
+  return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
+}
+const isV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 function boundsFor(form) {
+  if (isV2Form(form)) {
+    const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
+    return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
+      register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
+  }
   const l = PHYSICAL_PROFILE.limits;
   return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
 }
 function selectGateway(form, gateway) {
+  if (isBridgeV2(gateway)) {
+    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", safety_confirmed:false};
+  }
   const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
-  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, safety_confirmed:false};
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", safety_confirmed:false};
+}
+/** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
+function formatRawValues(row) {
+  const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
+  const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
+  return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -254,7 +285,11 @@ function validateForm(form, single = false, text = {}) {
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
   }
-  if (form.provider === "esphome") {
+  if (isV2Form(form)) {
+    const message = text.v2 || "Bridge v2 reads FC03/FC04 only and cannot pause Normal Polling yet.";
+    if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
+    if (form.pause_normal_polling === true) errors.pause_normal_polling = message;
+  } else if (form.provider === "esphome") {
     const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
     if (form.probe_type !== "holding_register") errors.probe_type = message;
     if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
@@ -281,7 +316,7 @@ function startPayload(form) {
 }
 function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 function supportedGateway(gateway) {
-  return gateway?.provider === "mock" || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
+  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
 }
 function serviceYaml(form) {
   if (Object.keys(validateForm(form)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
@@ -302,6 +337,7 @@ function evidenceExport(status, results) {
       address:integer(row.address,247), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
       latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
       register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
+      raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,
       attempts:integer(row.attempts,6),
     })),
     privacy:"Identities and free-text fields omitted; numeric register evidence retained.",
@@ -326,8 +362,18 @@ function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
-  if (source.provider === "esphome") {
+  if (source.provider === "esphome" && source.bridge === "v2") {
     form.provider = "esphome";
+    form.bridge = "v2";
+    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
+    const [countMin, countMax] = [1, V2_LIMITS.register_count_max];
+    if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
+    if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
+    if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
+    form.pause_normal_polling = false;
+  } else if (source.provider === "esphome") {
+    form.provider = "esphome";
+    form.bridge = "v1";
     form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
     // Migrate old incompatible preferences, without silently changing provider.
     for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];
@@ -523,7 +569,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help});
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -671,7 +717,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   }
   _field(name, label, min, max, help) {
     [min, max] = boundsFor(this._form)[name] || [min, max];
-    const fixed = this._form.provider === "esphome" && (name === "register_count" || name === "timeout_ms");
+    const fixed = this._form.provider === "esphome" && this._form.bridge !== "v2" && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
     return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
   }
@@ -690,6 +736,8 @@ class WoowEsphomeModbusScannerPanel extends i {
     const progress = Number(this._status?.progress_percent || 0);
     const selectedScenario = this._form.mock_scenario;
     const physical = this._form.provider === "esphome";
+    // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
+    const v1 = physical && this._form.bridge !== "v2";
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     const compatible = supportedGateway(gateway);
@@ -710,14 +758,14 @@ class WoowEsphomeModbusScannerPanel extends i {
           </section>
           ${physical ? b`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? b`<p class="notice failure" role="status">${t.firmwareFault}</p>` : A}${!compatible ? b`<p class="notice failure">${t.unsupportedProfile}</p>` : A}${!canOperate ? b`<p class="notice">${t.readOnly}</p>` : A}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : A}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
-            ${this._field("start_id", t.startId, 1, 247, physical ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, physical ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, physical ? t.physicalRange : t.addressHelp)}
+            ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
             <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((profile) => b`<option value=${profile} .selected=${profile === selectedScenario}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
           </div><div class="profiles" aria-label=${t.quickProfiles}>${MOCK_SCENARIOS.map((profile) => { const selected = selectedScenario === profile; return b`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? b`<span class="sr-only">${t.selected}</span>` : A}</button>`; })}</div>
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.profileNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.profiles[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${physical}>${t.inputRegister}</option></select><small>${physical ? t.physicalHelp : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, physical ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, physical ? t.physicalHelp : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, physical ? t.physicalHelp : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
-            <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${physical ? t.physicalPause : t.pauseHelp}</small></div>
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? t.physicalHelp : physical ? t.v2Help : t.probeHelp}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
+            <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? b`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : A}</div>
           <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running || !canCancel}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
@@ -737,7 +785,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${Number.isInteger(row.raw_value) ? row.raw_value : t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }
