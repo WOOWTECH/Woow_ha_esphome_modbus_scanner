@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from aioesphomeapi import TextSensorInfo, UserServiceArgType
 
-from .profile_generated import PROFILE
-from .provider import GatewayProviderError
+from ..provider import GatewayProviderError
+from .profile import PROFILE
 
 
 class HealthSession:

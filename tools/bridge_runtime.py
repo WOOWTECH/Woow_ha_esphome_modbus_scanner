@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 package = ModuleType("_woow_bridge_bench")
 package.__path__ = [str(ROOT / "custom_components/woow_esphome_modbus_scanner/modbus_scan")]
 sys.modules.setdefault(package.__name__, package)
-bridge = import_module("_woow_bridge_bench.esphome_provider")
+bridge = import_module("_woow_bridge_bench.legacy_v1.provider")
 models = import_module("_woow_bridge_bench.models")
 provider = import_module("_woow_bridge_bench.provider")
 ESPHomeGateway = bridge.ESPHomeGateway

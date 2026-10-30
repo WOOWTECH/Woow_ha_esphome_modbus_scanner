@@ -67,6 +67,7 @@ class GatewayInfo:
     mock_scenarios: tuple[str, ...] = ()
     profile: dict[str, Any] | None = None
     health: dict[str, Any] | None = None
+    limits: Any = None  # ProbeLimits reported by the provider adapter
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
@@ -79,6 +80,7 @@ class GatewayInfo:
             "simulated": self.provider == "mock",
             **({"profile": deepcopy(self.profile)} if self.profile is not None else {}),
             **({"health": deepcopy(self.health)} if self.health is not None else {}),
+            **({"limits": self.limits.as_dict()} if self.limits is not None else {}),
         }
 
 

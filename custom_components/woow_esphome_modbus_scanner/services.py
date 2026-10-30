@@ -30,6 +30,7 @@ from .const import (
     SERVICE_TEST_ADDRESS,
 )
 from .issues import report_gateway_issue
+from .modbus_scan.adapters import build_physical_provider
 from .modbus_scan.coordinator import (
     GatewayBusyError,
     ModbusScanCoordinator,
@@ -49,7 +50,6 @@ from .modbus_scan.models import (
     ProbeType,
     ScanRequest,
 )
-from .modbus_scan.profile_generated import PROFILE
 from .modbus_scan.provider import GatewayProviderError
 
 
@@ -129,20 +129,10 @@ def _resolve_mock_scenario(data):
     return data
 
 
-def _apply_profile_defaults(data):
-    """Only absent fields get defaults; explicit unsupported values stay rejected."""
-    defaults = {
-        "probe_type": ProbeType.DEVICE_IDENTIFICATION,
-        "register_address": 0,
-        "register_count": 1,
-        "timeout_ms": 500,
-        "retries": 1,
-        "inter_request_delay_ms": 100,
-        "pause_normal_polling": False,
-    }
-    if data["provider"] == "esphome":
-        defaults = {key: PROFILE["defaults"][key] for key in defaults}
-    for key, value in defaults.items():
+def _with_gateway_defaults(coordinator: ModbusScanCoordinator, data) -> dict[str, Any]:
+    """Only absent fields get the gateway's defaults; explicit values stay validated."""
+    data = dict(data)
+    for key, value in coordinator.request_defaults(data["provider"], data["gateway_id"]).items():
         data.setdefault(key, value)
     data["probe_type"] = ProbeType(data["probe_type"])
     return data
@@ -168,10 +158,8 @@ _TEST_ADDRESS_SCHEMA = vol.Schema(
     }
 )
 _LIST_GATEWAYS_SCHEMA = vol.Schema({})
-_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _resolve_mock_scenario, _apply_profile_defaults)
-_TEST_ADDRESS_SCHEMA = vol.All(
-    _TEST_ADDRESS_SCHEMA, _resolve_mock_scenario, _apply_profile_defaults
-)
+_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _resolve_mock_scenario)
+_TEST_ADDRESS_SCHEMA = vol.All(_TEST_ADDRESS_SCHEMA, _resolve_mock_scenario)
 
 
 _Owner = tuple[str, int]
@@ -193,14 +181,10 @@ def _coordinator(
     if coordinator is None:
         providers = [MockGatewayProvider()]
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
-        if entry is not None and entry.data.get("gateways"):
-            from .modbus_scan.esphome_provider import ESPHomeGateway, ESPHomeGatewayProvider
-
-            providers.append(
-                ESPHomeGatewayProvider(
-                    [ESPHomeGateway(**gateway) for gateway in entry.data["gateways"]]
-                )
-            )
+        if entry is not None and (
+            physical := build_physical_provider(entry.data.get("gateways", ()))
+        ):
+            providers.append(physical)
         coordinator = ModbusScanCoordinator(
             hass,
             providers,
@@ -287,8 +271,12 @@ async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceRespons
     await _authorize_physical(call, owner, call.data["provider"])
     try:
         _validate_selected_device(call)
-        request = _scan_request(call.data, safety_confirmed=call.data["safety_confirmed"])
-        return await _coordinator(call.hass, owner).start(request)
+        coordinator = _coordinator(call.hass, owner)
+        request = _scan_request(
+            _with_gateway_defaults(coordinator, call.data),
+            safety_confirmed=call.data["safety_confirmed"],
+        )
+        return await coordinator.start(request)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
 
@@ -321,8 +309,13 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
     await _authorize_physical(call, owner, call.data["provider"])
     try:
         _validate_selected_device(call)
-        request = _scan_request(call.data, safety_confirmed=True, address=call.data["address"])
-        return await _coordinator(call.hass, owner).start(request)
+        coordinator = _coordinator(call.hass, owner)
+        request = _scan_request(
+            _with_gateway_defaults(coordinator, call.data),
+            safety_confirmed=True,
+            address=call.data["address"],
+        )
+        return await coordinator.start(request)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
 

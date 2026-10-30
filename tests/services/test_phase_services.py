@@ -14,7 +14,7 @@ from custom_components.woow_esphome_modbus_scanner.const import DATA_COORDINATOR
 from custom_components.woow_esphome_modbus_scanner.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.woow_esphome_modbus_scanner.modbus_scan.esphome_provider import (
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provider import (
     ESPHomeGatewayProvider,
 )
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (

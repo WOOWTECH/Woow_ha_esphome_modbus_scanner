@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from .limits import ProbeLimits
 from .models import (
     GatewayInfo,
     MockScenario,
@@ -14,6 +15,7 @@ from .models import (
 from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
+MOCK_LIMITS = ProbeLimits("Mock gateway")
 
 
 class MockGatewayProvider:
@@ -38,6 +40,7 @@ class MockGatewayProvider:
                     "cancellation",
                 ),
                 mock_scenarios=tuple(scenario.value for scenario in MockScenario),
+                limits=MOCK_LIMITS,
             ),
         )
 
