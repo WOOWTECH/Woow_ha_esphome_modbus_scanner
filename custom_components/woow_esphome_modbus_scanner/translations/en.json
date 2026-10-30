@@ -8,8 +8,10 @@
         "data": {
           "host": "ESPHome host (optional)",
           "mac": "Expected ESPHome MAC address (optional)",
+          "bridge": "Gateway 1 bridge protocol (v2: modbus_scanner component; v1: legacy firmware)",
           "host_2": "Second ESPHome host (optional)",
-          "mac_2": "Second expected MAC (optional)"
+          "mac_2": "Second expected MAC (optional)",
+          "bridge_2": "Gateway 2 bridge protocol"
         }
       },
       "reconfigure": {
@@ -18,15 +20,18 @@
         "data": {
           "host": "ESPHome host (optional)",
           "mac": "Expected ESPHome MAC address (optional)",
+          "bridge": "Gateway 1 bridge protocol (v2: modbus_scanner component; v1: legacy firmware)",
           "host_2": "Second ESPHome host (optional)",
-          "mac_2": "Second expected MAC (optional)"
+          "mac_2": "Second expected MAC (optional)",
+          "bridge_2": "Gateway 2 bridge protocol"
         }
       }
     },
     "error": {
       "gateway_pair_required": "Provide both host and MAC, or leave both empty.",
       "invalid_mac": "Enter a MAC address in AA:BB:CC:DD:EE:FF format.",
-      "duplicate_gateway": "Gateways must have distinct hosts and MACs."
+      "duplicate_gateway": "Gateways must have distinct hosts and MACs.",
+      "invalid_bridge": "Choose bridge protocol v2 or v1."
     },
     "abort": {
       "already_configured": "Woow ESPHome Modbus Scanner is already configured.",

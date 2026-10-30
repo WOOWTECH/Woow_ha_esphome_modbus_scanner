@@ -29,6 +29,29 @@ async def test_user_flow_creates_singleton_entry(hass):
     assert created["data"] == {"gateways": []}
 
 
+async def test_user_flow_enrolls_a_bridge_v2_gateway_by_default(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with patch(
+        "custom_components.woow_esphome_modbus_scanner.async_setup_entry", return_value=True
+    ):
+        created = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "host": "192.0.2.10",
+                "mac": "aa:bb:cc:dd:ee:01",
+                "host_2": "192.0.2.11",
+                "mac_2": "AA:BB:CC:DD:EE:02",
+                "bridge_2": "v1",
+            },
+        )
+    assert [(g["mac"], g["bridge"]) for g in created["data"]["gateways"]] == [
+        ("AA:BB:CC:DD:EE:01", "v2"),
+        ("AA:BB:CC:DD:EE:02", "v1"),
+    ]
+
+
 async def test_second_entry_aborts_as_already_configured(hass):
     MockConfigEntry(domain=DOMAIN, title=NAME, data={}).add_to_hass(hass)
     result = await hass.config_entries.flow.async_init(
@@ -112,4 +135,6 @@ async def test_reconfigure_preserves_secret_without_automation_gate(hass):
         )
     assert updated["reason"] == "reconfigure_successful"
     assert entry.data["gateways"][0]["noise_psk"] == "A" * 43 + "="
+    # A gateway enrolled before bridge v2 existed stays on the legacy bridge.
+    assert entry.data["gateways"][0]["bridge"] == "v1"
     assert "allow_physical_automation" not in entry.data
