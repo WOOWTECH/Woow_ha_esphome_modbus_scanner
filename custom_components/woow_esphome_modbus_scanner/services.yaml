@@ -91,9 +91,9 @@ start_scan:
       default: true
       selector:
         boolean:
-    mock_profile: &mock_profile
-      name: Mock simulation profile
-      description: Used only by the mock provider, never to simulate a physical response.
+    mock_scenario: &mock_scenario
+      name: Mock scenario
+      description: Fixed mock-provider outcome set; never simulates a physical response. Replaces the deprecated mock_profile alias, which is still accepted but cannot be combined with mock_scenario.
       default: found_default
       selector:
         select:
@@ -143,4 +143,4 @@ test_address:
     retries: *retries
     inter_request_delay_ms: *delay
     pause_normal_polling: *pause
-    mock_profile: *mock_profile
+    mock_scenario: *mock_scenario

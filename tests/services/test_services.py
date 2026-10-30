@@ -209,7 +209,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
-                "mock_profile",
+                "mock_scenario",
                 "safety_confirmed",
             },
         ),
@@ -227,7 +227,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
-                "mock_profile",
+                "mock_scenario",
             },
         ),
         ("get_scan_status", {"scan_id"}),
@@ -268,3 +268,55 @@ def test_selectors_support_only_implemented_providers_and_dynamic_gateway_ids():
         assert fields["register_address"]["default"] == 0x6201
         assert fields["timeout_ms"]["default"] == 700
         assert fields["pause_normal_polling"]["default"] is True
+
+
+async def test_start_scan_runs_the_selected_mock_scenario(hass):
+    async_register_services(hass)
+    started = await _start(hass, mock_scenario="all_offline")
+    await _wait_for_terminal(hass, started["scan_id"])
+    results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["responders"] == []
+    assert results["outcome_counts"]["timeout"] == 12
+
+
+@pytest.mark.parametrize("parameter", ["mock_scenario", "mock_profile"])
+async def test_test_address_runs_the_selected_mock_scenario(hass, parameter):
+    async_register_services(hass)
+    started = await _call(
+        hass,
+        "test_address",
+        {"address": 7, "inter_request_delay_ms": 0, parameter: "possible_collision"},
+    )
+    await _wait_for_terminal(hass, started["scan_id"])
+    results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["outcome_counts"]["possible_collision"] == 1
+
+
+async def test_deprecated_mock_profile_alias_gives_the_same_scan_results(hass):
+    async_register_services(hass)
+    outcomes = []
+    for parameter in ("mock_scenario", "mock_profile"):
+        started = await _start(hass, end_id=20, **{parameter: "partial_timeout"})
+        await _wait_for_terminal(hass, started["scan_id"])
+        results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+        outcomes.append(
+            (
+                [item["address"] for item in results["responders"]],
+                results["outcome_counts"],
+            )
+        )
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == [2, 7, 11]
+
+
+@pytest.mark.parametrize("service", ["start_scan", "test_address"])
+async def test_mock_scenario_and_deprecated_alias_together_are_rejected(hass, service):
+    async_register_services(hass)
+    data = {"mock_scenario": "all_offline", "mock_profile": "found_default"}
+    data.update(
+        {"start_id": 1, "end_id": 2, "safety_confirmed": True}
+        if service == "start_scan"
+        else {"address": 1}
+    )
+    with pytest.raises(vol.Invalid, match="mock_profile.*mock_scenario"):
+        await _call(hass, service, data)
