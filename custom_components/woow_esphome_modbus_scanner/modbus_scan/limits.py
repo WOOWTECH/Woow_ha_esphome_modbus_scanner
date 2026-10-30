@@ -29,6 +29,7 @@ class ProbeLimits:
     timeout_ms_min: int = MIN_TIMEOUT_MS
     timeout_ms_max: int = MAX_TIMEOUT_MS
     pause_normal_polling_required: bool = False
+    pause_normal_polling_supported: bool = True
     # Values the service layer fills in for omitted probe fields.
     defaults: dict[str, Any] = field(default_factory=dict, compare=False)
 
@@ -59,6 +60,10 @@ class ProbeLimits:
             )
         if self.pause_normal_polling_required and not request.pause_normal_polling:
             raise ValueError(f"{self.label} requires pause_normal_polling=true")
+        if not self.pause_normal_polling_supported and request.pause_normal_polling:
+            raise ValueError(
+                f"{self.label} cannot pause Normal Polling yet; set pause_normal_polling=false"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
@@ -73,4 +78,5 @@ class ProbeLimits:
             "timeout_ms_min": self.timeout_ms_min,
             "timeout_ms_max": self.timeout_ms_max,
             "pause_normal_polling_required": self.pause_normal_polling_required,
+            "pause_normal_polling_supported": self.pause_normal_polling_supported,
         }

@@ -488,6 +488,12 @@ class ModbusScanCoordinator:
                 or not 0 <= result.raw_value <= 65535
             ):
                 raise GatewayProviderError("Invalid typed register value")
+            if result.raw_values is not None and (
+                result.outcome != ScanOutcome.RESPONDED
+                or len(result.raw_values) != state.request.register_count
+                or any(type(v) is not int or not 0 <= v <= 65535 for v in result.raw_values)
+            ):
+                raise GatewayProviderError("Invalid typed register values")
             if (
                 type(result.attempts) is not int
                 or not 1 <= result.attempts <= state.request.retries + 1
@@ -503,6 +509,7 @@ class ModbusScanCoordinator:
             register_address=result.register_address,
             raw_value=result.raw_value,
             attempts=result.attempts,
+            raw_values=tuple(result.raw_values) if result.raw_values is not None else None,
         )
 
     def history(self):

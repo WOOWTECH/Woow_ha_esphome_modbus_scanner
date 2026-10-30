@@ -211,6 +211,8 @@ class ProbeResult:
     register_address: int | None = None
     raw_value: int | None = None
     attempts: int | None = None
+    # Every register read by a multi-register Probe; raw_value is the first of them.
+    raw_values: tuple[int, ...] | None = None
 
     @property
     def is_responder(self) -> bool:
@@ -236,6 +238,8 @@ class ProbeResult:
                 raw_value=self.raw_value,
                 attempts=self.attempts,
             )
+        if self.raw_values is not None:
+            result["raw_values"] = list(self.raw_values)
         if self.exception_code is not None:
             result["exception_code"] = self.exception_code
         if self.identity is not None:
