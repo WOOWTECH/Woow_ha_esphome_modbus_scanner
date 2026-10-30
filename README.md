@@ -134,10 +134,13 @@ data:
   timeout_ms: 500
   retries: 1
   inter_request_delay_ms: 0
-  mock_profile: found_default
+  mock_scenario: found_default
   safety_confirmed: true
 response_variable: started
 ```
+
+`mock_scenario` selects the mock provider's fixed outcome set. The former name
+`mock_profile` is still accepted as a deprecated alias; sending both is rejected.
 
 Use the returned `scan_id` with `get_scan_status` and `get_scan_results`.
 `test_address` uses the same coordinator but constrains work to one address.

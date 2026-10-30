@@ -129,7 +129,7 @@ def main() -> None:
             "start_id": 1,
             "end_id": 5,
             "inter_request_delay_ms": 0,
-            "mock_profile": "found_default",
+            "mock_scenario": "found_default",
             "safety_confirmed": True,
         },
     )
@@ -139,7 +139,7 @@ def main() -> None:
 
     tested = call(
         "test_address",
-        {"address": 12, "inter_request_delay_ms": 0, "mock_profile": "found_default"},
+        {"address": 12, "inter_request_delay_ms": 0, "mock_scenario": "found_default"},
     )
     assert wait(tested["scan_id"])["status"] == "completed"
 
