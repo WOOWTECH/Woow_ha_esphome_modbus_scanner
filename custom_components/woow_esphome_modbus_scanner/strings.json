@@ -6,9 +6,9 @@
         "title": "Set up scanner gateways",
         "description": "Leave host/MAC pairs empty for mock only. All active Home Assistant users and internal automations may use physical operations. PSK configures this integration only, not ESP firmware. Use HTTPS or a trusted management network.",
         "data": {
-          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)",
+          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)", "bridge": "Gateway 1 bridge protocol (v2: modbus_scanner component; v1: legacy firmware)",
           "noise_psk": "API encryption key (optional)", "clear_psk": "Explicitly clear gateway 1 key (only for unencrypted firmware)",
-          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)",
+          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)", "bridge_2": "Gateway 2 bridge protocol",
           "noise_psk_2": "Second API encryption key (optional)", "clear_psk_2": "Explicitly clear gateway 2 key (only for unencrypted firmware)"
         }
       },
@@ -16,9 +16,9 @@
         "title": "Reconfigure scanner gateways",
         "description": "Blank keys retain existing keys for the same MAC; stored keys are never displayed. Changing this form does not enable or disable firmware encryption. All active Home Assistant users and internal automations may use physical operations.",
         "data": {
-          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)",
+          "host": "ESPHome host (optional)", "mac": "Expected MAC (optional)", "bridge": "Gateway 1 bridge protocol (v2: modbus_scanner component; v1: legacy firmware)",
           "noise_psk": "Replacement API key (blank retains existing)", "clear_psk": "Explicitly clear gateway 1 key",
-          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)",
+          "host_2": "Second ESPHome host (optional)", "mac_2": "Second expected MAC (optional)", "bridge_2": "Gateway 2 bridge protocol",
           "noise_psk_2": "Replacement second API key (blank retains existing)", "clear_psk_2": "Explicitly clear gateway 2 key"
         }
       },
@@ -35,6 +35,7 @@
       "gateway_pair_required": "Provide both host and MAC, or leave both empty.",
       "invalid_mac": "Enter a MAC in AA:BB:CC:DD:EE:FF format.",
       "duplicate_gateway": "Gateways must have distinct hosts and MACs.",
+      "invalid_bridge": "Choose bridge protocol v2 or v1.",
       "invalid_psk": "Use a base64-encoded 32-byte ESPHome API key.",
       "conflicting_psk": "Do not enter a replacement key and select clear for the same gateway.",
       "invalid_auth": "API authentication failed. Check the key and the firmware encryption setting.",

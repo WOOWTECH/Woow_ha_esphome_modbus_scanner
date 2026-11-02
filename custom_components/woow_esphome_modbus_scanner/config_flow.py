@@ -13,6 +13,7 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from .const import DOMAIN, NAME
+from .modbus_scan.adapters import BRIDGE_V2, BRIDGES, gateway_bridge
 
 
 def gateway_input(user_input, existing=()):
@@ -39,13 +40,20 @@ def gateway_input(user_input, existing=()):
         if host:
             if any(g["mac"] == mac or g["host"] == host for g in gateways):
                 return None, "duplicate_gateway"
+            # A blank secret means retain, never render the stored key in the form.
+            previous = next((g for g in existing if g["mac"].upper() == mac), None)
+            bridge = user_input.get("bridge" + suffix) or (
+                gateway_bridge(previous) if previous else BRIDGE_V2
+            )
+            if bridge not in BRIDGES:
+                return None, "invalid_bridge"
             gateway = {
                 "host": host,
                 "mac": mac,
                 "name": "ESPHome Modbus " + mac.replace(":", "")[-6:],
+                "bridge": bridge,
             }
-            # A blank secret means retain, never render the stored key in the form.
-            previous = next((g for g in existing if g["mac"].upper() == mac), {})
+            previous = previous or {}
             if not user_input.get("clear_psk" + suffix, False):
                 key = key or previous.get("noise_psk")
             if key and not user_input.get("clear_psk" + suffix, False):
@@ -60,6 +68,13 @@ def gateway_schema(gateways=()):
         gateway = gateways[index] if index < len(gateways) else {}
         for key in ("host", "mac"):
             fields[vol.Optional(key + suffix, default=gateway.get(key, ""))] = str
+        # Bridge protocol of the node's firmware; v1 is the legacy IN-D17 bridge.
+        fields[
+            vol.Optional(
+                "bridge" + suffix,
+                default=gateway_bridge(gateway) if gateway else BRIDGE_V2,
+            )
+        ] = selector.SelectSelector(selector.SelectSelectorConfig(options=list(BRIDGES)))
         fields[vol.Optional("noise_psk" + suffix)] = selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         )
