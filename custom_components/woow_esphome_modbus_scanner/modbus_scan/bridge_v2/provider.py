@@ -355,6 +355,7 @@ class V2GatewayProvider:
                     "The modbus_scanner component (bridge v2) is not installed on this node",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
+                    reason="scanner_missing",
                 )
             service = actions[PROBE_ACTION][0]
             release_service = actions[RELEASE_ACTION][0]
@@ -363,6 +364,7 @@ class V2GatewayProvider:
                     "Unexpected bridge v2 action signature",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
+                    reason="bridge_mismatch",
                 )
             session = _Session(
                 service=service,
@@ -386,6 +388,7 @@ class V2GatewayProvider:
                 "Gateway did not publish its bridge v2 info",
                 code="BRIDGE_UNSUPPORTED",
                 phase="verify_bridge",
+                reason="bridge_mismatch",
             ) from None
         session.buses = info["buses"]
         self.health[gateway_id].update(
@@ -409,6 +412,7 @@ class V2GatewayProvider:
                     "Gateway published an incompatible bridge info",
                     code="BRIDGE_UNSUPPORTED",
                     phase="verify_bridge",
+                    reason="bridge_mismatch",
                 )
             )
 

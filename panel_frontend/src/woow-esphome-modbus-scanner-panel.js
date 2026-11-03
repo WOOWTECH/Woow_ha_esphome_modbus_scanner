@@ -5,6 +5,7 @@ import {
   DEFAULTS, DOMAIN, OUTCOMES, MOCK_SCENARIOS, SERVICES, errorMessage, normalizeResponse,
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, leaseNotice,
+  estimatedDurationMs, needsLargeRangeConfirmation,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -94,6 +95,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   _set(name, value) {
     this._yaml = "";
     this._form = {...this._form, [name]: value};
+    // The large-range confirmation is consent to one estimate; changing it asks again.
+    if (["start_id", "end_id", "timeout_ms", "inter_request_delay_ms"].includes(name)) this._form.large_range_confirmed = false;
     this._errors = {...this._errors, [name]: undefined};
     this._persist();
   }
@@ -173,7 +176,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock});
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -183,8 +186,9 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     if (Object.keys(errors).length) {
       this._message = t.correcting;
       await this.updateComplete;
-      const order = ["gateway", "start_id", "end_id", "address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms", "safety"];
-      this.renderRoot.querySelector(`#${order.find((id) => errors[id === "gateway" ? "gateway_id" : id === "safety" ? "safety_confirmed" : id])}`)?.focus();
+      const order = ["gateway", "start_id", "end_id", "address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms", "safety", "large-range"];
+      const errorKey = {gateway:"gateway_id", safety:"safety_confirmed", "large-range":"large_range_confirmed"};
+      this.renderRoot.querySelector(`#${order.find((id) => errors[errorKey[id] || id])}`)?.focus();
       return;
     }
     const generation = ++this._operationGeneration;
@@ -325,6 +329,14 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const invalid = Boolean(this._errors[name]);
     return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
   }
+  _largeRangeField() {
+    const t = this._text;
+    const invalid = Boolean(this._errors.large_range_confirmed);
+    const count = Number(this._form.end_id) - Number(this._form.start_id) + 1;
+    const estimate = estimatedDurationMs(this._form);
+    const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
+    return html`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : nothing}>${t.largeRange(count, seconds)}</label>${invalid ? html`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : nothing}</div>`;
+  }
   _sortHeader(key, label) {
     const active = this._sort.key === key;
     const direction = active ? (this._sort.direction > 0 ? this._text.ascending : this._text.descending) : this._text.unsorted;
@@ -375,6 +387,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? html`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : nothing}</div>
+          ${needsLargeRangeConfirmation(this._form) ? this._largeRangeField() : nothing}
           <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running || !canCancel}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
           <div class="actions"><button class="secondary" @click=${this._showYaml} ?disabled=${!gatewayAvailable || !compatible || Boolean(this._busy) || running}>${t.yaml}</button></div>
           ${this._yaml ? html`<label for="service-yaml">${t.yamlLabel}</label><textarea id="service-yaml" readonly rows="16" style="width:100%;box-sizing:border-box" .value=${this._yaml}></textarea>` : nothing}

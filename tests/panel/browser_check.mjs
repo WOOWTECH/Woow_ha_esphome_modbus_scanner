@@ -261,6 +261,28 @@ try {
   check(await zh.getByText(/預期終止狀態：完成/).count()===1, 'Traditional-Chinese detailed profile help missing');
   await zhPage.close();
 
+  // A range above 32 IDs shows the estimated duration and needs a second confirmation.
+  const rangePage=await browser.newPage({viewport:{width:800,height:900}}); await rangePage.goto(base);
+  const ranged=rangePage.locator('woow-esphome-modbus-scanner-panel'); await ranged.getByText('1 gateway available.').waitFor();
+  await ranged.locator('#end_id').fill('32'); await ranged.locator('#safety').check();
+  check(await ranged.locator('#large-range').count()===0, 'large-range confirmation shown for 32 IDs');
+  await ranged.locator('#end_id').fill('100');
+  // 100 IDs x (500 ms timeout + 100 ms delay) = 60 s
+  await ranged.getByText(/scans 100 IDs and can take about 60\.0 s/).waitFor();
+  await rangePage.evaluate(() => { calls.length=0; });
+  await ranged.getByRole('button',{name:'Start scan'}).click();
+  await ranged.getByText('This range has more than 32 IDs. Confirm the estimated duration before starting.').waitFor();
+  check(await ranged.locator('#large-range').evaluate((e)=>e===e.getRootNode().activeElement), 'large-range error not focused');
+  check(await rangePage.evaluate(() => !calls.some((c)=>c.service==='start_scan')), 'unconfirmed large range sent start_scan');
+  await ranged.locator('#large-range').check();
+  await ranged.locator('#end_id').fill('99');
+  check(!(await ranged.locator('#large-range').isChecked()), 'changing the range kept the old large-range confirmation');
+  await ranged.locator('#large-range').check();
+  await ranged.getByRole('button',{name:'Start scan'}).click();
+  await rangePage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
+  check(await rangePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.large_range_confirmed===true), 'start_scan omitted large_range_confirmed');
+  await rangePage.close();
+
   await page.evaluate(() => { mode='hold'; polls=0; calls.length=0; panel._form={...panel._form,safety_confirmed:true}; panel._start(false); });
   await page.waitForTimeout(1200); await page.evaluate(() => panel.remove());
   const before = await page.evaluate(() => calls.filter((call)=>call.service==='get_scan_status').length);

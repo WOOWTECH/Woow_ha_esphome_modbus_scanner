@@ -24,8 +24,10 @@ export const DEFAULTS = Object.freeze({
   address: 1, probe_type: "device_identification", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_scenario: "found_default", safety_confirmed: false, bridge: "",
+  mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
 });
+/** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
+export const LARGE_RANGE_THRESHOLD = 32;
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
@@ -89,6 +91,16 @@ export function leaseNotice(status) {
     stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
   };
 }
+const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
+/** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
+export function estimatedDurationMs(form) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.inter_request_delay_ms];
+  if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
+  return (Number(form.end_id) - Number(form.start_id) + 1) * (Number(form.timeout_ms) + Number(form.inter_request_delay_ms));
+}
+export function needsLargeRangeConfirmation(form) {
+  return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export function normalizeResponse(value) {
@@ -111,6 +123,9 @@ export function validateForm(form, single = false, text = {}) {
   if (isV2Form(form)) {
     const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
+    if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
+      errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
+    }
   } else if (form.provider === "esphome") {
     const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
     if (form.probe_type !== "holding_register") errors.probe_type = message;
@@ -118,6 +133,9 @@ export function validateForm(form, single = false, text = {}) {
     if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
+  if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
+    errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
+  }
   if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
   if (!form.gateway_id) errors.gateway_id = text.gateway || "Select an available gateway.";
   return errors;
@@ -134,7 +152,8 @@ function sharedPayload(form) {
   };
 }
 export function startPayload(form) {
-  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true};
+  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true,
+    ...(needsLargeRangeConfirmation(form) ? {large_range_confirmed: true} : {})};
 }
 export function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 export function supportedGateway(gateway) {
@@ -184,6 +203,7 @@ export function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
+  form.large_range_confirmed = false;
   if (source.provider === "esphome" && source.bridge === "v2") {
     form.provider = "esphome";
     form.bridge = "v2";

@@ -104,6 +104,12 @@ start_scan:
       required: true
       selector:
         boolean:
+    large_range_confirmed:
+      name: Confirm large range
+      description: Required (exactly true) when the range covers more than 32 IDs. Such a scan takes about IDs x (timeout + delay).
+      required: false
+      selector:
+        boolean:
 get_scan_status:
   name: Get scan status
   description: Progress, operation phase, execution budget, errors and separate recovery/cleanup evidence.

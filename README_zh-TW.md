@@ -49,6 +49,8 @@ English: [README.md](README.md)
 
 因此 `start_scan` 的 `safety_confirmed` 只接受真正的布林值 `true`，不接受
 數字或字串形式的 truthy 值。
+範圍超過 32 個站號時，還需要 `large_range_confirmed: true`（同樣只接受布林
+`true`）；側欄會顯示預估時間（站號數 ×（逾時 + 間隔））並要求二次確認。
 
 **全使用者政策：**目前八個服務與側欄開放給啟用中的已驗證 HA 使用者，
 不區分管理員／一般角色；既有內部自動化亦可使用。已停用或不存在的具名

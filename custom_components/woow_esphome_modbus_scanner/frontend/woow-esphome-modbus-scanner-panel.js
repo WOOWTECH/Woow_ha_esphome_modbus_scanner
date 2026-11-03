@@ -40,7 +40,7 @@ const hardeningText = {
     healthTitle:"Last observed gateway health", apiEvidence:"API verification", busEvidence:"Last fresh bus response", encryption:"API encryption configured", yes:"Yes", no:"No",
     unchecked:"Not checked", healthChecked:"API check finished. This is not a fresh bus probe.",
     readOnly:"HA identity is inactive or unavailable; reconnect. All active HA users and internal automations may operate physical gateways.", unsupportedProfile:"Unknown or mismatched capability profile. Reload the integration and panel; physical operations are blocked.",
-    recovery:"Normal polling recovery", cleanup:"Connection cleanup", attempt:"Attempt", operation:"Operation", budget:"Execution budget (not ETA)", elapsed:"Elapsed", rawRegister:"Register / raw value", rawHelp:"Raw FC03 values are evidence only; engineering-unit decoding is not implied.",
+    recovery:"Normal polling recovery", cleanup:"Connection cleanup", attempt:"Attempt", operation:"Operation", budget:"Execution budget (not ETA)", elapsed:"Elapsed", rawRegister:"Register / raw value", rawHelp:"Raw FC03/FC04 values are evidence only; engineering-unit decoding is not implied.",
     recoveryStates:{unknown:"Not verified",pending:"Awaiting fresh normal polling",verified:"Fresh normal core polling verified",failed:"Recovery check failed"},
     operationStates:{queued:"Queued",connect:"Connecting",verify_identity:"Checking identity",verify_bridge:"Checking bridge",probe:"Read-only probe",inter_request_delay:"Waiting between reads",recovery:"Checking normal polling",finished:"Finished"},
     history:"Load saved history", historyHelp:"At most 20 terminal snapshots are retained in HA. Interrupted checkpoints are marked failed, never resumed automatically.", yaml:"Generate service YAML", yamlLabel:"Validated range-scan YAML (generation does not execute it)",
@@ -56,7 +56,7 @@ const hardeningText = {
     healthTitle:"上次觀測的閘道健康", apiEvidence:"API 身分核對", busEvidence:"最近有效匯流排回應", encryption:"已設定 API 加密", yes:"是", no:"否",
     unchecked:"尚未檢查", healthChecked:"API 檢查完成；這不是新的匯流排探測證據。",
     readOnly:"HA 身分已停用或無法使用，請重新連線。所有啟用中的 HA 使用者及內部自動化皆可操作實機。", unsupportedProfile:"能力設定未知或版本不符。請重載整合與面板；實機操作已阻擋。",
-    recovery:"正常輪詢復原", cleanup:"連線清理", attempt:"嘗試次數", operation:"目前操作", budget:"操作時間上限（非預計完成時間）", elapsed:"已耗時", rawRegister:"暫存器／原始值", rawHelp:"原始 FC03 數值僅作證據，並不代表已轉換為工程單位。",
+    recovery:"正常輪詢復原", cleanup:"連線清理", attempt:"嘗試次數", operation:"目前操作", budget:"操作時間上限（非預計完成時間）", elapsed:"已耗時", rawRegister:"暫存器／原始值", rawHelp:"原始 FC03/FC04 數值僅作證據，並不代表已轉換為工程單位。",
     recoveryStates:{unknown:"尚未驗證",pending:"等待新的正常輪詢",verified:"已驗證新的核心正常輪詢",failed:"復原檢查失敗"},
     operationStates:{queued:"排程中",connect:"連線中",verify_identity:"核對身分",verify_bridge:"核對橋接",probe:"唯讀探測",inter_request_delay:"等候下一次讀取",recovery:"確認正常輪詢",finished:"已結束"},
     history:"載入保存歷程", historyHelp:"HA 最多保存 20 筆終止快照。中斷檢查點會標為失敗，絕不自動重播掃描。", yaml:"產生服務 YAML", yamlLabel:"通過檢查的範圍掃描 YAML（產生不會執行）",
@@ -78,6 +78,9 @@ const en = {
   leaseStates: {active: "Active: Normal Polling paused", ended: "Ended: Normal Polling resumed", unconfirmed: "Ending not confirmed: the Gateway resumes Normal Polling by itself within 5 s"},
   leaseReasons: {released: "released by Home Assistant", idle: "ended by the Gateway after 5 s without a probe", hard_limit: "ended by the Gateway at the 10-minute limit", superseded: "replaced by a newer Scan"},
   staleWarning: "Entity values of these paused devices are stale until the Scan ends:",
+  largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x (timeout + delay)).`,
+  largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
+  registerBlock: "The register block must end at or before register 65535.",
   physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
   physicalProfiles: "Mock scenarios do not apply to physical gateways. Results below must identify their actual provider and gateway.",
   physicalPause: "Required. Firmware drains the current transaction, reads once, then automatically restores polling even if the client disconnects.",
@@ -90,7 +93,7 @@ const en = {
   scanRange: "Scan range", startId: "Start Slave ID", startHelp: "Inclusive; Modbus unicast addresses are 1–247.", endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", profile: "Mock scenario", profileHelp: "Choose a deterministic fixture. The selected scenario's addresses, outcomes, and terminal state are described below.", quickProfiles: "Mock quick scenarios",
   advanced: "Advanced read-only probe settings", probe: "Probe type", deviceIdentification: "Device identification (optional Modbus capability)", holdingRegister: "Holding register read", inputRegister: "Input register read",
-  probeHelp: "In simulated mode these probe options do not change the fixture outcome.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
+  probeHelp: "In simulated mode the scenario fixes which IDs respond; register reads return deterministic raw values instead of identities.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
   timeout: "Timeout (ms)", timeoutHelp: "Per attempt; mock uses it only for the worst-case estimate.", retries: "Retries", retriesHelp: "Additional attempts after the first; mock does not retry.", delay: "Inter-request delay (ms)", delayHelp: "Minimum requested gap; mock has a built-in 10 ms minimum.",
   pause: "Pause normal polling", pauseHelp: "Mock mode has no normal polling. Physical mode requires automatic polling suspension and restoration.", safety: "I understand scans are best-effort and a physical scan can disrupt polling.", start: "Start scan", test: "Test address", cancel: "Cancel",
   statusTitle: "Status and progress", recent: "Recent scan ID (this browser only)", storage: "Preferences and IDs stay in localStorage. Tokens, hosts, frames, replies, and credentials are never stored.", phase: "Phase", noRecent: "No recent scan", noScanId: "No scan ID", progress: "Scan progress", addresses: "addresses", responders: "responders", terminalError: "Terminal error", refreshStatus: "Refresh status", refreshResults: "Refresh results",
@@ -130,6 +133,9 @@ const zh = {
   leaseStates:{active:"進行中：一般輪詢已暫停",ended:"已結束：一般輪詢已恢復",unconfirmed:"未確認結束：閘道會在 5 秒內自行恢復一般輪詢"},
   leaseReasons:{released:"由 Home Assistant 釋放",idle:"閘道於 5 秒無探測後結束",hard_limit:"閘道於 10 分鐘上限時結束",superseded:"已由較新的掃描取代"},
   staleWarning:"下列暫停中設備的實體數值在掃描結束前為過期資料：",
+  largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 ×（逾時 + 間隔））。`,
+  largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
+  registerBlock:"暫存器區塊不可超過 65535。",
   physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
   physicalProfiles:"模擬情境不適用於實體閘道。下方結果會另行標明實際提供者與閘道。",
   physicalPause:"必要設定。韌體等候當前交易結束，單次讀取後自動恢復輪詢；客戶端斷線也會恢復。",
@@ -138,7 +144,7 @@ const zh = {
   banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
   gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
   scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:"包含此值；Modbus 單播位址為 1–247。",endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",profile:"模擬快速情境",profileHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickProfiles:"模擬快速情境",
-  advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，選擇不同探測類型不會改變固定情境的結果。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
+  advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應；暫存器讀取會回傳固定的原始值而非裝置識別。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",
   ready:"準備就緒。請重新整理閘道以確認服務可用。",correcting:"請修正標示的欄位。",started:"掃描已開始。",testStarted:"位址測試已開始。",statusRefreshed:"狀態已重新整理。",resultsRefreshed:"結果已重新整理。",cancelRequested:"已要求取消；目前交易可能會先完成。",recentSelected:"已選擇最近掃描。請重新整理狀態或結果；伺服器歷程僅存於記憶體。",serviceUnavailable:"Home Assistant 連線無法使用。請重新連線後再試。",invalidResponse:"Home Assistant 回傳空白或無效的服務回應。",startMissing:"開始回應未包含掃描 ID。",noChosen:"請先開始掃描或選擇最近的掃描 ID。",noResultsId:"沒有可用於結果的掃描 ID。",noCancel:"沒有可取消的進行中掃描。",unknownState:"掃描 ID 未知或已過期。已清除舊狀態與結果；請開始新掃描或選擇其他最近 ID。",gatewayCount:(n)=>`有 ${n} 個閘道可用。`,noGateway:"沒有可用閘道。請重新載入整合並檢查 Home Assistant 記錄。",finished:(status)=>`掃描已${status === "completed" ? "完成" : "終止"}；已自動載入結果。`,pollingStopped:(error)=>`狀態輪詢已停止：${error} 請用「重新整理狀態」重試。`,terminalLoadFailed:(error)=>`無法載入終止結果：${error}`,
@@ -229,8 +235,10 @@ const DEFAULTS = Object.freeze({
   address: 1, probe_type: "device_identification", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_scenario: "found_default", safety_confirmed: false, bridge: "",
+  mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
 });
+/** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
+const LARGE_RANGE_THRESHOLD = 32;
 const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
@@ -294,6 +302,16 @@ function leaseNotice(status) {
     stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
   };
 }
+const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
+/** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
+function estimatedDurationMs(form) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.inter_request_delay_ms];
+  if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
+  return (Number(form.end_id) - Number(form.start_id) + 1) * (Number(form.timeout_ms) + Number(form.inter_request_delay_ms));
+}
+function needsLargeRangeConfirmation(form) {
+  return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function normalizeResponse(value) {
@@ -316,6 +334,9 @@ function validateForm(form, single = false, text = {}) {
   if (isV2Form(form)) {
     const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
+    if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
+      errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
+    }
   } else if (form.provider === "esphome") {
     const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
     if (form.probe_type !== "holding_register") errors.probe_type = message;
@@ -323,6 +344,9 @@ function validateForm(form, single = false, text = {}) {
     if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
+  if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
+    errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
+  }
   if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
   if (!form.gateway_id) errors.gateway_id = text.gateway || "Select an available gateway.";
   return errors;
@@ -339,7 +363,8 @@ function sharedPayload(form) {
   };
 }
 function startPayload(form) {
-  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true};
+  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true,
+    ...(needsLargeRangeConfirmation(form) ? {large_range_confirmed: true} : {})};
 }
 function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 function supportedGateway(gateway) {
@@ -389,6 +414,7 @@ function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
+  form.large_range_confirmed = false;
   if (source.provider === "esphome" && source.bridge === "v2") {
     form.provider = "esphome";
     form.bridge = "v2";
@@ -518,6 +544,8 @@ class WoowEsphomeModbusScannerPanel extends i {
   _set(name, value) {
     this._yaml = "";
     this._form = {...this._form, [name]: value};
+    // The large-range confirmation is consent to one estimate; changing it asks again.
+    if (["start_id", "end_id", "timeout_ms", "inter_request_delay_ms"].includes(name)) this._form.large_range_confirmed = false;
     this._errors = {...this._errors, [name]: undefined};
     this._persist();
   }
@@ -597,7 +625,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock});
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -607,8 +635,9 @@ class WoowEsphomeModbusScannerPanel extends i {
     if (Object.keys(errors).length) {
       this._message = t.correcting;
       await this.updateComplete;
-      const order = ["gateway", "start_id", "end_id", "address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms", "safety"];
-      this.renderRoot.querySelector(`#${order.find((id) => errors[id === "gateway" ? "gateway_id" : id === "safety" ? "safety_confirmed" : id])}`)?.focus();
+      const order = ["gateway", "start_id", "end_id", "address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms", "safety", "large-range"];
+      const errorKey = {gateway:"gateway_id", safety:"safety_confirmed", "large-range":"large_range_confirmed"};
+      this.renderRoot.querySelector(`#${order.find((id) => errors[errorKey[id] || id])}`)?.focus();
       return;
     }
     const generation = ++this._operationGeneration;
@@ -749,6 +778,14 @@ class WoowEsphomeModbusScannerPanel extends i {
     const invalid = Boolean(this._errors[name]);
     return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
   }
+  _largeRangeField() {
+    const t = this._text;
+    const invalid = Boolean(this._errors.large_range_confirmed);
+    const count = Number(this._form.end_id) - Number(this._form.start_id) + 1;
+    const estimate = estimatedDurationMs(this._form);
+    const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
+    return b`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : A}>${t.largeRange(count, seconds)}</label>${invalid ? b`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : A}</div>`;
+  }
   _sortHeader(key, label) {
     const active = this._sort.key === key;
     const direction = active ? (this._sort.direction > 0 ? this._text.ascending : this._text.descending) : this._text.unsorted;
@@ -799,6 +836,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? b`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : A}</div>
+          ${needsLargeRangeConfirmation(this._form) ? this._largeRangeField() : A}
           <div class="actions"><button @click=${() => this._start(false)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:play"></ha-icon>${t.start}</button><button class="secondary" @click=${() => this._start(true)} ?disabled=${Boolean(this._busy) || running || !gatewayAvailable || !compatible || !canOperate || transportFault}><ha-icon icon="mdi:crosshairs-gps"></ha-icon>${t.test}</button><button class="danger" @click=${this._cancel} ?disabled=${Boolean(this._busy) || !running || !canCancel}><ha-icon icon="mdi:stop"></ha-icon>${t.cancel}</button></div>
           <div class="actions"><button class="secondary" @click=${this._showYaml} ?disabled=${!gatewayAvailable || !compatible || Boolean(this._busy) || running}>${t.yaml}</button></div>
           ${this._yaml ? b`<label for="service-yaml">${t.yamlLabel}</label><textarea id="service-yaml" readonly rows="16" style="width:100%;box-sizing:border-box" .value=${this._yaml}></textarea>` : A}
