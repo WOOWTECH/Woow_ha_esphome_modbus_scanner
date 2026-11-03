@@ -63,6 +63,10 @@ class _ScanState:
     recovery_status: str = "unknown"
     recovery_error_code: str | None = None
     cleanup_status: str = "unknown"
+    # Scan Lease as reported by the Gateway: none, active, ended or unconfirmed.
+    lease_status: str = "none"
+    lease_end_reason: str | None = None
+    paused_pollers: list[dict[str, Any]] = field(default_factory=list)
     started_clock: float = field(default_factory=monotonic)
     elapsed_ms: int = 0
     events: deque = field(default_factory=lambda: deque(maxlen=32))
@@ -194,6 +198,7 @@ class ModbusScanCoordinator:
             "recovery_status": state.recovery_status,
             "recovery_error_code": state.recovery_error_code,
             "cleanup_status": state.cleanup_status,
+            **self._lease(state),
             "cancellation_requested": state.cancellation_requested,
             "error": state.error,
             "error_info": state.error_info,
@@ -222,8 +227,17 @@ class ModbusScanCoordinator:
             "recovery_status": state.recovery_status,
             "recovery_error_code": state.recovery_error_code,
             "cleanup_status": state.cleanup_status,
+            **self._lease(state),
             "error": state.error,
             "error_info": state.error_info,
+        }
+
+    @staticmethod
+    def _lease(state: _ScanState) -> dict[str, Any]:
+        return {
+            "lease_status": state.lease_status,
+            "lease_end_reason": state.lease_end_reason,
+            "paused_pollers": [dict(poller) for poller in state.paused_pollers],
         }
 
     async def cancel(self, scan_id: str) -> dict[str, Any]:
@@ -301,6 +315,7 @@ class ModbusScanCoordinator:
                 },
                 "recovery_status": {"unknown", "pending", "verified", "failed"},
                 "cleanup_status": {"unknown", "pending", "closed", "forced", "failed"},
+                "lease_status": {"none", "active", "ended", "unconfirmed"},
             }.items():
                 if update.get(key) in choices:
                     if key == "operation_phase" and update[key] != state.operation_phase:
@@ -311,6 +326,22 @@ class ModbusScanCoordinator:
                             }
                         )
                     setattr(state, key, update[key])
+            if update.get("lease_status") == state.lease_status and update.get(
+                "lease_end_reason"
+            ) in {
+                None,
+                "released",
+                "idle",
+                "hard_limit",
+                "superseded",
+            }:
+                state.lease_end_reason = update["lease_end_reason"]
+            if isinstance(update.get("paused_pollers"), list):
+                state.paused_pollers = [
+                    {key: poller[key] for key in ("index", "name", "address")}
+                    for poller in update["paused_pollers"]
+                    if isinstance(poller, dict) and {"index", "name", "address"} <= poller.keys()
+                ]
             if update.get("recovery_error_code") in {
                 "FIRMWARE_FAULT",
                 "DEVICE_RESTARTED",

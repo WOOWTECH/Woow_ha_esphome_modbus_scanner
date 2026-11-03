@@ -73,7 +73,11 @@ const en = {
   physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
   physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
   v2Help: "Bridge v2: FC03 or FC04, any register, 1–4 registers, 100–2000 ms timeout.",
-  v2Pause: "Not available yet on bridge v2: Normal Polling keeps running during the probe.",
+  v2Pause: "Every Pausable Poller on this Bus is paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, 5 s without a probe or after 10 minutes.",
+  lease: "Scan Lease",
+  leaseStates: {active: "Active: Normal Polling paused", ended: "Ended: Normal Polling resumed", unconfirmed: "Ending not confirmed: the Gateway resumes Normal Polling by itself within 5 s"},
+  leaseReasons: {released: "released by Home Assistant", idle: "ended by the Gateway after 5 s without a probe", hard_limit: "ended by the Gateway at the 10-minute limit", superseded: "replaced by a newer Scan"},
+  staleWarning: "Entity values of these paused devices are stale until the Scan ends:",
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x (timeout + delay)).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
   registerBlock: "The register block must end at or before register 65535.",
@@ -124,7 +128,11 @@ const zh = {
   physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
   physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
   v2Help:"橋接 v2：FC03 或 FC04、任意暫存器、數量 1–4、逾時 100–2000 毫秒。",
-  v2Pause:"橋接 v2 尚不支援暫停：探測期間一般輪詢持續進行。",
+  v2Pause:"掃描期間會暫停此匯流排上所有可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、5 秒無探測或 10 分鐘後，閘道會自行恢復輪詢。",
+  lease:"掃描租約",
+  leaseStates:{active:"進行中：一般輪詢已暫停",ended:"已結束：一般輪詢已恢復",unconfirmed:"未確認結束：閘道會在 5 秒內自行恢復一般輪詢"},
+  leaseReasons:{released:"由 Home Assistant 釋放",idle:"閘道於 5 秒無探測後結束",hard_limit:"閘道於 10 分鐘上限時結束",superseded:"已由較新的掃描取代"},
+  staleWarning:"下列暫停中設備的實體數值在掃描結束前為過期資料：",
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 ×（逾時 + 間隔））。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
   registerBlock:"暫存器區塊不可超過 65535。",
@@ -246,7 +254,7 @@ const V2_LIMITS = Object.freeze({
 });
 const V2_DEFAULTS = Object.freeze({
   probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
-  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: false,
+  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: true,
 });
 function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
@@ -273,6 +281,26 @@ function formatRawValues(row) {
   const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
   const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
   return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
+}
+const LEASE_STATES = ["active", "ended", "unconfirmed"];
+const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
+/**
+ * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
+ * `stale` names the paused devices whose entity values are frozen while the lease may hold.
+ */
+function leaseNotice(status) {
+  const state = status?.lease_status;
+  if (!LEASE_STATES.includes(state)) return null;
+  const pollers = Array.isArray(status.paused_pollers) ? status.paused_pollers : [];
+  const label = (poller) => {
+    const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
+    return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
+  };
+  return {
+    state,
+    reason: state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null,
+    stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
+  };
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
 /** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
@@ -304,9 +332,8 @@ function validateForm(form, single = false, text = {}) {
     }
   }
   if (isV2Form(form)) {
-    const message = text.v2 || "Bridge v2 reads FC03/FC04 only and cannot pause Normal Polling yet.";
+    const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
-    if (form.pause_normal_polling === true) errors.pause_normal_polling = message;
     if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
       errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
     }
@@ -396,7 +423,8 @@ function sanitizePreferences(value) {
     if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
     if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
-    form.pause_normal_polling = false;
+    // A v2 Scan pauses every Pausable Poller on its Bus; per-poller choice is a later release.
+    form.pause_normal_polling = true;
   } else if (source.provider === "esphome") {
     form.provider = "esphome";
     form.bridge = "v1";
@@ -775,6 +803,9 @@ class WoowEsphomeModbusScannerPanel extends i {
     const physical = this._form.provider === "esphome";
     // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
     const v1 = physical && this._form.bridge !== "v2";
+    // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
+    const lease = leaseNotice(this._status);
+    const v2Status = Boolean(lease) || (physical && !v1);
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     const compatible = supportedGateway(gateway);
@@ -814,7 +845,7 @@ class WoowEsphomeModbusScannerPanel extends i {
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return b`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
             <div class="actions"><button class="secondary" @click=${this._loadHistory} ?disabled=${Boolean(this._busy) || running}>${t.history}</button></div><small>${t.historyHelp}</small>
-            ${this._status ? b`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${this._status.error_info ? b`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : A}${this._status.progress_is_checkpoint ? b`<p class="notice failure">${t.checkpoint}</p>` : A}${TERMINAL.has(phase) && this._status.provider === "esphome" && this._status.recovery_status !== "verified" ? b`<p class="notice failure" role="status">${t.attention}</p>` : A}` : A}
+            ${this._status ? b`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? b`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? b`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : A}` : A}${this._status.error_info ? b`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : A}${this._status.progress_is_checkpoint ? b`<p class="notice failure">${t.checkpoint}</p>` : A}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? b`<p class="notice failure" role="status">${t.attention}</p>` : A}` : A}
             <p><strong>${t.phase}:</strong> ${t.statuses[phase] || phase} ${this._status?.current_address ? b`· ${t.columns.address} ${this._status.current_address}` : A}<br><code>${this._chosenId() || t.noScanId}</code></p>
             <div class="progress" role="progressbar" aria-label=${t.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progress}><span style="width:${Math.min(100, Math.max(0, progress))}%"></span></div><small>${this._status?.completed_addresses || 0} / ${this._status?.total_addresses || 0} ${t.addresses} · ${progress}% · ${this._status?.responder_count || 0} ${t.responders}</small>
             ${this._status?.events?.length ? b`<section aria-label=${t.timeline}><strong>${t.timeline}</strong><ol>${this._status.events.slice(-8).map((event) => b`<li>${Math.round(event.elapsed_ms/1000)}s · ${t.operationStates[event.phase] || t.statuses[event.phase] || t.dash}</li>`)}</ol></section>` : A}

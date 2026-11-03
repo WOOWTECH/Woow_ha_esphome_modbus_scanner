@@ -20,11 +20,19 @@
         {"name": "scan_id", "type": "string"},
         {"name": "pause_pollers", "type": "string"}
       ]
+    },
+    "release": {
+      "name": "modbus_scanner_v2_release",
+      "args": [
+        {"name": "bus", "type": "string"},
+        {"name": "scan_id", "type": "string"}
+      ]
     }
   },
   "text_sensors": {
     "info": {"name": "Modbus Scanner v2 Info"},
-    "result": {"name": "Modbus Scanner v2 Result"}
+    "result": {"name": "Modbus Scanner v2 Result"},
+    "lease": {"name": "Modbus Scanner v2 Lease"}
   },
   "identifiers": {
     "request_id": {"min_length": 1, "max_length": 32, "charset": "0-9A-Za-z_-"},
@@ -107,7 +115,40 @@
     "bus_fields": {
       "bus": "string, the value to pass as the probe action's bus argument",
       "pollers": "array of Pausable Poller objects (may be empty)"
+    },
+    "poller_fields": {
+      "index": "int >= 0, stable position in the bus's Pausable Poller table; the value to list in pause_pollers",
+      "name": "string, the component's YAML name, else its id",
+      "address": "int 0..247, the poller's slave address; 0 when the component has none"
     }
+  },
+  "lease": {
+    "schema_version": 1,
+    "encoding": "Compact JSON published on the lease text sensor when a Scan Lease begins, when it ends, and in answer to every release action for a known bus.",
+    "idle_ms": 5000,
+    "hard_limit_ms": 600000,
+    "rules": [
+      "A Scan Lease begins on the first accepted probe of a scan_id whose pause_pollers is non-empty; that probe's selection is used for the whole lease.",
+      "Before the first probe frame is queued, the selected pollers are stopped and the hub's queued frames for their addresses are cleared.",
+      "Every accepted probe of the same scan_id renews the lease. The idle timer runs only while no probe of the lease is in flight and starts at the last probe's terminal callback.",
+      "The Gateway ends the lease by itself after idle_ms without a probe or hard_limit_ms after it began, and resumes the paused pollers on every ending path.",
+      "A probe with a different scan_id ends an active lease (superseded) before it is handled.",
+      "Once a lease for a scan_id has ended it never restarts; later probes of that scan_id run without pausing."
+    ],
+    "fields": {
+      "v": "int, lease schema_version",
+      "bus": "string, bus echoed",
+      "scan": "string, scan_id echoed",
+      "state": "one of states",
+      "pollers": "array of the paused Pausable Poller indices (empty when state is none)"
+    },
+    "states": ["active", "ended", "none"],
+    "state_fields": {
+      "active": {},
+      "ended": {"reason": "one of end_reasons"},
+      "none": {}
+    },
+    "end_reasons": ["released", "idle", "hard_limit", "superseded"]
   },
   "timeout_semantics": "timeout_ms is applied per probe: when the probe frame is transmitted the firmware sets the hub's send_wait_time to timeout_ms and restores the YAML send_wait_time at the probe's terminal callback. Only one frame is in flight per hub, so this affects only the probe frame.",
   "base_request": {
