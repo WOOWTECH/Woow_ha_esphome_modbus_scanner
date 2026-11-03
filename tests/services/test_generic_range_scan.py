@@ -82,3 +82,65 @@ async def test_highest_register_block_ending_at_65535_is_accepted(hass, gateway)
     assert (probe["register"], probe["count"]) == (65532, 4)
     status = await call("get_scan_status", {"scan_id": started["scan_id"]})
     assert status["status"] == "completed"
+
+
+async def test_full_range_fc04_scan_reads_four_registers_from_every_responder(hass, gateway):
+    gateway.devices = {
+        ("rs485", 7): [1, 2, 3, 4],
+        ("rs485", 100): 2,
+        ("rs485", 247): [0xFFFF, 0, 0x1234, 9],
+    }
+    call = await _setup(hass)
+    started = await _start_scan(
+        call,
+        start_id=1,
+        end_id=247,
+        probe_type="input_register",
+        register_address=0x0010,
+        register_count=4,
+        timeout_ms=100,
+        large_range_confirmed=True,
+    )
+    await _settle(hass)
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+
+    assert (results["status"], results["total_addresses"]) == ("completed", 247)
+    assert results["outcome_counts"]["timeout"] == 244
+    assert [(row["address"], row["outcome"]) for row in results["responders"]] == [
+        (7, "responded"),
+        (100, "modbus_exception"),
+        (247, "responded"),
+    ]
+    assert results["responders"][2]["raw_values"] == [65535, 0, 4660, 9]
+    assert {(p["function_code"], p["register"], p["count"]) for p in gateway.probes} == {
+        (4, 0x0010, 4)
+    }
+    assert [p["slave"] for p in gateway.probes] == list(range(1, 248))
+
+
+async def test_timeouts_are_retried_up_to_the_requested_retries(hass, gateway):
+    call = await _setup(hass)
+    started = await _start_scan(call, start_id=6, end_id=7, retries=5)
+    await _settle(hass)
+    assert [p["slave"] for p in gateway.probes] == [6] * 6 + [7]
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["responders"][0]["attempts"] == 1
+
+
+async def test_cancelled_v2_range_scan_stops_and_appears_in_history(hass, gateway):
+    call = await _setup(hass)
+    started = await _start_scan(
+        call, start_id=1, end_id=247, inter_request_delay_ms=200, large_range_confirmed=True
+    )
+    requested = await call("cancel_scan", {"scan_id": started["scan_id"]})
+    assert requested["cancellation_requested"] is True
+    await _settle(hass)
+
+    status = await call("get_scan_status", {"scan_id": started["scan_id"]})
+    assert (status["status"], status["gateway_id"]) == ("cancelled", GATEWAY_ID)
+    assert status["completed_addresses"] < 247
+    assert len(gateway.probes) == status["completed_addresses"]
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["status"] == "cancelled"
+    history = await call("get_history")
+    assert [scan["scan_id"] for scan in history["scans"]] == [started["scan_id"]]
