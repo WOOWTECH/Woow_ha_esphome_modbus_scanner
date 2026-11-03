@@ -127,6 +127,7 @@ async def test_legacy_gateway_reports_its_limits_in_list_gateways(hass):
         "timeout_ms_max": 700,
         "pause_normal_polling_required": True,
         "pause_normal_polling_supported": True,
+        "attempt_overhead_ms": 2700,
     }
 
 
@@ -137,6 +138,9 @@ async def test_legacy_probe_uses_reported_defaults_and_keeps_result_format(hass)
     )
     await asyncio.gather(*hass.data[DOMAIN][DATA_COORDINATOR]._tasks.values())
     assert FakeLegacyClient.instances[0].probes == [(1, 0x6201)]
+    # One 700 ms attempt plus the v1 firmware's 2700 ms drain and quiet periods; the budget
+    # adds v1 connect, per-attempt API waits and the post-scan polling recovery check.
+    assert (started["estimated_worst_case_ms"], started["execution_budget_ms"]) == (3400, 79000)
     results = await call("get_scan_results", {"scan_id": started["scan_id"]})
     assert results["status"] == "completed"
     assert results["responders"] == [

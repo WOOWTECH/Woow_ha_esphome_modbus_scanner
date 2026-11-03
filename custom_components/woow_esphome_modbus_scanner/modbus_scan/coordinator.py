@@ -13,6 +13,7 @@ from uuid import uuid4
 from homeassistant.core import HomeAssistant
 
 from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
+from .limits import ScanTiming
 from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
 from .pollers import choose
 from .provider import GatewayProvider, GatewayProviderError
@@ -57,6 +58,8 @@ class _ScanState:
     bus: str | None = None
     profile: DeviceProfile = GENERIC_DEVICE_PROFILE
     device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
+    # How long Scans take on this Gateway (its provider adapter's ScanTiming).
+    timing: ScanTiming = field(default_factory=ScanTiming)
     phase: ScanPhase = ScanPhase.RUNNING
     started_at: str = field(default_factory=_utc_now)
     finished_at: str | None = None
@@ -262,6 +265,7 @@ class ModbusScanCoordinator:
             bus=request.bus,
             profile=profile,
             device_profile=profile.summary(),
+            timing=gateway.limits.timing if gateway.limits is not None else ScanTiming(),
         )
         self._scans[scan_id] = state
         self._active[request.gateway_key] = scan_id
@@ -315,8 +319,8 @@ class ModbusScanCoordinator:
             "outcome_counts": self._serialized_counts(state),
             "started_at": state.started_at,
             "finished_at": state.finished_at,
-            "estimated_worst_case_ms": state.request.estimated_worst_case_ms,
-            "execution_budget_ms": state.request.execution_budget_ms,
+            "estimated_worst_case_ms": state.timing.estimated_worst_case_ms(state.request),
+            "execution_budget_ms": state.timing.execution_budget_ms(state.request),
             "elapsed_ms": int((monotonic() - state.started_clock) * 1000)
             if state.phase == ScanPhase.RUNNING
             else state.elapsed_ms,
@@ -518,7 +522,7 @@ class ModbusScanCoordinator:
             kwargs = {"progress": progress} if getattr(provider, "supports_progress", False) else {}
             cleanup_reserve_ms = 3000 if state.request.provider == "esphome" else 0
             async with asyncio.timeout(
-                (state.request.execution_budget_ms - cleanup_reserve_ms) / 1000
+                (state.timing.execution_budget_ms(state.request) - cleanup_reserve_ms) / 1000
             ):
                 await provider.run_scan(
                     state.request, emit, lambda: state.cancellation_requested, **kwargs

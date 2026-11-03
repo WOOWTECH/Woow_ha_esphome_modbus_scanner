@@ -27,7 +27,7 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
-from ..limits import ProbeLimits
+from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
     GatewayInfo,
@@ -92,6 +92,17 @@ LIMITS = ProbeLimits(
         # A Scan pauses every Pausable Poller on its Bus under one Scan Lease.
         "pause_normal_polling": True,
     },
+    timing=ScanTiming(
+        # The probe action and its result's way back over the API; the Gateway applies the
+        # timeout itself and needs no drain or quiet periods (the lease holds the pollers).
+        attempt_overhead_ms=300,
+        # Connect 15 s, device info 10 s, entity list 10 s, bridge info 5 s.
+        setup_ms=40_000,
+        # The probe action call (5 s) plus the result margin over the timeout (5 s).
+        attempt_budget_ms=10_000,
+        # Lease release answer (1 s) and disconnect (up to 3 s).
+        cleanup_ms=4_000,
+    ),
 )
 
 

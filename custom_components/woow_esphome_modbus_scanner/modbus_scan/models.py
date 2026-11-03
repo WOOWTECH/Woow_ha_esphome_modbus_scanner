@@ -154,27 +154,6 @@ class ScanRequest:
         """
         return self.provider, self.gateway_id, self.bus
 
-    @property
-    def estimated_worst_case_ms(self) -> int:
-        """Conservative request duration estimate without pre-enqueuing work."""
-        # Physical bridge includes normal-transaction drain and pre/post quiet.
-        overhead = 2700 if self.provider == "esphome" else 0
-        per_address = (self.timeout_ms + overhead) * (self.retries + 1)
-        delays = max(0, self.address_count - 1) * self.inter_request_delay_ms
-        return self.address_count * per_address + delays
-
-    @property
-    def execution_budget_ms(self) -> int:
-        """Operation ceiling includes connect/discovery, API waits, recovery and cleanup."""
-        if self.provider == "esphome":
-            return (
-                35000
-                + self.address_count * (self.retries + 1) * 11000
-                + max(0, self.address_count - 1) * self.inter_request_delay_ms
-                + 33000
-            )
-        return self.estimated_worst_case_ms + 10000
-
     def validate(self, *, require_safety: bool = True) -> None:
         """Validate all transport-independent safety bounds."""
         if not isinstance(self.provider, str) or not self.provider:

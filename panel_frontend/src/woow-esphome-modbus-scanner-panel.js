@@ -430,7 +430,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const t = this._text;
     const invalid = Boolean(this._errors.large_range_confirmed);
     const count = Number(this._form.end_id) - Number(this._form.start_id) + 1;
-    const estimate = estimatedDurationMs(this._form);
+    const estimate = estimatedDurationMs(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id));
     const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
     return html`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : nothing}>${t.largeRange(count, seconds)}</label>${invalid ? html`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : nothing}</div>`;
   }

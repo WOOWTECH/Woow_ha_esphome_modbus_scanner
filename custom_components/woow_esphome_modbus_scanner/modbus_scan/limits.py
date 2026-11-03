@@ -18,6 +18,40 @@ from .models import (
 
 
 @dataclass(frozen=True, slots=True)
+class ScanTiming:
+    """How long one Gateway's Scans take: the worst-case estimate and the operation budget.
+
+    Estimate: every attempt costs ``timeout_ms`` plus ``attempt_overhead_ms`` (what the
+    transport adds per attempt), plus the inter-request delay between addresses. Budget (the
+    deadline the coordinator enforces): ``setup_ms`` for connect and discovery, then per
+    attempt ``attempt_budget_ms`` (plus ``timeout_ms`` unless it already covers it), the
+    delays, and ``cleanup_ms``.
+    """
+
+    attempt_overhead_ms: int = 0
+    setup_ms: int = 0
+    attempt_budget_ms: int = 0
+    # Whether attempt_budget_ms already covers the attempt's timeout (a fixed-timeout bridge).
+    attempt_budget_includes_timeout: bool = False
+    cleanup_ms: int = 10_000
+
+    def estimated_worst_case_ms(self, request: ScanRequest) -> int:
+        """Conservative request duration estimate without pre-enqueuing work."""
+        attempts = request.address_count * (request.retries + 1)
+        delays = max(0, request.address_count - 1) * request.inter_request_delay_ms
+        return attempts * (request.timeout_ms + self.attempt_overhead_ms) + delays
+
+    def execution_budget_ms(self, request: ScanRequest) -> int:
+        """Operation ceiling: connect/discovery, every attempt's waits, delays and cleanup."""
+        attempts = request.address_count * (request.retries + 1)
+        per_attempt = self.attempt_budget_ms
+        if not self.attempt_budget_includes_timeout:
+            per_attempt += request.timeout_ms
+        delays = max(0, request.address_count - 1) * request.inter_request_delay_ms
+        return self.setup_ms + attempts * per_attempt + delays + self.cleanup_ms
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeLimits:
     """What one gateway can safely probe, as reported by its provider adapter."""
 
@@ -33,6 +67,7 @@ class ProbeLimits:
     pause_normal_polling_supported: bool = True
     # Values the service layer fills in for omitted probe fields.
     defaults: dict[str, Any] = field(default_factory=dict, compare=False)
+    timing: ScanTiming = field(default_factory=ScanTiming, compare=False)
 
     def validate(self, request: ScanRequest) -> None:
         """Reject any request outside these limits with an actionable message."""
@@ -84,4 +119,6 @@ class ProbeLimits:
             "timeout_ms_max": self.timeout_ms_max,
             "pause_normal_polling_required": self.pause_normal_polling_required,
             "pause_normal_polling_supported": self.pause_normal_polling_supported,
+            # The panel's duration estimate uses the same formula as the service's.
+            "attempt_overhead_ms": self.timing.attempt_overhead_ms,
         }

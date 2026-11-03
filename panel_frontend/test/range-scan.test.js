@@ -11,11 +11,19 @@ const V2_GATEWAY = {
 };
 const v2Form = (changes = {}) => ({...selectGateway(DEFAULTS, V2_GATEWAY), safety_confirmed: true, ...changes});
 
-test("estimated duration is ID count x (timeout + inter-request delay)", () => {
-  // 247 IDs x (1000 ms + 100 ms) = 271.7 s
-  assert.equal(estimatedDurationMs(v2Form({start_id: 1, end_id: 247})), 271_700);
+// The Gateway as list_gateways reports it: limits carry the per-attempt overhead of its bridge.
+const LISTED_V2 = {...V2_GATEWAY, limits: {attempt_overhead_ms: 300}};
+
+test("estimated duration uses the service's formula, retries and the gateway's overhead", () => {
+  // The service's worked example (tests/services/test_bridge_v2.py): 3 IDs x 2 attempts x
+  // (200 ms + 300 ms) + 2 gaps x 50 ms = 3.1 s, the Scan's estimated_worst_case_ms.
+  const form = v2Form({start_id: 1, end_id: 3, timeout_ms: 200, retries: 1, inter_request_delay_ms: 50});
+  assert.equal(estimatedDurationMs(form, LISTED_V2), 3100);
+  // 247 IDs x 1 attempt x (1000 ms + 300 ms) + 246 x 100 ms = 345.7 s
+  assert.equal(estimatedDurationMs(v2Form({start_id: 1, end_id: 247}), LISTED_V2), 345_700);
+  // Without a reported overhead (mock gateway) only timeouts and delays count.
   assert.equal(estimatedDurationMs(v2Form({start_id: "10", end_id: "12", timeout_ms: "200", inter_request_delay_ms: "0"})), 600);
-  assert.equal(estimatedDurationMs(v2Form({start_id: 5, end_id: 1})), null);
+  assert.equal(estimatedDurationMs(v2Form({start_id: 5, end_id: 1}), LISTED_V2), null);
 });
 
 test("a range above 32 IDs needs a second confirmation before it can start", () => {

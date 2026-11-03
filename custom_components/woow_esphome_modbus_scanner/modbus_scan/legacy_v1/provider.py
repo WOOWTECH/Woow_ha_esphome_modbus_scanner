@@ -20,7 +20,7 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
-from ..limits import ProbeLimits
+from ..limits import ProbeLimits, ScanTiming
 from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome
 from ..provider import GatewayProviderError
 from .frozen_profile import PROFILE
@@ -49,6 +49,15 @@ LIMITS = ProbeLimits(
             "pause_normal_polling",
         )
     },
+    # The v1 firmware drains normal transactions and keeps pre/post quiet periods around
+    # every probe, and HA verifies Normal Polling recovery after the Scan.
+    timing=ScanTiming(
+        attempt_overhead_ms=2700,
+        setup_ms=35_000,
+        attempt_budget_ms=11_000,
+        attempt_budget_includes_timeout=True,
+        cleanup_ms=33_000,
+    ),
 )
 
 

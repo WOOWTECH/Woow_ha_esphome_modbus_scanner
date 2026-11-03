@@ -206,11 +206,17 @@ export function selectionPayload(gatewayId, bus, pollers, index, paused) {
   return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
-/** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
-export function estimatedDurationMs(form) {
-  const fields = [form.start_id, form.end_id, form.timeout_ms, form.inter_request_delay_ms];
+/**
+ * Estimated range-scan duration, the service's estimated_worst_case_ms formula: IDs x attempts x
+ * (timeout + the gateway's reported per-attempt overhead) + (IDs - 1) x delay; null for an invalid range.
+ */
+export function estimatedDurationMs(form, gateway = null) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.retries, form.inter_request_delay_ms];
   if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
-  return (Number(form.end_id) - Number(form.start_id) + 1) * (Number(form.timeout_ms) + Number(form.inter_request_delay_ms));
+  const reported = gateway?.limits?.attempt_overhead_ms;
+  const overhead = Number.isInteger(reported) && reported >= 0 ? reported : 0;
+  const ids = Number(form.end_id) - Number(form.start_id) + 1;
+  return ids * (Number(form.retries) + 1) * (Number(form.timeout_ms) + overhead) + (ids - 1) * Number(form.inter_request_delay_ms);
 }
 export function needsLargeRangeConfirmation(form) {
   return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;

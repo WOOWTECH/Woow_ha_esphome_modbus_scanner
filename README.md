@@ -58,7 +58,8 @@ FC23) and enforces its own hard limits: slave 1–247, FC03/FC04, 1–4 register
   and numbers are rejected.
 - A Scan of more than 32 slave IDs (a Large Range) also requires
   `large_range_confirmed: true`. The sidebar shows the estimated duration,
-  IDs × (timeout + delay), before asking.
+  IDs × attempts × (timeout + the Gateway's per-attempt overhead) + delays, the
+  same figure as the Scan's `estimated_worst_case_ms`, before asking.
 - Pausing pollers makes their Home Assistant entities stale for the duration of
   the Scan. See [Pausable Pollers and the Scan Lease](#pausable-pollers-and-the-scan-lease).
 

@@ -51,7 +51,7 @@ ADR 0001–0003 說明 provider／coordinator 分離、單一設定項目生命�
 
 - `start_scan` 只接受字面布林值 `safety_confirmed: true`；字串與數字都會被拒絕。
 - 超過 32 個站號的 Scan（Large Range）另需 `large_range_confirmed: true`。
-  側邊欄會先顯示預估時間（站號數 ×（逾時 + 間隔））再要求確認。
+  側邊欄會先顯示預估時間（站號數 × 嘗試次數 ×（逾時 + Gateway 每次額外時間）+ 間隔，與 Scan 的 `estimated_worst_case_ms` 相同）再要求確認。
 - 暫停的輪詢元件在 Scan 期間，其 HA 實體值會過時。請見
   [Pausable Poller 與 Scan Lease](#pausable-poller-與-scan-lease)。
 
