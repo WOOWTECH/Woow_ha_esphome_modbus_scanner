@@ -406,7 +406,7 @@ def test_all_content_and_only_content_controls_work_progressively() -> None:
     assert "aria-live" in TUTORIAL
 
 
-def test_readmes_offer_source_view_release_asset_raw_archive_and_mock_warning() -> None:
+def test_readme_histories_keep_v0_1_0_tutorial_links_labelled_mock_only() -> None:
     blob = f"{REPOSITORY}/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html"
     release_asset = (
         f"{REPOSITORY}/releases/download/v0.1.0/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html"
@@ -417,12 +417,12 @@ def test_readmes_offer_source_view_release_asset_raw_archive_and_mock_warning() 
         "woow-esphome-modbus-scanner-v0.1.0-zh-TW.html"
     )
     archive = f"{REPOSITORY}/archive/refs/tags/v0.1.0.zip"
-    for readme_name in ("README.md", "README_zh-TW.md"):
-        text = (ROOT / readme_name).read_text(encoding="utf-8")
+    # The mock-only tutorials are historical; their links live in each README's history.
+    for readme_name, heading in (("README.md", "## History"), ("README_zh-TW.md", "## 歷史")):
+        text = (ROOT / readme_name).read_text(encoding="utf-8").split(heading, 1)[1]
         assert blob in text
         assert release_asset in text
         assert raw in text
         assert archive in text
         assert "Source-file view" in text or "檢視原始檔" in text
-        assert "MOCK" in text[:2500].upper()
-        assert "not ESPHome\n> firmware" in text or "不是 ESPHome 韌體" in text
+        assert "mock-only" in text or "僅限 MOCK" in text

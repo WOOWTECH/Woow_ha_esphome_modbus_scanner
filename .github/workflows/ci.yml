@@ -42,10 +42,12 @@ jobs:
         working-directory: panel_frontend
       - run: npm run test:browser
         working-directory: panel_frontend
-      - run: node tests/tutorial/browser_check.mjs
-      - run: >-
-          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html
-          node tests/tutorial/browser_check.mjs
+      - name: Current tutorial (0.5.0)
+        run: node tests/tutorial/browser_check.mjs
+      - name: Historical mock-only tutorials
+        run: |
+          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html node tests/tutorial/browser_check.mjs
+          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html node tests/tutorial/browser_check.mjs
 
   hassfest:
     runs-on: ubuntu-latest

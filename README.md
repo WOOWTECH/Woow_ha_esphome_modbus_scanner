@@ -1,216 +1,410 @@
 # Woow ESPHome Modbus Scanner
 
-> **Experimental 0.4.0.dev1: deployed to HA and both existing ESP32 devices.**
-> All active HA users and internal automations may operate scanners. Both devices
-> now use individual encrypted API keys in native ESPHome and this integration.
-> Fresh polling recovery, bounded history/events, diagnostics, Repairs and reauth
-> are implemented. See [live acceptance](docs/design/hardening-live-acceptance.md),
-> [authorization boundary](docs/design/authorization-boundary.md), and
-> [upgrade/rollback](docs/design/hardening-upgrade-rollback.md).
-> This is not an upstream release or a universal hardware/endurance certification.
+> **0.5.0.dev1 is under development** (branch `epic/generic-scanner`). It is not a
+> release and has not been deployed or accepted on hardware yet. The last
+> deployed build was 0.4.0.dev1; see [History](#history).
 
-> **Historical baseline 0.3.0.dev3:** added a restricted Guanjie FC03
-> firmware bridge and ESPHome provider. See [the bridge contract and test
-> instructions](docs/adr/0004-experimental-guanjie-fc03-bridge.md). This is not
-> an upstream release; the documentation below describes upstream v0.2.0.
-> The sidebar now supports enrolled physical gateways with validated FC03 defaults,
-> explicit hardware warnings and persistent gateway selection. The old tutorial
-> remains mock-only. HACS updates may overwrite these local changes.
-> [UI reacceptance report: 124/124](docs/design/ui-reacceptance.md).
+Read-only, best-effort discovery of which Modbus RTU slave IDs answer on an
+RS-485 Bus reached through an ESPHome node, driven from Home Assistant. The
+project has two parts:
 
-### Experimental physical sidebar
+- a Home Assistant custom integration (`custom_components/woow_esphome_modbus_scanner`)
+  with a sidebar workbench, public services, Device Profiles and a mock provider;
+- a vendor-neutral ESPHome external component, `modbus_scanner`
+  (`firmware/components/modbus_scanner`), that turns any ESPHome node with a
+  Modbus RTU hub into a scanner **Gateway**.
 
-Hard-refresh HA after updating. Select an enrolled ESPHome gateway, then use
-**Test address** without changing advanced fields. Defaults are FC03, register
-25089 (0x6201), count 1, 700 ms, with automatic polling suspension/restoration.
-For a range, confirm the warning and press **Start scan** (default 1–3; maximum 32).
-Reload preserves the selected gateway and valid numeric preferences, but resets
-consent. An unavailable saved gateway blocks reads rather than falling back to
-mock. The result table identifies its own provider/gateway, including old history.
-All authenticated HA users can generate these physical reads; this is experimental,
-not a production security certification. No extra ESPHome device selector is needed.
+繁體中文：[README_zh-TW.md](README_zh-TW.md) · Terms: [GLOSSARY.md](GLOSSARY.md)
 
-The following sections document the upstream **v0.2.0 mock release**, not the
-physical branch capabilities above.
+## Tutorial
 
-A HACS-compatible Home Assistant custom integration for safe, provider-backed,
-best-effort Modbus address discovery. Version **0.2.0** is intentionally
-hardware-free: it ships only a deterministic `MockGatewayProvider` and never
-opens an ESPHome connection or a Modbus transport.
+The Traditional-Chinese HTML tutorial for this version is a single offline file:
+**[view the 0.5.0 tutorial source](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.5.0-zh-TW.html)** ·
+**[raw 0.5.0 HTML](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.5.0-zh-TW.html)**.
+The older mock-only tutorials are listed under [History](#history).
 
-繁體中文：[README_zh-TW.md](README_zh-TW.md)
+## How it works
 
-## Downloadable Traditional-Chinese tutorial
+- A **Gateway** is an enrolled ESPHome node running `modbus_scanner`. Each
+  Modbus hub on the node with a `modbus_scanner` entry is one **Bus**.
+- A **Scan** is an ordered series of read-only **Probes** (FC03 holding or FC04
+  input registers) over a range of slave IDs on one Bus. A slave ID that
+  answers is a **Responder**; that is not proof of exactly one physical device.
+- A **Device Profile** in Home Assistant holds the readable registers, defaults
+  and limits for one class of field device. The built-in **Generic Device
+  Profile** permits any register. Profiles can also name registers so results
+  show decoded values beside the raw ones.
+- Other components polling the same Bus (for example each `modbus_controller`)
+  are **Pausable Pollers**, found when the firmware is compiled. During a Scan
+  the Gateway holds the ones you selected paused under a **Scan Lease** and
+  resumes them by itself.
 
-**[View the v0.2.0 tutorial source](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html)** · **[Future v0.2.0 tutorial release asset](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.2.0/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html)** · **[Raw v0.2.0 HTML](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html)** · **[Source-file view for v0.1.0](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Download the v0.1.0 tutorial HTML release asset](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.1.0/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Raw v0.1.0 HTML](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html)** · **[Download the v0.1.0 source archive](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/archive/refs/tags/v0.1.0.zip)**
+Design decisions:
+[ADR 0005, vendor-neutral component and Device Profiles](docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md),
+[ADR 0006, Pausable Poller discovery and selection](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md),
+[ADR 0007, Scan Lease with Gateway-owned recovery](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md).
+Earlier ADRs 0001–0003 cover the provider/coordinator split, the singleton
+lifecycle and the all-user sidebar.
 
-> **v0.2.0 MOCK ONLY:** the HTML is offline tutorial documentation, not ESPHome
-> firmware. This release does not connect to ESPHome or scan physical hardware.
-
-## Status and safety
-
-This release is useful for automations, service-client development, lifecycle
-testing, and evaluating result semantics without hardware. It is **not** a real
-bus scanner yet.
+## Safety and access
 
 Discovery is read-only and best-effort. A timeout does not prove an address is
-unused. A response does not prove a Slave ID uniquely identifies one physical
-device. Noise and duplicate IDs can look like a possible collision. A future
-physical scan may disrupt normal polling even when all probes are read-only.
+unused, and a reply does not prove that one physical device owns that slave ID.
+The firmware refuses every write function code (FC05, FC06, FC15, FC16, FC22,
+FC23) and enforces its own hard limits: slave 1–247, FC03/FC04, 1–4 registers,
+100–2000 ms timeout, one Probe in flight per Bus.
 
-`start_scan` therefore accepts only the literal JSON/YAML boolean
-`safety_confirmed: true`; truthy numbers and strings are rejected.
-A range of more than 32 IDs also needs `large_range_confirmed: true` (same
-exact-boolean rule); the sidebar shows the estimated duration, IDs x (timeout +
-delay), and asks for this second confirmation.
+- `start_scan` requires the literal boolean `safety_confirmed: true`; strings
+  and numbers are rejected.
+- A Scan of more than 32 slave IDs (a Large Range) also requires
+  `large_range_confirmed: true`. The sidebar shows the estimated duration,
+  IDs × (timeout + delay), before asking.
+- Pausing pollers makes their Home Assistant entities stale for the duration of
+  the Scan. See [Pausable Pollers and the Scan Lease](#pausable-pollers-and-the-scan-lease).
 
-**All-user policy:** the current eight services and sidebar are available to
-active authenticated HA users, without an admin/user role gate. Internal
-automations remain allowed; inactive or unknown named callers cannot perform
-physical operations. Users can generate read-only bus traffic and see responder
-evidence, so installers must control HA accounts. `check_gateway` is API-only;
-`get_history` returns bounded saved snapshots. API encryption does not add
-per-user restrictions to native ESPHome actions.
+**Access policy:** the sidebar and all services are open to every active HA
+user and to internal automations; there is no admin gate. In practice, any
+active Home Assistant user can generate read-only Modbus traffic on any
+enrolled Bus, for slave IDs 1–247 within the selected Device Profile, and see
+the Responder evidence. Inactive or unknown users are refused. Control who has
+an HA account. Native ESPHome actions are a separate path that the integration
+does not police; API encryption authenticates clients, not HA users. See
+[authorization boundary](docs/design/authorization-boundary.md).
 
-## Installation
+## Requirements
 
-### HACS custom repository
+- Home Assistant with the ESPHome integration (this integration depends on it).
+- **ESPHome 2026.9.0 or newer** for the firmware. Older versions fail
+  configuration validation with "requires at least ESPHome version 2026.9.0".
+- An ESP32 (or other ESPHome target) with a UART wired to an RS-485
+  transceiver, a `modbus:` hub and the native `api:` (encryption recommended).
 
-1. In HACS, add this repository as an **Integration** custom repository.
-2. Install **Woow ESPHome Modbus Scanner**.
-3. Restart Home Assistant.
-4. Go to **Settings → Devices & services → Add integration** and add it once.
-5. Open **Modbus Scanner** (`mdi:radar`) in the sidebar. It is visible to all HA users.
+## 1. Add the scanner to your ESPHome node
 
-### Manual
+Keep your existing `uart`, `modbus` and `modbus_controller` configuration and
+add the external component plus one `modbus_scanner` entry naming the hub:
 
-Copy `custom_components/woow_esphome_modbus_scanner` into your Home Assistant
-`custom_components` directory, restart, then add the integration. The config
-flow is singleton: a second entry is rejected.
+```yaml
+esphome:
+  name: my-modbus-node
+  min_version: 2026.9.0
 
-## Sidebar scan workbench
+api:
+  encryption:
+    key: !secret api_encryption_key
 
-Mocked browser validation preview (not a hardware claim):
+external_components:
+  - source:
+      type: git
+      url: https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner
+      path: firmware/components
+    components: [modbus_scanner]
 
-[![MOCKED v0.2.0 panel validation preview](docs/screenshots/mocked-light-desktop.png)](docs/screenshots/)
+uart:
+  id: rs485_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
 
-The standalone route is `/woow-esphome-modbus-scanner`. Refresh the gateway
-catalog, choose one of six mock quick profiles, set the inclusive 1–247 range,
-and acknowledge the best-effort warning. Advanced controls expose probe type,
-register address/count, timeout, retries, delay, and the future polling flag
-with their service bounds. The ESPHome selector is visibly disabled because no
-physical provider exists.
+modbus:
+  id: rs485
+  uart_id: rs485_uart
 
-**Start scan** begins a job, then the panel performs non-overlapping one-second
-status polls and automatically fetches terminal results. **Cancel**, **Test
-address**, **Refresh status**, and **Refresh results** map directly to their six
-public services. Progress, all six outcome counts, terminal errors, and a
-sortable responder-evidence table are shown locally. Preferences, disclosure
-state, and recent scan IDs are stored only in browser `localStorage`; tokens,
-hosts, frames, credentials, and service replies are never stored. Recent IDs
-can become unknown after integration reload/restart because server history is
-bounded and memory-only. See the linked HTML tutorial for outcomes and
-troubleshooting.
+modbus_controller:
+  - id: meter
+    modbus_id: rs485
+    address: 1
+    update_interval: 10s
+
+modbus_scanner:
+  - modbus_id: rs485
+```
+
+The component registers the read-only probe and lease-release actions
+(`modbus_scanner_v2_probe`, `modbus_scanner_v2_release`) and three diagnostic
+text sensors (`Modbus Scanner v2 Info`, `Result`, `Lease`); `api:
+custom_services` is not needed. Every `PollingComponent` bound to the same hub,
+here `meter`, becomes a Pausable Poller automatically; adding one later needs a
+recompile. Complete examples:
+[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)
+and, for one node with two RS-485 lines,
+[`firmware/examples/multi-bus-modbus-scanner.yaml`](firmware/examples/multi-bus-modbus-scanner.yaml).
+
+**Several Buses on one Gateway:** add one `modbus_scanner` entry per hub,
+optionally naming each with `bus:` (1–32 characters from `0-9 A-Z a-z _ -`; the
+default is the hub id). Only one scanner is allowed per hub. Each Bus has its
+own Pausable Poller table and reports its baud rate, parity and stop bits. The
+probe actions and text sensors exist once per node.
+
+The wire protocol (bridge protocol v2) is defined in one machine-readable file,
+[`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json),
+read by the HA adapter, the test fake and the firmware host tests.
+
+## 2. Install the integration
+
+**HACS:** add this repository as an **Integration** custom repository, install
+**Woow ESPHome Modbus Scanner**, restart Home Assistant.
+
+**Manual:** copy `custom_components/woow_esphome_modbus_scanner` into your HA
+`custom_components` directory and restart.
+
+Then go to **Settings → Devices & services → Add integration**. The integration
+is a single entry; the set-up menu offers:
+
+- **Add a gateway from an ESPHome device** (recommended): lists nodes already in
+  HA's ESPHome integration with a known MAC, reuses their host, port and API key,
+  and verifies the MAC and the bridge v2 signature over the API without sending
+  a Modbus frame. Failures name the cause: scanner component missing, bridge
+  mismatch, identity mismatch, authentication or connection.
+- **Add a gateway manually** (advanced): host, MAC and API key, with the same
+  checks. Choose bridge v2, or legacy bridge v1 for a node not yet reflashed.
+- **Mock gateway only for now.**
+
+Use **Reconfigure** to add, refresh (picks up a new host or key) or remove
+Gateways; there is no limit on their number. **Reauthenticate** verifies one
+Gateway at a time. Stored keys are never shown.
+
+## 3. Use the sidebar
+
+Open **Modbus Scanner** (`mdi:radar`, route `/woow-esphome-modbus-scanner`). It
+is visible to all HA users. Hard-refresh the browser after an update.
+
+1. Pick a Gateway; on a Gateway with several Buses pick the Bus (shown with its
+   serial parameters).
+2. Pick a Device Profile. Its defaults fill the form and its limits, intersected
+   with the Gateway's, bound every field.
+3. Check the Gateway so the Pausable Pollers card lists each poller by name and
+   slave address. All are checked by default; the selection is saved per Bus.
+4. Confirm the best-effort warning (and the Large Range warning above 32 IDs),
+   then **Start scan**, or **Test address** for one slave ID.
+
+The panel polls status once per second without overlap, loads results at the
+end, shows the Scan Lease state and the paused devices whose values are stale,
+and lists Responders with raw values (decimal and hex) and, when the Device
+Profile defines fields, decoded values with units. Each result names its
+Gateway, Bus and Device Profile.
+
+## Device Profiles
+
+A Device Profile is a JSON document, `schema_version` 1, managed with
+`list_device_profiles`, `import_device_profile`, `export_device_profile` and
+`delete_device_profile`, or the sidebar's Device Profiles card. Imported
+profiles live in HA storage and are included in HA backups. Importing an
+existing `id` replaces it. Invalid documents are rejected with one error per
+field. The built-in `generic` profile cannot be deleted, and a profile in use by
+a running Scan cannot be deleted until it ends; finished results keep the
+profile label they were recorded with.
+
+| Key | Required | Meaning |
+|---|---|---|
+| `schema_version` | yes | `1` |
+| `id` | yes | 1–64 of `a-z 0-9 _ -`, starting with a letter or digit; `generic` is reserved |
+| `name`, `vendor`, `model` | yes | Non-empty text, at most 64 characters |
+| `version` | yes | Non-empty text, at most 32 characters |
+| `function_codes` | yes | Non-empty list from `3` (holding) and `4` (input); write codes are refused |
+| `defaults` | no | `slave_start` + `slave_end` (together), `function_code`, `register`, `count` (1–4), `timeout_ms` (100–2000), `inter_request_delay_ms`, `retries` |
+| `allowed_registers` | no | Up to 1024 register addresses; when present, only these may be read |
+| `fields` | no | Up to 256 of `{register, name, unit?, scale?, data_type?}`; `data_type` is `u16` (default) or `s16`, `scale` a finite non-zero number |
+
+A complete example is
+[`examples/device_profiles/guanjie-ind17.json`](examples/device_profiles/guanjie-ind17.json),
+an allowlisted FC03 register map with named fields. Import it from the sidebar
+or with:
+
+```yaml
+action: woow_esphome_modbus_scanner.import_device_profile
+data:
+  profile: >-
+    {"schema_version": 1, "id": "my-meter", "name": "My meter", "vendor": "Acme",
+     "model": "M1", "version": "1", "function_codes": [4],
+     "defaults": {"function_code": 4, "register": 0, "count": 2},
+     "fields": [{"register": 0, "name": "Voltage", "unit": "V", "scale": 0.1}]}
+```
+
+## Pausable Pollers and the Scan Lease
+
+A Scan pauses the Bus's Pausable Pollers you selected so their traffic does not
+interleave with the Probes. Save the selection per Bus with
+`set_pausable_pollers` (or the sidebar checklist), or pass `pause_pollers` (a
+list of indices from `check_gateway`) for one Scan. An empty list pauses
+nothing. Pollers the firmware no longer has are dropped and reported as
+`removed_pollers`, never sent.
+
+The pause is a Scan Lease held by the Gateway, not by Home Assistant:
+
+- it starts with the first Probe of the Scan; the selected pollers stop and the
+  hub's queued frames for their slave addresses are cleared;
+- HA releases it when the Scan completes, is cancelled or fails;
+- if HA or the connection disappears, the Gateway ends it by itself after
+  **5 s** without a Probe, and in every case after **10 minutes** (later Probes
+  of a longer Scan run without pausing);
+- on every ending path the Gateway resumes the pollers.
+
+Two consequences to plan for: clearing a paused poller's queue also drops any
+writes it had pending (do not change settings on paused devices during a Scan),
+and after the lease ends the first fresh reading from a resumed poller can take
+up to one of its `update_interval`s. Scan status reports `lease_status`
+(`none`, `active`, `ended`, `unconfirmed`) and `lease_end_reason` (`released`,
+`idle`, `hard_limit`, `superseded`).
+
+**Multiple Buses:** Scans of different Buses on one Gateway run side by side,
+one Scan per Bus. Their Probes take turns, so there is one Probe in flight per
+Gateway at a time: all Buses share the node's result sensor, and ESPHome's API
+would otherwise drop one of two results published together.
 
 ## Public services
 
-The domain is `woow_esphome_modbus_scanner`. The complete and only public
-service set is:
+Domain `woow_esphome_modbus_scanner`. All services are available to every
+active user (physical operations need an active user or an internal automation).
 
-- `list_gateways`
-- `start_scan`
-- `get_scan_status`
-- `get_scan_results`
-- `cancel_scan`
-- `test_address`
+| Service | Purpose |
+|---|---|
+| `list_gateways` | Gateways with provider, Buses, limits, health, Pausable Poller checklist and `can_operate` |
+| `check_gateway` | Verify one Gateway's MAC and bridge signature and read its Buses and pollers, without a Modbus frame |
+| `set_pausable_pollers` | Save which Pausable Pollers of one Bus a Scan pauses (`gateway_id`, `bus`, `pause_pollers`) |
+| `start_scan` | Start a range Scan; returns its `scan_id` immediately |
+| `test_address` | Scan one slave ID (`address`); range confirmation is implicit |
+| `get_scan_status` | Progress, phase, lease state, errors and recovery evidence |
+| `get_scan_results` | Responder evidence with raw and decoded values |
+| `cancel_scan` | Cooperative cancel; a frame already on the wire finishes first |
+| `get_history` | Up to 20 terminal snapshots, kept in HA storage across restarts; interrupted Scans are recorded as failed, never replayed |
+| `list_device_profiles` | Generic and imported Device Profiles with their limits |
+| `import_device_profile` | Validate and store a Device Profile (`profile`: object or JSON text) |
+| `export_device_profile` | Return one profile's importable document (`profile_id`) |
+| `delete_device_profile` | Delete an imported profile (`profile_id`) |
 
-Example mock scan:
+Fields of `start_scan` (and `test_address`, which takes `address` instead of the
+range and has no confirmations). Omitted fields take the Device Profile's
+defaults first, then the Gateway's; the defaults below are a bridge v2
+Gateway's (the mock Gateways default to `device_identification`, 500 ms, one
+retry and no pause):
+
+| Field | Default | Notes |
+|---|---|---|
+| `provider` | `mock` | `mock` or `esphome` |
+| `gateway_id` | `mock:rs485-gateway` | From `list_gateways`, e.g. `esphome:aabbccddeeff` |
+| `bus` | — | Required when the Gateway has more than one Bus |
+| `esphome_device_id` | — | Optional extra MAC cross-check against an HA ESPHome device |
+| `device_profile_id` | `generic` | Its defaults fill omitted fields; its limits apply with the Gateway's |
+| `start_id`, `end_id` | profile default | 1–247; required unless the profile defines a slave range |
+| `probe_type` | `holding_register` | `holding_register` (FC03) or `input_register` (FC04); `device_identification` is mock-only |
+| `register_address`, `register_count` | 0, 1 | Count 1–4 on bridge v2; the block must end at or before 65535 |
+| `timeout_ms` | 1000 | 100–2000 on bridge v2, applied per Probe on the Gateway |
+| `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–5000 ms between addresses |
+| `pause_normal_polling` | `true` | `false` scans without pausing anything |
+| `pause_pollers` | saved selection | Pausable Poller indices for this Scan only |
+| `mock_scenario` | `found_default` | Mock provider only |
+| `safety_confirmed` | required | Exactly `true` |
+| `large_range_confirmed` | — | Exactly `true` when the range covers more than 32 IDs |
+
+Example, a physical Scan of slave IDs 1–10 on one Bus:
 
 ```yaml
-service: woow_esphome_modbus_scanner.start_scan
+action: woow_esphome_modbus_scanner.start_scan
+data:
+  provider: esphome
+  gateway_id: esphome:aabbccddeeff   # from list_gateways
+  bus: rs485
+  start_id: 1
+  end_id: 10
+  probe_type: holding_register
+  register_address: 0
+  register_count: 1
+  safety_confirmed: true
+response_variable: started
+```
+
+Use the returned `scan_id` with `get_scan_status` and `get_scan_results`. Only
+one Scan may run per Bus; a second one is refused as busy.
+
+## Mock provider
+
+`provider: mock` needs no hardware and never opens a connection. It offers
+`mock:rs485-gateway` (one Bus) and `mock:multi-bus-gateway` (Buses `rs485_a`
+and `rs485_b`). `mock_scenario` selects one fixed outcome set:
+`found_default`, `all_offline`, `partial_timeout`, `modbus_exception`,
+`possible_collision`, `gateway_disconnect`. Mock register reads return raw
+values for FC03/FC04. The former field name `mock_profile` is still accepted as
+a **deprecated** alias; sending both is rejected.
+
+```yaml
+action: woow_esphome_modbus_scanner.start_scan
 data:
   provider: mock
   gateway_id: mock:rs485-gateway
   start_id: 1
   end_id: 12
-  probe_type: device_identification
-  timeout_ms: 500
-  retries: 1
-  inter_request_delay_ms: 0
   mock_scenario: found_default
   safety_confirmed: true
 response_variable: started
 ```
 
-`mock_scenario` selects the mock provider's fixed outcome set. The former name
-`mock_profile` is still accepted as a deprecated alias; sending both is rejected.
+## Legacy bridge v1 Gateways
 
-Use the returned `scan_id` with `get_scan_status` and `get_scan_results`.
-`test_address` uses the same coordinator but constrains work to one address.
-Only one scan may own a provider/gateway pair at a time. Terminal history is
-bounded in memory (20 scans by default) and is not persisted across reloads.
-
-The service UI includes an optional `esphome_device_id` device selector filtered
-to Home Assistant's ESPHome integration. It is reserved for a future adapter;
-0.2.0 accepts it for forward-compatible service forms but mock behavior is
-unchanged and no selected device is contacted.
-
-## Deterministic mock profiles
-
-- `found_default`
-- `all_offline`
-- `partial_timeout`
-- `modbus_exception`
-- `possible_collision`
-- `gateway_disconnect`
-
-Results normalize identity replies, generic replies, protocol exceptions,
-timeouts, possible collisions, and gateway failures. Timeout details are counted
-but not retained as responder records, keeping result memory bounded by actual
-non-timeout outcomes.
-
-## Future ESPHome adapter contract
-
-No ESPHome adapter is included in 0.2.0. A future provider must implement the
-`GatewayProvider` protocol documented in
-[`docs/design/provider-contract.md`](docs/design/provider-contract.md): advertise
-provider-owned gateways synchronously and run one validated request
-asynchronously, emitting normalized `ProbeResult` objects incrementally while
-honoring cooperative cancellation. It must map the selected Home Assistant
-device to an explicit gateway, use only read probes, serialize access per
-gateway, restore paused polling in `finally`, and translate transport loss to
-`GatewayProviderError`. The coordinator deliberately owns validation, lifecycle,
-history, and response shapes; the adapter must not bypass those controls.
-
-An ESPHome device selector is not evidence that Home Assistant or ESPHome expose
-the low-level serial transaction API needed for this contract. Feasibility and
-an upstream API must be established before a real provider can be claimed.
+Gateways enrolled before 0.5.0 that still run the vendor-specific bridge v1
+firmware keep working with its frozen limits (slave IDs 1–32, FC03, count 1,
+one allowlisted register, 700 ms, polling pause required, no `bus`). Each such
+Gateway raises a **Repairs** warning. To migrate: add `modbus_scanner` to the
+node's YAML as above and reflash it, open the integration's **Reconfigure**,
+choose **Add or refresh a gateway from an ESPHome device** for that node (or the
+manual option with bridge v2), then import the example Device Profile if you
+want the former register map. The Repairs issue disappears once the Gateway is
+enrolled as bridge v2. Legacy support will be removed in a future release.
 
 ## Development
 
-The hermetic suite exercises models, mock behavior, coordinator adversarial
-boundaries, all-user service policy, singleton config flow, panel registration,
-frontend model/source/bundle drift, browser behavior, and unload races.
-`pytest --collect-only -q` is the source of truth and currently collects **131 Python
-tests**; the frontend adds **7 Node unit tests** plus panel/tutorial
-Playwright scenario checks.
-Live smoke testing is opt-in and mock-only.
-
 ```bash
-uv venv --python 3.13.2
+uv venv --python 3.14
 uv pip install -r requirements-test.txt
-.venv/bin/ruff check .
-.venv/bin/pytest --collect-only -q
-.venv/bin/pytest --cov=custom_components/woow_esphome_modbus_scanner \
+ruff check .
+pytest --cov=custom_components/woow_esphome_modbus_scanner \
   --cov-report=term-missing --cov-fail-under=90
-.venv/bin/python -m compileall -q custom_components tests/live
+g++ -std=c++20 -Wall -Wextra -Werror firmware/tests/scanner_core_test.cpp -o /tmp/scanner-core
+/tmp/scanner-core custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json
 cd panel_frontend && npm ci --include=dev && npm test && npm run check:drift
 npx playwright install chromium && npm run test:browser
+cd .. && node tests/tutorial/browser_check.mjs
 ```
 
-See [`tests/live/README.md`](tests/live/README.md) for the external Home
-Assistant mock-service smoke script. No deployment, release, or hardware test is
-part of the hermetic commands.
+CI (`.github/workflows/ci.yml`) also validates and compiles both firmware
+examples with ESPHome 2026.9.0 and checks that ESPHome 2026.8.2 refuses them.
+Home Assistant's test harness does not run on Windows; use Linux, WSL or Docker.
+[`tests/live/README.md`](tests/live/README.md) describes an opt-in REST smoke
+test against a running HA that uses only the mock provider.
+
+## History
+
+The project began as a mock-only teaching release and then gained a physical
+bridge built for one vendor's equipment. That history is kept for reference;
+it does not describe the current design.
+
+- **0.1.0 / 0.2.0 (mock-only):** provider-backed mock scanning and the sidebar.
+  The mock-only tutorials remain available:
+  [v0.2.0 source](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html) ·
+  [raw v0.2.0 HTML](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html) ·
+  [Source-file view for v0.1.0](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html) ·
+  [v0.1.0 tutorial HTML release asset](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.1.0/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html) ·
+  [raw v0.1.0 HTML](https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html) ·
+  [v0.1.0 source archive](https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/archive/refs/tags/v0.1.0.zip).
+  They describe mock-only behaviour, not ESPHome firmware.
+- **0.3.0.dev1–0.3.0.dev3:** an experimental FC03 bridge for the Guanjie IN-D17
+  (slave IDs 1–32, 13 allowlisted registers, 700 ms), see
+  [ADR 0004](docs/adr/0004-experimental-guanjie-fc03-bridge.md) (superseded by
+  ADR 0005), the [first physical acceptance](docs/history/guanjie-live-acceptance.md),
+  the [dual-node validation](docs/history/dual-node-live-acceptance.md) and the
+  [UI reacceptance, 124/124](docs/history/ui-reacceptance.md).
+- **0.4.0.dev1 (last deployed build):** encrypted API keys, firmware health and
+  watchdog, verified polling recovery, persisted history, diagnostics, Repairs
+  and reauth, deployed to two nodes. See the
+  [live acceptance](docs/history/hardening-live-acceptance.md),
+  [upgrade and rollback](docs/history/hardening-upgrade-rollback.md),
+  [software checkpoint](docs/history/hardening-software-checkpoint.md) and
+  [implementation phases](docs/history/implementation-phases.md).
+  Its firmware, `firmware/guanjie-scanner/`, is the legacy bridge v1 and stays
+  until those nodes are reflashed.
+- Earlier design notes: [0.2.0 service and safety model](docs/history/service-and-safety-model.md),
+  [0.2.0 testing strategy](docs/history/testing.md). All of these live in
+  `docs/history/`.
 
 ## License
 

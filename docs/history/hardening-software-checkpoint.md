@@ -52,7 +52,7 @@
 
 ## 下一階段門檻
 
-1. **先確認授權政策與範圍**，見 [authorization-boundary.md](authorization-boundary.md)。
+1. **先確認授權政策與範圍**，見 [authorization-boundary.md](../design/authorization-boundary.md)。
    現有 native ESPHome v1 probe action 沒有逐次簽章；只擋本整合服務不能宣稱
    所有原生呼叫路徑都受同一管理員政策保護。若要求設備端不可繞過，須先設計、
    實作及驗收新協定，不可只隱藏按鈕。
