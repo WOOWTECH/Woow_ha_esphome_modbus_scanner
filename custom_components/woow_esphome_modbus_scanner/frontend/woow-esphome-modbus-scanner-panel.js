@@ -107,7 +107,9 @@ const en = {
   resultGateway: "Result source (may differ from the next scan selection)",
   banner: "This selected simulated gateway never contacts ESPHome or physical Modbus hardware. Its results are training evidence, not an inventory. Explicitly select an enrolled ESPHome gateway for physical reads.",
   tutorial: "View mock tutorial source", download: "Download mock tutorial", tutorialLinks:"Tutorial and download links", gateway: "Gateway", availableGateway: "Available gateway",
-  simulated: "simulated", simulatedGateway:"Simulated RS-485 Gateway", notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies safe bridge defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
+  simulated: "simulated", simulatedGateway:"Simulated RS-485 Gateway", simulatedMultiBus:"Simulated two-Bus Gateway",
+  bus:"Bus", busHelp:"This gateway has several RS-485 Buses. A Scan runs on the chosen Bus; other Buses can scan at the same time, one Scan per Bus.",
+notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies safe bridge defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
   futureHelp: "This identity summary is intentionally disabled; choose the transport using Available gateway above. The backend verifies the enrolled MAC before any read.", refreshGateways: "Refresh gateways",
   scanRange: "Scan range", startId: "Start Slave ID", startHelp: "Inclusive; Modbus unicast addresses are 1–247.", endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", profile: "Mock scenario", profileHelp: "Choose a deterministic fixture. The selected scenario's addresses, outcomes, and terminal state are described below.", quickProfiles: "Mock quick scenarios",
@@ -179,7 +181,7 @@ const zh = {
   missingGateway:"儲存的閘道目前無法使用。請明確選擇可用閘道，不會自動退回模擬。",
   resultGateway:"結果來源（可能與下一次掃描選擇不同）",
   banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
-  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
+  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",simulatedMultiBus:"模擬雙匯流排閘道",bus:"匯流排",busHelp:"此閘道有多條 RS-485 匯流排。掃描在所選匯流排上執行；其他匯流排可同時掃描，每條匯流排一次一個掃描。",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
   scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:"包含此值；Modbus 單播位址為 1–247。",endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",profile:"模擬快速情境",profileHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickProfiles:"模擬快速情境",
   advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應；暫存器讀取會回傳固定的原始值而非裝置識別。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
@@ -274,8 +276,40 @@ const DEFAULTS = Object.freeze({
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
-  device_profile_id: "generic",
+  device_profile_id: "generic", bus: "",
 });
+/** A Bus name as Gateways report it (the bridge v2 identifier charset). */
+const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
+const PARITIES = ["NONE", "EVEN", "ODD"];
+function serialLabel(serial) {
+  if (!serial || typeof serial !== "object") return "";
+  const {baud_rate: baud, parity, stop_bits: stop} = serial;
+  if (!Number.isInteger(baud) || baud < 1 || !PARITIES.includes(parity) || ![1, 2].includes(stop)) return "";
+  return ` (${baud} baud, parity ${parity}, ${stop} stop bit${stop === 2 ? "s" : ""})`;
+}
+/** The Buses a gateway reports, with their serial parameters, from untrusted response data. */
+function gatewayBuses(gateway) {
+  const rows = Array.isArray(gateway?.buses) ? gateway.buses : [];
+  return rows.filter((row) => row && typeof row === "object" && typeof row.bus === "string" && BUS_NAME.test(row.bus))
+    .map((row) => ({bus: row.bus, label: `${row.bus}${serialLabel(row.serial)}`}));
+}
+/** Choose the Bus a Scan targets; a Bus the gateway does not report is ignored. */
+function selectBus(form, gateway, bus) {
+  if (!gatewayBuses(gateway).some((row) => row.bus === bus)) return form;
+  return {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
+/** The Bus to keep for a gateway: none needed for one (or unknown) Bus, else the chosen or first one. */
+function initialBus(gateway, current = "") {
+  const buses = gatewayBuses(gateway);
+  if (buses.length < 2) return "";
+  return buses.some((row) => row.bus === current) ? current : buses[0].bus;
+}
+/** Revalidate the form's Bus once the gateway's Buses are (re)loaded. */
+function reconcileBus(form, gateway) {
+  if (!gateway) return form;
+  const bus = initialBus(gateway, form.bus);
+  return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
 /** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
 const GENERIC_PROFILE = Object.freeze({
   id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
@@ -349,11 +383,12 @@ function profileLabel(record) {
   return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
 }
 function selectGateway(form, gateway) {
+  const bus = initialBus(gateway);
   if (isBridgeV2(gateway)) {
-    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", safety_confirmed:false};
+    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", bus, safety_confirmed:false};
   }
   const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
-  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", safety_confirmed:false};
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", bus, safety_confirmed:false};
 }
 /** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
 function formatRawValues(row) {
@@ -389,10 +424,11 @@ function removedPollers(status) {
 /**
  * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
-function pollerChecklists(gateway) {
+function pollerChecklists(gateway, bus = "") {
   if (!isBridgeV2(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
-  return Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows)).map(([bus, rows]) => ({
+  return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
       .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
@@ -464,7 +500,9 @@ function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE
 
 function sharedPayload(form) {
   return {
-    provider: form.provider, gateway_id: form.gateway_id, probe_type: form.probe_type,
+    provider: form.provider, gateway_id: form.gateway_id,
+    ...(typeof form.bus === "string" && BUS_NAME.test(form.bus) ? {bus: form.bus} : {}),
+    probe_type: form.probe_type,
     register_address: Number(form.register_address), register_count: Number(form.register_count),
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
@@ -525,6 +563,8 @@ function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // Checked against the loaded profile list later; an unknown id falls back to Generic there.
   if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
+  // Checked against the gateway's reported Buses when the gateway list loads.
+  if (typeof source.bus === "string" && BUS_NAME.test(source.bus)) form.bus = source.bus;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;
@@ -657,6 +697,15 @@ class WoowEsphomeModbusScannerPanel extends i {
     if (gateway.provider === "esphome") this._advancedOpen = true;
     this._persist();
   }
+  _selectBus(bus) {
+    if (this._busy || this._status?.status === "running") return;
+    this._yaml = "";
+    this._form = selectBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id), bus);
+    this._persist();
+  }
+  _reconcileBus() {
+    this._form = reconcileBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id && g.provider === this._form.provider));
+  }
   _set(name, value) {
     this._yaml = "";
     this._form = {...this._form, [name]: value};
@@ -697,6 +746,7 @@ class WoowEsphomeModbusScannerPanel extends i {
       if (!Array.isArray(payload.gateways)) throw new Error(this._text.noGateway);
       this._gateways = payload.gateways;
       this._loaded = true;
+      this._reconcileBus();
       // Never silently replace a saved physical gateway with mock mode.
       const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
       this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
@@ -768,7 +818,9 @@ class WoowEsphomeModbusScannerPanel extends i {
     return this._action("check", async () => {
       const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
       if (generation !== this._operationGeneration || !this.isConnected) return;
-      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers} : g);
+      // The check learns the Gateway's Buses (with their serial parameters).
+      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
+      this._reconcileBus();
       this._message = this._text.healthChecked;
     });
   }
@@ -786,7 +838,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   }
   _pollersCard(gateway, disabled) {
     const t = this._text;
-    const checklists = pollerChecklists(gateway);
+    const checklists = pollerChecklists(gateway, this._form.bus);
     if (!checklists.length) return b`<p>${t.pollersUnknown}</p>`;
     return checklists.map(({bus, pollers, removed}) => b`<fieldset class="pollers"><legend>${t.pollersBus(bus)}</legend>
       ${pollers.length ? pollers.map((poller) => b`<div class="field check"><label><input type="checkbox" data-poller=${poller.index} .checked=${poller.paused} ?disabled=${disabled} @change=${(event) => this._savePollers(bus, pollers, poller.index, event.target.checked)}>${poller.label}</label></div>`) : b`<p>${t.pollersEmpty}</p>`}
@@ -1017,7 +1069,8 @@ class WoowEsphomeModbusScannerPanel extends i {
         <aside class="banner"><div><strong>${physical ? t.physicalTitle : t.mock}</strong><p>${physical ? t.physicalBanner : t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
         <div class="grid"><div>
           <section class="card" aria-labelledby="gateway-title"><h2 id="gateway-title">${t.gateway}</h2>
-            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? b`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : A}${this._gateways.map((item) => b`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? b`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : A}</div>
+            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? b`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : A}${this._gateways.map((item) => b`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? (gatewayBuses(item).length > 1 ? t.simulatedMultiBus : t.simulatedGateway) : item.name} —${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? b`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : A}</div>
+            ${gatewayAvailable && gatewayBuses(gateway).length > 1 ? b`<div class="field full"><label for="bus">${t.bus}</label><select id="bus" .value=${this._form.bus} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectBus(event.target.value)} aria-describedby="bus-help">${gatewayBuses(gateway).map((row) => b`<option value=${row.bus} .selected=${row.bus === this._form.bus}>${row.label}</option>`)}</select><small id="bus-help">${t.busHelp}</small></div>` : A}
             <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${physical ? this._form.gateway_id : t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
@@ -1057,7 +1110,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${typeof this._results.bus === "string" ? b` · ${t.bus} <span id="result-bus">${this._results.bus}</span>` : A}${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

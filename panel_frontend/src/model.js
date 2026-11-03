@@ -26,8 +26,40 @@ export const DEFAULTS = Object.freeze({
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
-  device_profile_id: "generic",
+  device_profile_id: "generic", bus: "",
 });
+/** A Bus name as Gateways report it (the bridge v2 identifier charset). */
+const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
+const PARITIES = ["NONE", "EVEN", "ODD"];
+function serialLabel(serial) {
+  if (!serial || typeof serial !== "object") return "";
+  const {baud_rate: baud, parity, stop_bits: stop} = serial;
+  if (!Number.isInteger(baud) || baud < 1 || !PARITIES.includes(parity) || ![1, 2].includes(stop)) return "";
+  return ` (${baud} baud, parity ${parity}, ${stop} stop bit${stop === 2 ? "s" : ""})`;
+}
+/** The Buses a gateway reports, with their serial parameters, from untrusted response data. */
+export function gatewayBuses(gateway) {
+  const rows = Array.isArray(gateway?.buses) ? gateway.buses : [];
+  return rows.filter((row) => row && typeof row === "object" && typeof row.bus === "string" && BUS_NAME.test(row.bus))
+    .map((row) => ({bus: row.bus, label: `${row.bus}${serialLabel(row.serial)}`}));
+}
+/** Choose the Bus a Scan targets; a Bus the gateway does not report is ignored. */
+export function selectBus(form, gateway, bus) {
+  if (!gatewayBuses(gateway).some((row) => row.bus === bus)) return form;
+  return {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
+/** The Bus to keep for a gateway: none needed for one (or unknown) Bus, else the chosen or first one. */
+function initialBus(gateway, current = "") {
+  const buses = gatewayBuses(gateway);
+  if (buses.length < 2) return "";
+  return buses.some((row) => row.bus === current) ? current : buses[0].bus;
+}
+/** Revalidate the form's Bus once the gateway's Buses are (re)loaded. */
+export function reconcileBus(form, gateway) {
+  if (!gateway) return form;
+  const bus = initialBus(gateway, form.bus);
+  return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
 /** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
 export const GENERIC_PROFILE = Object.freeze({
   id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
@@ -101,11 +133,12 @@ export function profileLabel(record) {
   return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
 }
 export function selectGateway(form, gateway) {
+  const bus = initialBus(gateway);
   if (isBridgeV2(gateway)) {
-    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", safety_confirmed:false};
+    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", bus, safety_confirmed:false};
   }
   const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
-  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", safety_confirmed:false};
+  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", bus, safety_confirmed:false};
 }
 /** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
 export function formatRawValues(row) {
@@ -141,10 +174,11 @@ export function removedPollers(status) {
 /**
  * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
-export function pollerChecklists(gateway) {
+export function pollerChecklists(gateway, bus = "") {
   if (!isBridgeV2(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
-  return Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows)).map(([bus, rows]) => ({
+  return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
       .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
@@ -216,7 +250,9 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
 
 function sharedPayload(form) {
   return {
-    provider: form.provider, gateway_id: form.gateway_id, probe_type: form.probe_type,
+    provider: form.provider, gateway_id: form.gateway_id,
+    ...(typeof form.bus === "string" && BUS_NAME.test(form.bus) ? {bus: form.bus} : {}),
+    probe_type: form.probe_type,
     register_address: Number(form.register_address), register_count: Number(form.register_count),
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
@@ -277,6 +313,8 @@ export function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // Checked against the loaded profile list later; an unknown id falls back to Generic there.
   if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
+  // Checked against the gateway's reported Buses when the gateway list loads.
+  if (typeof source.bus === "string" && BUS_NAME.test(source.bus)) form.bus = source.bus;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;
