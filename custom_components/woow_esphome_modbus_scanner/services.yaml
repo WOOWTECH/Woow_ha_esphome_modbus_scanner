@@ -196,7 +196,7 @@ list_device_profiles:
   description: The built-in Generic Device Profile and every imported Device Profile, with their defaults, register allowlists, field definitions and limits.
 import_device_profile:
   name: Import Device Profile
-  description: Validate a Device Profile JSON document and store it in Home Assistant storage (included in HA backups). An existing profile with the same id is replaced. Invalid documents are rejected with field-level errors.
+  description: Validate a Device Profile JSON document and store it in Home Assistant storage (included in HA backups). An existing Device Profile with the same id is replaced. Invalid documents are rejected with field-level errors.
   fields:
     profile:
       name: Device Profile document
@@ -215,6 +215,6 @@ export_device_profile:
         text:
 delete_device_profile:
   name: Delete Device Profile
-  description: Delete an imported Device Profile. The built-in Generic Device Profile cannot be deleted, and a profile used by a running Scan is refused until that Scan ends. Finished Scan results keep the profile label they were recorded with.
+  description: Delete an imported Device Profile. The built-in Generic Device Profile cannot be deleted, and a Device Profile used by a running Scan is refused until that Scan ends. Finished Scan results keep the Device Profile label they were recorded with.
   fields:
     profile_id: *profile_id

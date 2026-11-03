@@ -311,22 +311,28 @@ def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
     return HomeAssistantError(str(err))
 
 
-async def _physical_allowed(call: ServiceCall, owner: _Owner) -> bool:
-    """All active HA users and internal automations, per the approved policy."""
+async def _physical_allowed(call: ServiceCall) -> bool:
+    """All active HA users and internal automations, per the approved policy (ADR 0008)."""
     if call.context.user_id is None:
         return True
     user = await call.hass.auth.async_get_user(call.context.user_id)
     return bool(user and user.is_active)
 
 
-async def _authorize_physical(call: ServiceCall, owner: _Owner, provider: str) -> None:
-    if provider == "esphome" and not await _physical_allowed(call, owner):
+async def _require_active_user(call: ServiceCall) -> None:
+    """Refuse unknown and inactive named users; also guards Device Profile writes."""
+    if not await _physical_allowed(call):
         raise Unauthorized(context=call.context)
+
+
+async def _authorize_physical(call: ServiceCall, provider: str) -> None:
+    if provider == "esphome":
+        await _require_active_user(call)
 
 
 async def _handle_list_gateways(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     result = _coordinator(call.hass, owner).list_gateways()
-    allowed = await _physical_allowed(call, owner)
+    allowed = await _physical_allowed(call)
     for gateway in result["gateways"]:
         gateway["can_operate"] = gateway["provider"] == "mock" or allowed
     return result
@@ -357,7 +363,7 @@ def _require_large_range_confirmation(data) -> None:
 
 
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, call.data["provider"])
+    await _authorize_physical(call, call.data["provider"])
     try:
         _validate_selected_device(call)
         coordinator = _coordinator(call.hass, owner)
@@ -389,14 +395,14 @@ async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceRespon
     try:
         coordinator = _coordinator(call.hass, owner)
         state = coordinator.status(call.data["scan_id"])
-        await _authorize_physical(call, owner, state["provider"])
+        await _authorize_physical(call, state["provider"])
         return await coordinator.cancel(call.data["scan_id"])
     except ScanNotFoundError as err:
         raise _as_home_assistant_error(err) from err
 
 
 async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, call.data["provider"])
+    await _authorize_physical(call, call.data["provider"])
     try:
         _validate_selected_device(call)
         coordinator = _coordinator(call.hass, owner)
@@ -412,7 +418,7 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
 
 
 async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, "esphome")
+    await _authorize_physical(call, "esphome")
     try:
         return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
     except ValueError as err:
@@ -430,7 +436,7 @@ async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResp
 
 
 async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, "esphome")
+    await _authorize_physical(call, "esphome")
     try:
         return _coordinator(call.hass, owner).save_poller_selection(
             call.data["gateway_id"], call.data["bus"], call.data["pause_pollers"]
@@ -443,9 +449,6 @@ async def _handle_get_history(call: ServiceCall, owner: _Owner) -> ServiceRespon
     return _coordinator(call.hass, owner).history()
 
 
-async def _require_active_user(call: ServiceCall, owner: _Owner) -> None:
-    if not await _physical_allowed(call, owner):
-        raise Unauthorized(context=call.context)
 
 
 def _profile_error(err: Exception) -> HomeAssistantError:
@@ -460,7 +463,7 @@ async def _handle_list_device_profiles(call: ServiceCall, owner: _Owner) -> Serv
 
 
 async def _handle_import_device_profile(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _require_active_user(call, owner)
+    await _require_active_user(call)
     store = await _profile_store(call.hass, owner)
     try:
         profile, replaced = await store.async_import(call.data["profile"])
@@ -485,7 +488,7 @@ async def _handle_export_device_profile(call: ServiceCall, owner: _Owner) -> Ser
 
 
 async def _handle_delete_device_profile(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _require_active_user(call, owner)
+    await _require_active_user(call)
     store = await _profile_store(call.hass, owner)
     coordinator = _coordinator(call.hass, owner)
 

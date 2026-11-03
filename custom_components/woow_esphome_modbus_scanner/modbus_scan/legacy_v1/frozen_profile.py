@@ -1,8 +1,8 @@
-"""The register profile of the bridge v1 firmware already running on deployed nodes.
+"""The register profile of the bridge v1 firmware already running on Legacy Gateways.
 
 A frozen, hand-kept copy: nothing generates it and it must not change until legacy v1 is
 removed. The v1 firmware reports ``profile_hash`` in its health snapshot and HA refuses a
-node that reports anything else, so the hash is the deployed firmware's value, not one to
+Legacy Gateway that reports anything else, so the hash is the deployed firmware's value, not one to
 recompute. Bridge v2 Gateways never use it; their protocol lives in ``bridge_v2/contract.json``.
 """
 

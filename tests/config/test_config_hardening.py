@@ -52,12 +52,12 @@ async def test_backend_physical_permissions(hass, admin, active, automation, has
         context=Context(user_id=user.id if has_user else None),
     )
     if allowed:
-        await _authorize_physical(call, (entry.entry_id, 1), "esphome")
+        await _authorize_physical(call, "esphome")
     else:
         with pytest.raises(Unauthorized):
             await _handle_test_address(call, (entry.entry_id, 1))
         assert DOMAIN not in hass.data  # Rejected before coordinator/transport construction.
-    await _authorize_physical(call, (entry.entry_id, 1), "mock")
+    await _authorize_physical(call, "mock")
 
 
 def history(hass):

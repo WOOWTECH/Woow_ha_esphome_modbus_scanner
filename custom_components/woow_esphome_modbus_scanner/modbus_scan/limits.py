@@ -31,7 +31,8 @@ class ScanTiming:
     attempt_overhead_ms: int = 0
     setup_ms: int = 0
     attempt_budget_ms: int = 0
-    # Whether attempt_budget_ms already covers the attempt's timeout (a fixed-timeout bridge).
+    # Whether attempt_budget_ms already covers the attempt's timeout (Bridge Protocol v1,
+    # whose timeout is fixed).
     attempt_budget_includes_timeout: bool = False
     cleanup_ms: int = 10_000
 
