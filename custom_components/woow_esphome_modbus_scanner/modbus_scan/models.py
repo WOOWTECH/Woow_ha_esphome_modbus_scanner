@@ -103,6 +103,10 @@ class ScanRequest:
     pause_normal_polling: bool = False
     mock_scenario: str = MockScenario.FOUND_DEFAULT
     safety_confirmed: bool = False
+    # Pausable Pollers to pause: explicit indices of the Bus's poller table, else the saved
+    # checklist per Bus (see pollers.reconcile), else every poller.
+    pause_pollers: tuple[int, ...] | None = None
+    pause_checklists: dict[str, list[dict[str, Any]]] | None = None
 
     @classmethod
     def mock(
@@ -196,6 +200,11 @@ class ScanRequest:
             raise ValueError("inter_request_delay_ms must be between 0 and 5000")
         if type(self.pause_normal_polling) is not bool:
             raise ValueError("pause_normal_polling must be a boolean")
+        if self.pause_pollers is not None and (
+            not isinstance(self.pause_pollers, tuple)
+            or any(type(index) is not int or index < 0 for index in self.pause_pollers)
+        ):
+            raise ValueError("pause_pollers must be Pausable Poller indices")
         if require_safety and self.safety_confirmed is not True:
             raise ValueError("safety_confirmed must be true before starting a scan")
 
