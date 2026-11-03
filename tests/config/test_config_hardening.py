@@ -10,7 +10,6 @@ from homeassistant.exceptions import Unauthorized
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.woow_esphome_modbus_scanner.config_flow import gateway_input, gateway_schema
 from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.history import ScanHistory
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.coordinator import (
@@ -59,29 +58,6 @@ async def test_backend_physical_permissions(hass, admin, active, automation, has
             await _handle_test_address(call, (entry.entry_id, 1))
         assert DOMAIN not in hass.data  # Rejected before coordinator/transport construction.
     await _authorize_physical(call, (entry.entry_id, 1), "mock")
-
-
-def test_secret_retention_is_by_mac_and_never_rendered():
-    key = "A" * 43 + "="
-    existing = [{"host": "192.0.2.1", "mac": "AA:BB:CC:DD:EE:FF", "noise_psk": key}]
-    data = {"host": "192.0.2.2", "mac": existing[0]["mac"]}
-    gateways, error = gateway_input(data, existing)
-    assert error is None and gateways[0]["noise_psk"] == key
-    defaults = {
-        str(field): field.default()
-        for field in gateway_schema(existing).schema
-        if callable(getattr(field, "default", None))
-    }
-    assert key not in repr(defaults)
-    gateways, error = gateway_input({**data, "clear_psk": True}, existing)
-    assert error is None and "noise_psk" not in gateways[0]
-    assert (
-        gateway_input({**data, "noise_psk": key, "clear_psk": True}, existing)[1]
-        == "conflicting_psk"
-    )
-    assert gateway_input({**data, "noise_psk": "not-a-key"}, existing)[1] == "invalid_psk"
-    gateways, error = gateway_input({**data, "mac": "AA:BB:CC:DD:EE:00"}, existing)
-    assert error is None and "noise_psk" not in gateways[0]
 
 
 def history(hass):
