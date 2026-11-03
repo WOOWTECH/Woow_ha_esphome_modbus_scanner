@@ -22,8 +22,11 @@ class GatewayProviderError(Exception):
         code: str = "GATEWAY_ERROR",
         phase: str = "probe",
         retryable: bool = False,
+        reason: str | None = None,
     ) -> None:
         super().__init__(message)
+        # Finer, controlled cause within ``code`` (e.g. which bridge check failed).
+        self.reason = reason
         self.address = address
         self.code = code
         self.phase = phase
