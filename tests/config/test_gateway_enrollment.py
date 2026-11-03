@@ -288,7 +288,7 @@ async def test_removing_a_gateway_forgets_its_saved_pausable_poller_selection(ha
     }
 
 
-async def test_manual_mode_enrolls_a_node_outside_the_esphome_integration(
+async def test_manual_mode_enrolls_a_gateway_outside_the_esphome_integration(
     hass, node, legacy_nodes
 ):
     legacy_nodes["192.0.2.20"] = "AA:BB:CC:DD:EE:20"

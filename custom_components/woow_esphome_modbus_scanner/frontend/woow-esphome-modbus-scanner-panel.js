@@ -90,7 +90,7 @@ const en = {
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x attempts x (timeout + gateway overhead) + delays).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
   leaseLimitWarning: "This estimate is longer than the 10-minute Scan Lease limit. After 10 minutes the Gateway resumes Normal Polling, and the rest of the Scan shares the Bus with it. To keep Normal Polling paused for the full Scan, scan a smaller range or use a shorter timeout or fewer retries.",
-  leaseEndedEarly: (after) => `The Gateway ended the Scan Lease before the Scan finished. Probes after Slave ID ${after} ran while Normal Polling was active, so a timeout or collision there can come from Normal Polling traffic.`,
+  leaseEndedEarly: (after) => `The Gateway ended the Scan Lease before the Scan finished. ${after >= 1 ? `Probes after Slave ID ${after}` : "All Probes"} ran while Normal Polling was active, so a timeout or collision there can come from Normal Polling traffic.`,
   withoutLease: "Normal Polling active",
   registerBlock: "The register block must end at or before register 65535.",
   deviceProfile: "Device Profile", deviceProfileHelp: "Its defaults fill the form; its limits apply together with the gateway's limits.",
@@ -170,7 +170,7 @@ const zh = {
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 × 嘗試次數 ×（逾時 + Gateway 額外時間）+ 間隔）。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
   leaseLimitWarning:"預估時間超過 Scan Lease 的 10 分鐘上限。10 分鐘後 Gateway 會恢復一般輪詢，掃描的其餘部分會與一般輪詢共用匯流排。若要在整個掃描期間保持一般輪詢暫停，請縮小範圍，或縮短逾時、減少重試次數。",
-  leaseEndedEarly:(after)=>`Gateway 在掃描結束前就結束了 Scan Lease。站號 ${after} 之後的探測是在一般輪詢進行中執行的，因此那些位址的逾時或衝突可能來自一般輪詢的流量。`,
+  leaseEndedEarly:(after)=>`Gateway 在掃描結束前就結束了 Scan Lease。${after >= 1 ? `站號 ${after} 之後的探測` : "所有探測"}都是在一般輪詢進行中執行的，因此那些位址的逾時或衝突可能來自一般輪詢的流量。`,
   withoutLease:"一般輪詢進行中",
   registerBlock:"暫存器區塊不可超過 65535。",
   deviceProfile:"設備規格（Device Profile）",deviceProfileHelp:"其預設值會帶入表單；其限制與閘道限制同時生效。",
@@ -438,10 +438,9 @@ function leaseEndedAfter(status, reason) {
   const after = status?.lease_ended_after_address;
   return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= 247 ? after : null;
 }
-/** Whether a Responder row was probed after the Scan Lease ended early (Normal Polling active). */
-function probedWithoutLease(results, row) {
-  const after = leaseNotice(results)?.endedAfter;
-  return after !== null && after !== undefined && Number.isInteger(row?.address) && row.address > after;
+/** Whether a Responder row was probed after the Scan Lease ended early at `endedAfter` (leaseNotice). */
+function probedWithoutLease(endedAfter, row) {
+  return Number.isInteger(endedAfter) && Number.isInteger(row?.address) && row.address > endedAfter;
 }
 /** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
 function removedPollers(status) {
@@ -1088,6 +1087,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     const v1 = physical && this._form.bridge !== "v2";
     // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
     const lease = leaseNotice(this._status);
+    const resultsEndedAfter = leaseNotice(this._results)?.endedAfter ?? null;
     const v2Status = Boolean(lease) || (physical && !v1);
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
@@ -1144,7 +1144,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}${hasDecodedValues(this._results) ? ` ${t.decodedHelp}` : ""}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || t.dash}${typeof this._results.bus === "string" ? b` · ${t.bus} <span id="result-bus">${this._results.bus}</span>` : A} · ${t.resultScan} <code id="result-scan">${this._results.scan_id || t.dash}</code>${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>${leaseNotice(this._results)?.endedAfter != null ? b`<p class="notice" id="result-lease-ended-early">${t.leaseEndedEarly(leaseNotice(this._results).endedAfter)}</p>` : A}` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${hasDecodedValues(this._results) ? b`<th scope="col">${t.decodedValue}</th>` : A}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}${probedWithoutLease(this._results, row) ? b` <small class="without-lease">(${t.withoutLease})</small>` : A}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td>${hasDecodedValues(this._results) ? b`<td class="decoded">${formatDecodedValues(row) ?? t.dash}</td>` : A}<td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}${hasDecodedValues(this._results) ? ` ${t.decodedHelp}` : ""}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || t.dash}${typeof this._results.bus === "string" ? b` · ${t.bus} <span id="result-bus">${this._results.bus}</span>` : A} · ${t.resultScan} <code id="result-scan">${this._results.scan_id || t.dash}</code>${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>${resultsEndedAfter !== null ? b`<p class="notice" id="result-lease-ended-early">${t.leaseEndedEarly(resultsEndedAfter)}</p>` : A}` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${hasDecodedValues(this._results) ? b`<th scope="col">${t.decodedValue}</th>` : A}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}${probedWithoutLease(resultsEndedAfter, row) ? b` <small class="without-lease">(${t.withoutLease})</small>` : A}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td>${hasDecodedValues(this._results) ? b`<td class="decoded">${formatDecodedValues(row) ?? t.dash}</td>` : A}<td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

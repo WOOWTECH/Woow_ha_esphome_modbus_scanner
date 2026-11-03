@@ -26,6 +26,10 @@ from custom_components.woow_esphome_modbus_scanner.const import DATA_COORDINATOR
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
+    ProbeResult,
+    ScanOutcome,
+)
 from custom_components.woow_esphome_modbus_scanner.services import async_register_services
 
 CONTRACT = json.loads(
@@ -672,6 +676,35 @@ async def test_lease_ended_by_the_gateway_is_reported_with_its_reason(hass, poll
     assert status["lease_ended_after_address"] == 8
     results = await call("get_scan_results", {"scan_id": status["scan_id"]})
     assert results["lease_ended_after_address"] == 8
+
+
+@pytest.mark.parametrize(
+    "end_before_slave,expected",
+    [
+        (8, 7),  # during the first Probe: every Probe ran with Normal Polling resumed
+        (None, None),  # after the last address finished: no Probe ran without the lease
+    ],
+)
+async def test_lease_end_is_only_marked_when_probes_ran_without_it(
+    hass, polled, monkeypatch, end_before_slave, expected
+):
+    """Ordering is scripted at the provider seam, where HA sees lease reports and results."""
+    call = await _setup(hass)
+
+    async def scripted_run(self, request, emit, cancelled, *, progress=None):
+        progress({"lease_status": "active", "lease_end_reason": None})
+        for slave in range(request.start_id, request.end_id + 1):
+            if slave == end_before_slave:
+                progress({"lease_status": "ended", "lease_end_reason": "hard_limit"})
+            emit(ProbeResult(slave, ScanOutcome.RESPONDED, 5, "scripted", attempts=1))
+        if end_before_slave is None:
+            progress({"lease_status": "ended", "lease_end_reason": "idle"})
+
+    monkeypatch.setattr(v2_provider.V2GatewayProvider, "run_scan", scripted_run)
+    status = await _finished(hass, call, await _scan(hass, call))
+
+    assert status["lease_status"] == "ended"
+    assert status["lease_ended_after_address"] == expected
 
 
 async def test_disconnect_mid_scan_leaves_recovery_to_the_gateway(hass, polled):

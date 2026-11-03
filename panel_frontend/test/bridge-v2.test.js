@@ -112,15 +112,16 @@ test("lease endings report their reason and no stale warning", () => {
 
 test("a lease the Gateway ended early marks the Responders probed after it", () => {
   const results = {lease_status: "ended", lease_end_reason: "hard_limit", lease_ended_after_address: 120};
-  assert.equal(leaseNotice(results).endedAfter, 120);
-  assert.equal(probedWithoutLease(results, {address: 120}), false);
-  assert.equal(probedWithoutLease(results, {address: 121}), true);
+  const after = leaseNotice(results).endedAfter;
+  assert.equal(after, 120);
+  assert.equal(probedWithoutLease(after, {address: 120}), false);
+  assert.equal(probedWithoutLease(after, {address: 121}), true);
   // HA's own release never marks rows, and malformed addresses are ignored.
-  const released = {...results, lease_end_reason: "released"};
-  assert.equal(leaseNotice(released).endedAfter, null);
+  const released = leaseNotice({...results, lease_end_reason: "released"}).endedAfter;
+  assert.equal(released, null);
   assert.equal(probedWithoutLease(released, {address: 200}), false);
   assert.equal(leaseNotice({...results, lease_ended_after_address: "120"}).endedAfter, null);
-  assert.equal(probedWithoutLease({}, {address: 5}), false);
+  assert.equal(probedWithoutLease(leaseNotice({})?.endedAfter, {address: 5}), false);
 });
 
 test("no lease, unknown states and hostile poller names render safely", () => {

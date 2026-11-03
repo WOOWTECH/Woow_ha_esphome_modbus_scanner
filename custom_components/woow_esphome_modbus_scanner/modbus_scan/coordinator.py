@@ -50,8 +50,10 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-# Lease endings the Gateway decides by itself, possibly before the Scan finishes.
+# The contract's lease.end_reasons; all but "released" are decided by the Gateway itself,
+# possibly before the Scan finishes.
 _EARLY_LEASE_END_REASONS = frozenset({"idle", "hard_limit", "superseded"})
+_LEASE_END_REASONS = _EARLY_LEASE_END_REASONS | {"released"}
 
 @dataclass(slots=True)
 class _ScanState:
@@ -484,23 +486,21 @@ class ModbusScanCoordinator:
                             }
                         )
                     setattr(state, key, update[key])
-            if update.get("lease_status") == state.lease_status and update.get(
-                "lease_end_reason"
-            ) in {
-                None,
-                "released",
-                "idle",
-                "hard_limit",
-                "superseded",
-            }:
-                state.lease_end_reason = update["lease_end_reason"]
+            reason = update.get("lease_end_reason")
+            if update.get("lease_status") == state.lease_status and (
+                reason is None or reason in _LEASE_END_REASONS
+            ):
+                state.lease_end_reason = reason
             if (
                 state.lease_status == "ended"
                 and state.lease_end_reason in _EARLY_LEASE_END_REASONS
                 and state.phase == ScanPhase.RUNNING
                 and state.lease_ended_after_address is None
+                # Ended after the last address: no Probe ran without the lease.
+                and state.completed_addresses < state.request.address_count
             ):
-                # Addresses run in order from start_id, so this is the last one finished.
+                # Addresses run in order from start_id, so this is the last one finished
+                # (start_id - 1 when the lease ended during the first address).
                 state.lease_ended_after_address = (
                     state.request.start_id + state.completed_addresses - 1
                 )

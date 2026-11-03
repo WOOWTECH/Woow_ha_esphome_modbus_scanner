@@ -200,10 +200,9 @@ function leaseEndedAfter(status, reason) {
   const after = status?.lease_ended_after_address;
   return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= 247 ? after : null;
 }
-/** Whether a Responder row was probed after the Scan Lease ended early (Normal Polling active). */
-export function probedWithoutLease(results, row) {
-  const after = leaseNotice(results)?.endedAfter;
-  return after !== null && after !== undefined && Number.isInteger(row?.address) && row.address > after;
+/** Whether a Responder row was probed after the Scan Lease ended early at `endedAfter` (leaseNotice). */
+export function probedWithoutLease(endedAfter, row) {
+  return Number.isInteger(endedAfter) && Number.isInteger(row?.address) && row.address > endedAfter;
 }
 /** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
 export function removedPollers(status) {
