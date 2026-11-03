@@ -8,6 +8,18 @@ Read-only, best-effort discovery of which Modbus RTU slave IDs answer on an RS-4
 An enrolled ESPHome node that runs the scanner component on one or more Buses.
 _Avoid_: Bridge, node, ESP, device
 
+**Enrollment**:
+Registering a Gateway with the integration after its identity and Bridge Protocol have been verified; only enrolled Gateways can be scanned.
+_Avoid_: Pairing, adding a device
+
+**Bridge Protocol**:
+The versioned contract between the integration and the scanner component on a Gateway; v2 is current and v1 is the deprecated vendor-specific predecessor.
+_Avoid_: Firmware API, bridge (as a name for the Gateway)
+
+**Legacy Gateway**:
+A Gateway still running Bridge Protocol v1, which keeps its fixed vendor limits until it is reflashed with the scanner component.
+_Avoid_: Old gateway, v1 device
+
 **Bus**:
 One Modbus RTU line on a Gateway, served by exactly one scanner instance; the unit that Scans are serialized on.
 _Avoid_: Hub, line, channel, port
@@ -28,9 +40,17 @@ _Avoid_: Device, slave, found device
 The readable registers, defaults and limits for one class of field device; the Generic Device Profile is the only built-in one.
 _Avoid_: Profile (unqualified), device map, template
 
+**Profile Field**:
+A named register in a Device Profile, with optional unit and scale, used to show a Responder's raw value as a decoded value.
+_Avoid_: Mapping, point, tag
+
 **Generic Device Profile**:
 The vendor-neutral Device Profile that permits any register with bounded read size and no register allowlist.
 _Avoid_: Default profile, universal profile
+
+**Large Range**:
+A Scan over more than 32 slave IDs, which needs a second explicit confirmation because of its duration and traffic.
+_Avoid_: Full scan, big scan
 
 **Mock Scenario**:
 One of the fixed, reproducible outcome sets produced by the mock provider for development and testing.
