@@ -2,7 +2,7 @@
 
 DOMAIN = "woow_esphome_modbus_scanner"
 NAME = "Woow ESPHome Modbus Scanner"
-VERSION = "0.4.0.dev1"
+VERSION = "0.5.0.dev1"
 
 PANEL_COMPONENT_NAME = "woow-esphome-modbus-scanner-panel"
 PANEL_URL_PATH = "woow-esphome-modbus-scanner"

@@ -10,7 +10,7 @@ from uuid import uuid4
 from aioesphomeapi import TextSensorInfo, UserServiceArgType
 
 from ..provider import GatewayProviderError
-from .profile import PROFILE
+from .frozen_profile import PROFILE
 
 
 class HealthSession:

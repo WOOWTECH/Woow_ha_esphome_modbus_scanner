@@ -23,8 +23,8 @@ from aioesphomeapi import (
 from ..limits import ProbeLimits
 from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome
 from ..provider import GatewayProviderError
+from .frozen_profile import PROFILE
 from .health import HealthSession
-from .profile import PROFILE
 
 SERVICE = "modbus_scanner_probe_v1"
 LIMITS = ProbeLimits(

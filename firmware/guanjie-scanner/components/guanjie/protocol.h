@@ -3,7 +3,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include "profile_generated.h"
+
+// Legacy bridge v1 profile, frozen for nodes not yet reflashed to modbus_scanner (bridge v2).
+// HA keeps the same values in modbus_scan/legacy_v1/frozen_profile.py; neither copy may change.
+namespace esphome::guanjie::bridge_profile {
+inline constexpr char HASH[] = "1620942b806d6d958a6989d0c96c1a6a349887014d821c1b4336a95717269b85";
+inline constexpr uint8_t SLAVE_MAX = 32;
+inline constexpr std::array<uint16_t, 13> REGISTERS = {0x6201, 0x6202, 0x6203, 0x6205, 0x6206, 0x6105, 0x6101, 0x6102, 0x6103, 0x6104, 0x6106, 0x6111, 0x6112};
+}
 
 namespace esphome::guanjie {
 // The PDF uses actual hexadecimal wire addresses, not 40001-style offsets.
