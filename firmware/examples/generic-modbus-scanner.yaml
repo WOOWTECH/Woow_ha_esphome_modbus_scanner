@@ -2,7 +2,8 @@
 # Keep your existing modbus / modbus_controller configuration and add:
 #   1. the external component (below), and
 #   2. one `modbus_scanner` entry naming your Modbus hub id.
-# The scanner registers its own read-only probe action and two diagnostic text sensors.
+# The scanner registers its own read-only probe and lease-release actions and three diagnostic
+# text sensors. During a Scan it pauses the bus's polling components and resumes them by itself.
 esphome:
   name: generic-modbus-scanner
   min_version: 2026.9.0
@@ -50,12 +51,17 @@ modbus:
   uart_id: rs485_uart
   send_wait_time: 1000ms
 
-# A plain, vendor-neutral polling device on the same bus.
+# Plain, vendor-neutral polling devices on the same bus. The scanner finds them at compile
+# time as Pausable Pollers (index 0 = meter, 1 = inverter) and pauses them during a Scan.
 modbus_controller:
   - id: meter
     modbus_id: rs485
     address: 1
     update_interval: 10s
+  - id: inverter
+    modbus_id: rs485
+    address: 2
+    update_interval: 30s
 
 sensor:
   - platform: modbus_controller
@@ -67,6 +73,12 @@ sensor:
     accuracy_decimals: 1
     filters:
       - multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: inverter
+    name: Inverter output power
+    register_type: read
+    address: 0x0010
+    value_type: U_WORD
 
 modbus_scanner:
   - modbus_id: rs485
