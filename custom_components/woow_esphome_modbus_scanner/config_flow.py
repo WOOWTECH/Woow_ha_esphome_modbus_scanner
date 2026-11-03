@@ -218,6 +218,8 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             gateways = None
             if gateway is not None:
                 gateways, error = upsert_gateway(existing, gateway)
+                # Same API-only MAC and bridge check as the ESPHome device path.
+                error = error or await verify_gateway(gateway)
             if error is None:
                 return self._save(gateways)
             errors["base"] = error

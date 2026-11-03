@@ -29,7 +29,7 @@
       },
       "manual": {
         "title": "Gateway entered manually",
-        "description": "For ESPHome devices that are not in the ESPHome integration. Entering an enrolled MAC edits that gateway: a blank key retains the stored key, which is never displayed, and a blank bridge keeps its bridge protocol. PSK configures this integration only, not ESP firmware.",
+        "description": "For ESPHome devices that are not in the ESPHome integration. Entering an enrolled MAC edits that gateway: a blank key retains the stored key, which is never displayed, and a blank bridge keeps its bridge protocol. PSK configures this integration only, not ESP firmware. The gateway's MAC and bridge protocol are checked over the ESPHome API before it is saved; no Modbus frame is sent.",
         "data": {
           "host": "ESPHome host",
           "mac": "Expected MAC (AA:BB:CC:DD:EE:FF)",

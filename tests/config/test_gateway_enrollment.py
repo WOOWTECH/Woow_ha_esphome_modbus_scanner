@@ -4,6 +4,7 @@ The node behind the selected device is the contract-built fake v2 Gateway at the
 aioesphomeapi client boundary, so enrollment verifies a real-shaped MAC and v2 signature.
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from homeassistant import config_entries, data_entry_flow
@@ -14,7 +15,11 @@ from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1 import (
+    provider as legacy_provider,
+)
 from tests.services.test_bridge_v2 import FakeClient, FakeV2Gateway
+from tests.services.test_legacy_v1_adapter import FakeLegacyClient
 
 MAC = "AA:BB:CC:DD:EE:01"
 KEY = "A" * 43 + "="
@@ -57,6 +62,23 @@ def node(monkeypatch):
     RecordingClient.opened = []
     monkeypatch.setattr(v2_provider, "APIClient", RecordingClient)
     return gateway
+
+
+@pytest.fixture
+def legacy_nodes(monkeypatch):
+    """Legacy Gateways on bridge v1 firmware; maps each host to the MAC it reports."""
+    macs: dict[str, str] = {}
+
+    class Client(FakeLegacyClient):
+        def __init__(self, host, port, password, **kwargs):
+            super().__init__(host, port, password, **kwargs)
+            self.host = host
+
+        async def device_info(self):
+            return SimpleNamespace(mac_address=macs.get(self.host, "00:00:00:00:00:00"))
+
+    monkeypatch.setattr(legacy_provider, "APIClient", Client)
+    return macs
 
 
 def esphome_device(hass, *, mac=MAC, title="pump-room", host="192.0.2.10", key=KEY, **kw):
@@ -266,7 +288,10 @@ async def test_removing_a_gateway_forgets_its_saved_pausable_poller_selection(ha
     }
 
 
-async def test_manual_mode_enrolls_a_node_outside_the_esphome_integration(hass, node):
+async def test_manual_mode_enrolls_a_node_outside_the_esphome_integration(
+    hass, node, legacy_nodes
+):
+    legacy_nodes["192.0.2.20"] = "AA:BB:CC:DD:EE:20"
     form = await step(hass, await start_user(hass), {"next_step_id": "manual"})
     created = await step(
         hass, form, {"host": "192.0.2.20", "mac": "aa:bb:cc:dd:ee:20", "bridge": "v1"}
@@ -276,6 +301,49 @@ async def test_manual_mode_enrolls_a_node_outside_the_esphome_integration(hass, 
         {"host": "192.0.2.20", "mac": "AA:BB:CC:DD:EE:20", "name": "ESPHome Modbus DDEE20",
          "bridge": "v1"}
     ]
+
+
+async def test_manual_mode_verifies_a_v2_gateway_before_saving_it(hass, node):
+    form = await step(hass, await start_user(hass), {"next_step_id": "manual"})
+    created = await step(hass, form, {"host": "192.0.2.30", "mac": MAC, "bridge": "v2"})
+
+    assert created["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert RecordingClient.opened == [{"host": "192.0.2.30", "port": 6053}]
+    assert node.probes == []
+
+
+@pytest.mark.parametrize(
+    "node_change,error",
+    [
+        (_offline, "cannot_connect"),
+        (_plain_node, "scanner_missing"),
+        (_other_bridge_version, "bridge_mismatch"),
+        (_reused_ip, "identity_mismatch"),
+    ],
+)
+async def test_manual_mode_does_not_save_a_gateway_that_fails_verification(
+    hass, node, node_change, error
+):
+    entry = scanner_entry(hass, LEGACY)
+    node_change(node)
+
+    form = await step(hass, await start_reconfigure(hass, entry), {"next_step_id": "manual"})
+    result = await step(hass, form, {"host": "192.0.2.30", "mac": MAC, "bridge": "v2"})
+
+    assert result["errors"] == {"base": error}
+    assert entry.data["gateways"] == LEGACY
+    assert node.probes == []
+
+
+async def test_manual_mode_refuses_a_legacy_gateway_with_another_mac(hass, legacy_nodes):
+    legacy_nodes["192.0.2.20"] = "AA:BB:CC:DD:EE:99"
+    form = await step(hass, await start_user(hass), {"next_step_id": "manual"})
+    result = await step(
+        hass, form, {"host": "192.0.2.20", "mac": "AA:BB:CC:DD:EE:20", "bridge": "v1"}
+    )
+
+    assert result["errors"] == {"base": "identity_mismatch"}
+    assert not hass.config_entries.async_entries(DOMAIN)
 
 
 @pytest.mark.parametrize(
@@ -300,7 +368,10 @@ async def test_manual_mode_keeps_its_validation(hass, node, user_input, error):
     assert entry.data["gateways"] == LEGACY
 
 
-async def test_manual_edit_retains_the_key_by_mac_and_never_renders_it(hass, node):
+async def test_manual_edit_retains_the_key_by_mac_and_never_renders_it(
+    hass, node, legacy_nodes
+):
+    legacy_nodes["192.0.2.9"] = "AA:BB:CC:00:00:01"
     entry = scanner_entry(hass, LEGACY)
 
     form = await step(hass, await start_reconfigure(hass, entry), {"next_step_id": "manual"})

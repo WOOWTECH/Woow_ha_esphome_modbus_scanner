@@ -29,7 +29,7 @@
       },
       "manual": {
         "title": "手動輸入閘道",
-        "description": "適用於未加入 ESPHome 整合的裝置。輸入已登錄的 MAC 即編輯該閘道：金鑰留空會保留既有金鑰（不會顯示），橋接協定留空則維持原設定。PSK 只設定此整合，不會改動 ESP 韌體。",
+        "description": "適用於未加入 ESPHome 整合的裝置。輸入已登錄的 MAC 即編輯該閘道：金鑰留空會保留既有金鑰（不會顯示），橋接協定留空則維持原設定。PSK 只設定此整合，不會改動 ESP 韌體。儲存前會透過 ESPHome API 檢查閘道的 MAC 與橋接協定，不會送出 Modbus 封包。",
         "data": {
           "host": "ESPHome 主機",
           "mac": "預期 MAC（AA:BB:CC:DD:EE:FF）",
