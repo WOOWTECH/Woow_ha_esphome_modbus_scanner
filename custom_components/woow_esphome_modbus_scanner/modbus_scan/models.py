@@ -15,6 +15,8 @@ MIN_TIMEOUT_MS = 10
 MAX_TIMEOUT_MS = 10_000
 MAX_RETRIES = 5
 MAX_INTER_REQUEST_DELAY_MS = 5_000
+# A range Scan over more IDs than this needs large_range_confirmed besides safety_confirmed.
+LARGE_RANGE_THRESHOLD = 32
 
 
 class ProbeType(StrEnum):

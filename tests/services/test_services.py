@@ -104,7 +104,9 @@ async def test_test_address_is_one_id_and_accepts_reserved_device_selector(hass)
 
 async def test_cancel_requests_terminal_cancelled_state(hass):
     async_register_services(hass)
-    started = await _start(hass, end_id=100, inter_request_delay_ms=100)
+    started = await _start(
+        hass, end_id=100, inter_request_delay_ms=100, large_range_confirmed=True
+    )
     requested = await _call(hass, "cancel_scan", {"scan_id": started["scan_id"]})
     assert requested["cancellation_requested"] is True
     assert (await _wait_for_terminal(hass, started["scan_id"]))["status"] == "cancelled"
@@ -220,6 +222,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "pause_normal_polling",
                 "mock_scenario",
                 "safety_confirmed",
+                "large_range_confirmed",
             },
         ),
         (
