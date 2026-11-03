@@ -44,7 +44,7 @@ test("selecting a Device Profile applies its defaults and asks for consent again
   assert.equal(form.large_range_confirmed, false);
 });
 
-test("a profile without defaults keeps the form values but snaps to its first allowed register", () => {
+test("a Device Profile without defaults keeps the form values but snaps to its first allowed register", () => {
   const bare = {...METER, defaults: {}, function_codes: [3, 4], limits: {...METER.limits, probe_types: ["holding_register", "input_register"]}};
   const form = selectDeviceProfile({...DEFAULTS, probe_type: "input_register", start_id: 9, end_id: 12, register_address: 7}, bare);
   assert.deepEqual([form.start_id, form.end_id, form.probe_type, form.register_address], [9, 12, "input_register", 16]);
@@ -59,7 +59,7 @@ test("returning to the Generic Device Profile keeps the current values", () => {
   assert.equal(generic.register_address, 16);
 });
 
-test("the form enforces the selected profile's function codes and register allowlist", () => {
+test("the form enforces the selected Device Profile's function codes and register allowlist", () => {
   const form = {...selectDeviceProfile({...DEFAULTS}, METER), safety_confirmed: true};
   assert.deepEqual(validateForm(form, false, {}, METER), {});
   const errors = validateForm({...form, probe_type: "holding_register", register_address: 20}, false,
@@ -72,7 +72,7 @@ test("the form enforces the selected profile's function codes and register allow
   assert.deepEqual(validateForm({...form, register_address: 16, register_count: 4}, false, {}, METER), {});
 });
 
-test("profile limits intersect with the gateway's limits", () => {
+test("Device Profile limits intersect with the Gateway's limits", () => {
   const tight = {...METER, limits: {...METER.limits, register_count_max: 2, timeout_ms_min: 200, timeout_ms_max: 900}};
   const v2 = {...selectGateway(DEFAULTS, V2_GATEWAY), safety_confirmed: true};
   const bounds = boundsFor(v2, tight);
