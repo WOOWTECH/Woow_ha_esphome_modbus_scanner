@@ -140,6 +140,8 @@ HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。
 - **從 ESPHome 裝置新增 Gateway**（建議）：列出 HA ESPHome 整合中已知 MAC 的節點，
   沿用其主機、連接埠與 API 金鑰，並透過 API 驗證 MAC 與 bridge v2 簽章，不送出任何
   Modbus 封包。失敗時會指出原因：缺少掃描元件、bridge 不符、身分不符、認證或連線。
+  之後每次連線都會重新讀取該 ESPHome 項目的主機、連接埠與金鑰，所以 IP 變更或金鑰
+  更換後不需重新加入。
 - **手動新增 Gateway**（進階）：輸入主機、MAC 與 API 金鑰，檢查相同。可選 bridge v2，
   或尚未重刷節點用的 legacy bridge v1。
 - **目前只用模擬 Gateway。**

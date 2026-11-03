@@ -156,7 +156,9 @@ is a single entry; the set-up menu offers:
   HA's ESPHome integration with a known MAC, reuses their host, port and API key,
   and verifies the MAC and the bridge v2 signature over the API without sending
   a Modbus frame. Failures name the cause: scanner component missing, bridge
-  mismatch, identity mismatch, authentication or connection.
+  mismatch, identity mismatch, authentication or connection. Every later
+  connection reads the host, port and key from that ESPHome entry again, so a new
+  IP address or a rotated key there needs no re-enrolment.
 - **Add a gateway manually** (advanced): host, MAC and API key, with the same
   checks. Choose bridge v2, or legacy bridge v1 for a node not yet reflashed.
 - **Mock gateway only for now.**

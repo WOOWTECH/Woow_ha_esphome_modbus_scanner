@@ -7,7 +7,7 @@ coordinator as the single public ``esphome`` provider and routes by gateway id.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 BRIDGE_V1 = "v1"
@@ -46,8 +46,16 @@ class PhysicalGatewayRouter:
         return await self._adapter(gateway_id).check_gateway(gateway_id)
 
 
-def build_physical_provider(gateways: Sequence[dict[str, Any]]):
-    """Return the provider serving the enrolled physical gateways, if any."""
+def build_physical_provider(
+    gateways: Sequence[dict[str, Any]],
+    *,
+    esphome_endpoint: Callable[[str], dict[str, Any] | None] | None = None,
+):
+    """Return the provider serving the enrolled physical gateways, if any.
+
+    ``esphome_endpoint`` resolves a linked HA ESPHome entry to its current host, port and
+    key at connect time; without it each Gateway uses its stored copy.
+    """
     if not gateways:
         return None
     adapters = []
@@ -55,7 +63,7 @@ def build_physical_provider(gateways: Sequence[dict[str, Any]]):
     if v2:
         from .bridge_v2 import build_provider as build_v2_provider
 
-        adapters.append(build_v2_provider(v2))
+        adapters.append(build_v2_provider(v2, endpoint=esphome_endpoint))
     # Legacy bridge v1 registration: delete this block with ``legacy_v1/``.
     v1 = [
         {k: v for k, v in g.items() if k != "bridge"}

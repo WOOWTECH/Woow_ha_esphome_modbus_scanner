@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 import inspect
 import json
@@ -137,6 +138,9 @@ class V2Gateway:
     name: str | None = None
     port: int = 6053
     noise_psk: str | None = field(default=None, repr=False)
+    # The HA ESPHome config entry this Gateway was enrolled from; its current host, port and
+    # key win over the copy above, which stays as the fallback.
+    esphome_entry_id: str | None = None
 
     @property
     def gateway_id(self) -> str:
@@ -145,6 +149,10 @@ class V2Gateway:
     @property
     def display_name(self) -> str:
         return self.name or "ESPHome Modbus " + self.mac.replace(":", "")[-6:].upper()
+
+
+# Current {host, port, noise_psk} of an ESPHome config entry, or None when it is gone.
+EndpointResolver = Callable[[str], dict[str, Any] | None]
 
 
 @dataclass(slots=True)
@@ -306,9 +314,10 @@ class V2GatewayProvider:
     provider_id = "esphome"
     supports_progress = True
 
-    def __init__(self, gateways, *, client_factory=None):
+    def __init__(self, gateways, *, client_factory=None, endpoint: EndpointResolver | None = None):
         self.gateways = {g.gateway_id: g for g in gateways}
         self.client_factory = client_factory
+        self._resolve_endpoint = endpoint
         # Held by a check; a Scan waits for it, a check refuses while any Scan runs.
         self._locks = {key: asyncio.Lock() for key in self.gateways}
         self._scans = dict.fromkeys(self.gateways, 0)
@@ -341,7 +350,23 @@ class V2GatewayProvider:
             for g in self.gateways.values()
         ]
 
+    def _endpoint(self, gateway: V2Gateway) -> V2Gateway:
+        """The Gateway with its linked ESPHome entry's current host, port and key, if any."""
+        if self._resolve_endpoint is None or gateway.esphome_entry_id is None:
+            return gateway
+        current = self._resolve_endpoint(gateway.esphome_entry_id)
+        if not current or not current.get("host"):
+            return gateway  # the entry is gone: keep the copy taken at Enrollment
+        return replace(
+            gateway,
+            host=current["host"],
+            port=current.get("port") or 6053,
+            noise_psk=current.get("noise_psk") or None,
+        )
+
     def _client(self, gateway: V2Gateway):
+        gateway = self._endpoint(gateway)
+        self.health[gateway.gateway_id]["encrypted"] = bool(gateway.noise_psk)
         options = {"noise_psk": gateway.noise_psk} if gateway.noise_psk else {}
         factory = self.client_factory or APIClient
         try:

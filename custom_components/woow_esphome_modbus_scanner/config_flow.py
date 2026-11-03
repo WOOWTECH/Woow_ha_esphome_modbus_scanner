@@ -2,6 +2,8 @@
 
 Gateways are picked from the nodes already in HA's ESPHome integration, reusing their
 host and API key, and verified (MAC and bridge v2 signature) before they are stored.
+Such a Gateway keeps ``esphome_entry_id``: each connection resolves the host, port and key
+from that ESPHome entry again, and the copy stored here is only the fallback.
 Manual host/MAC/key entry stays available as an advanced path. Every Gateway lives in
 ``entry.data["gateways"]`` as ``{host, mac, name, bridge, noise_psk?, port?, ...}``; the
 format is unchanged from the two-slot form, so older entries keep working.

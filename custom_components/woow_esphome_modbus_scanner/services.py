@@ -222,6 +222,22 @@ async def _selected_profile(hass: HomeAssistant, owner: _Owner, data) -> DeviceP
         raise ValueError(str(err)) from err
 
 
+def _esphome_endpoint(hass: HomeAssistant):
+    """Resolve an ESPHome config entry id to its current host, port and API key."""
+
+    def resolve(entry_id: str) -> dict[str, Any] | None:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != "esphome":
+            return None
+        return {
+            "host": entry.data.get("host"),
+            "port": entry.data.get("port"),
+            "noise_psk": entry.data.get("noise_psk"),
+        }
+
+    return resolve
+
+
 def _coordinator(
     hass: HomeAssistant, expected_owner: _Owner | None = None
 ) -> ModbusScanCoordinator:
@@ -239,7 +255,9 @@ def _coordinator(
         providers = [MockGatewayProvider()]
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
         if entry is not None and (
-            physical := build_physical_provider(entry.data.get("gateways", ()))
+            physical := build_physical_provider(
+                entry.data.get("gateways", ()), esphome_endpoint=_esphome_endpoint(hass)
+            )
         ):
             providers.append(physical)
         coordinator = ModbusScanCoordinator(
