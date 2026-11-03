@@ -144,3 +144,33 @@ async def test_cancelled_v2_range_scan_stops_and_appears_in_history(hass, gatewa
     assert results["status"] == "cancelled"
     history = await call("get_history")
     assert [scan["scan_id"] for scan in history["scans"]] == [started["scan_id"]]
+
+
+async def test_mock_gateway_reads_input_register_blocks_across_1_to_247(hass, gateway):
+    call = await _setup(hass)
+    started = await call(
+        "start_scan",
+        {
+            "start_id": 1,
+            "end_id": 247,
+            "probe_type": "input_register",
+            "register_address": 0x0010,
+            "register_count": 3,
+            "inter_request_delay_ms": 0,
+            "mock_scenario": "partial_timeout",
+            "safety_confirmed": True,
+            "large_range_confirmed": True,
+        },
+    )
+    await _settle(hass)
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+
+    assert (results["status"], results["total_addresses"]) == ("completed", 247)
+    rows = {row["address"]: row for row in results["responders"]}
+    assert sorted(rows) == [2, 7, 11, 21, 42]
+    # A register read never claims a device identity; it returns raw register evidence.
+    assert {row["outcome"] for row in rows.values()} == {"responded"}
+    assert rows[42]["register_address"] == 0x0010
+    assert rows[42]["raw_values"] == [0x2A10, 0x2A11, 0x2A12]
+    assert rows[42]["raw_value"] == 0x2A10
+    assert "identity" not in rows[7]
