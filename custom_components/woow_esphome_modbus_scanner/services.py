@@ -46,6 +46,7 @@ from .modbus_scan.coordinator import (
 from .modbus_scan.device_profile import GENERIC_PROFILE_ID, DeviceProfile, DeviceProfileError
 from .modbus_scan.mock_provider import MOCK_GATEWAY_ID, MockGatewayProvider
 from .modbus_scan.models import (
+    BUS_NAME_PATTERN,
     LARGE_RANGE_THRESHOLD,
     MAX_INTER_REQUEST_DELAY_MS,
     MAX_REGISTER_ADDRESS,
@@ -107,6 +108,8 @@ _POLLER_INDICES = vol.All(
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
+    # The Bus to scan; may be omitted when the Gateway has only one.
+    vol.Optional("bus"): vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z")),
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
     vol.Optional("esphome_device_id"): str,
@@ -264,6 +267,7 @@ def _scan_request(
         gateway_id=data["gateway_id"],
         start_id=start_id,
         end_id=end_id,
+        bus=data.get("bus"),
         probe_type=data["probe_type"],
         register_address=data["register_address"],
         register_count=data["register_count"],

@@ -33,6 +33,8 @@ INFO_SCHEMA_VERSION: int = CONTRACT["info"]["schema_version"]
 INFO_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["fields"])
 INFO_BUS_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["bus_fields"])
 INFO_POLLER_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["poller_fields"])
+INFO_SERIAL_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["serial_fields"])
+SERIAL_PARITIES: tuple[str, ...] = tuple(CONTRACT["info"]["serial_parities"])
 
 RELEASE_ACTION: str = CONTRACT["actions"]["release"]["name"]
 RELEASE_ARGS: dict[str, str] = {

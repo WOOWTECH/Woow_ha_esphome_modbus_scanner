@@ -41,6 +41,11 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
   void set_send_wait_ms(uint16_t ms) override { this->parent_->set_send_wait_time(ms); }
   void clear_queue_for_address(uint8_t address) override { this->parent_->clear_tx_queue_for_address(address); }
 
+  /// Codegen passes the hub UART's YAML serial parameters, reported in the bus's info entry.
+  void set_serial(uint32_t baud_rate, const char *parity, uint8_t stop_bits) {
+    this->core_.set_serial(baud_rate, parity, stop_bits);
+  }
+
   /// Codegen emits one call per Pausable Poller, in stable table order.
   void add_poller(const char *name, uint8_t address, PollingComponent *component) {
     this->pollers_.push_back(std::make_unique<PollingComponentPoller>(component));

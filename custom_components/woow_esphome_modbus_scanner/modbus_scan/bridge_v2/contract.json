@@ -116,6 +116,15 @@
       "bus": "string, the value to pass as the probe action's bus argument",
       "pollers": "array of Pausable Poller objects (may be empty)"
     },
+    "optional_bus_fields": {
+      "serial": "serial object: the hub UART's parameters as configured in YAML; absent when the firmware cannot tell"
+    },
+    "serial_fields": {
+      "baud_rate": "int >= 1",
+      "parity": "one of serial_parities",
+      "stop_bits": "int, 1 or 2"
+    },
+    "serial_parities": ["NONE", "EVEN", "ODD"],
     "poller_fields": {
       "index": "int >= 0, stable position in the bus's Pausable Poller table; the value to list in pause_pollers",
       "name": "string, the component's YAML name, else its id",

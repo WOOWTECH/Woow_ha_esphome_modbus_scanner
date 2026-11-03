@@ -6,7 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
-  isBridgeV2, pollerChecklists, removedPollers, selectionPayload,
+  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -96,6 +96,15 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     if (gateway.provider === "esphome") this._advancedOpen = true;
     this._persist();
   }
+  _selectBus(bus) {
+    if (this._busy || this._status?.status === "running") return;
+    this._yaml = "";
+    this._form = selectBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id), bus);
+    this._persist();
+  }
+  _reconcileBus() {
+    this._form = reconcileBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id && g.provider === this._form.provider));
+  }
   _set(name, value) {
     this._yaml = "";
     this._form = {...this._form, [name]: value};
@@ -136,6 +145,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       if (!Array.isArray(payload.gateways)) throw new Error(this._text.noGateway);
       this._gateways = payload.gateways;
       this._loaded = true;
+      this._reconcileBus();
       // Never silently replace a saved physical gateway with mock mode.
       const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
       this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
@@ -207,7 +217,9 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     return this._action("check", async () => {
       const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
       if (generation !== this._operationGeneration || !this.isConnected) return;
-      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers} : g);
+      // The check learns the Gateway's Buses (with their serial parameters).
+      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
+      this._reconcileBus();
       this._message = this._text.healthChecked;
     });
   }
@@ -225,7 +237,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   }
   _pollersCard(gateway, disabled) {
     const t = this._text;
-    const checklists = pollerChecklists(gateway);
+    const checklists = pollerChecklists(gateway, this._form.bus);
     if (!checklists.length) return html`<p>${t.pollersUnknown}</p>`;
     return checklists.map(({bus, pollers, removed}) => html`<fieldset class="pollers"><legend>${t.pollersBus(bus)}</legend>
       ${pollers.length ? pollers.map((poller) => html`<div class="field check"><label><input type="checkbox" data-poller=${poller.index} .checked=${poller.paused} ?disabled=${disabled} @change=${(event) => this._savePollers(bus, pollers, poller.index, event.target.checked)}>${poller.label}</label></div>`) : html`<p>${t.pollersEmpty}</p>`}
@@ -456,7 +468,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
         <aside class="banner"><div><strong>${physical ? t.physicalTitle : t.mock}</strong><p>${physical ? t.physicalBanner : t.banner}</p></div><nav aria-label=${t.tutorialLinks}><a href=${TUTORIAL} target="_blank" rel="noopener">${t.tutorial}</a><a href=${DOWNLOAD}>${t.download}</a></nav></aside>
         <div class="grid"><div>
           <section class="card" aria-labelledby="gateway-title"><h2 id="gateway-title">${t.gateway}</h2>
-            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? html`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : nothing}${this._gateways.map((item) => html`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? t.simulatedGateway : item.name} — ${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? html`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : nothing}</div>
+            <div class="fields"><div class="field full"><label for="gateway">${t.availableGateway}</label><select id="gateway" .value=${this._form.gateway_id} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectGateway(event.target.value)} aria-invalid=${this._errors.gateway_id ? "true" : "false"} aria-describedby="gateway-help${this._errors.gateway_id ? " gateway-error" : ""}">${!gatewayAvailable ? html`<option value=${this._form.gateway_id} .selected=${true}>${this._form.gateway_id || t.gatewayError} (${this._loaded ? t.missingGateway : t.notRefreshed})</option>` : nothing}${this._gateways.map((item) => html`<option value=${item.gateway_id} .selected=${item.gateway_id === this._form.gateway_id}>${item.simulated ? (gatewayBuses(item).length > 1 ? t.simulatedMultiBus : t.simulatedGateway) : item.name} —${item.simulated ? t.simulated : item.provider}</option>`)}</select><small id="gateway-help">${t.gatewayHelp}</small>${this._errors.gateway_id ? html`<small class="error" id="gateway-error">${this._errors.gateway_id}</small>` : nothing}</div>
+            ${gatewayAvailable && gatewayBuses(gateway).length > 1 ? html`<div class="field full"><label for="bus">${t.bus}</label><select id="bus" .value=${this._form.bus} ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectBus(event.target.value)} aria-describedby="bus-help">${gatewayBuses(gateway).map((row) => html`<option value=${row.bus} .selected=${row.bus === this._form.bus}>${row.label}</option>`)}</select><small id="bus-help">${t.busHelp}</small></div>` : nothing}
             <div class="field full future"><label for="future-device">${t.futureDevice}</label><select id="future-device" disabled><option>${physical ? this._form.gateway_id : t.futureUnavailable}</option></select><small>${t.futureHelp}</small></div></div>
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
@@ -496,7 +509,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}${hasDecodedValues(this._results) ? ` ${t.decodedHelp}` : ""}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? html`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? html`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : nothing}</p>` : nothing}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${hasDecodedValues(this._results) ? html`<th scope="col">${t.decodedValue}</th>` : nothing}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td>${hasDecodedValues(this._results) ? html`<td class="decoded">${formatDecodedValues(row) ?? t.dash}</td>` : nothing}<td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}${hasDecodedValues(this._results) ? ` ${t.decodedHelp}` : ""}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? html`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${typeof this._results.bus === "string" ? html` · ${t.bus} <span id="result-bus">${this._results.bus}</span>` : nothing}${profileLabel(this._results) ? html`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : nothing}</p>` : nothing}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${hasDecodedValues(this._results) ? html`<th scope="col">${t.decodedValue}</th>` : nothing}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td>${hasDecodedValues(this._results) ? html`<td class="decoded">${formatDecodedValues(row) ?? t.dash}</td>` : nothing}<td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => html`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

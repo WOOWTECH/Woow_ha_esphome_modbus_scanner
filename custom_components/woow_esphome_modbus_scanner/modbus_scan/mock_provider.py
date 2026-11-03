@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import replace
 
 from .limits import ProbeLimits
@@ -17,7 +18,22 @@ from .models import (
 from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
+MOCK_MULTI_BUS_GATEWAY_ID = "mock:multi-bus-gateway"
 MOCK_LIMITS = ProbeLimits("Mock gateway")
+
+
+def _bus(name: str, baud_rate: int, parity: str = "NONE") -> dict:
+    return {"bus": name, "serial": {"baud_rate": baud_rate, "parity": parity, "stop_bits": 1}}
+
+
+# Simulated Gateways and their Buses. Every Bus answers with the same Mock Scenario.
+MOCK_GATEWAYS = {
+    MOCK_GATEWAY_ID: ("Simulated RS-485 Gateway", (_bus("rs485", 9600),)),
+    MOCK_MULTI_BUS_GATEWAY_ID: (
+        "Simulated two-Bus Gateway",
+        (_bus("rs485_a", 9600), _bus("rs485_b", 19200, "EVEN")),
+    ),
+}
 
 
 class MockGatewayProvider:
@@ -29,12 +45,12 @@ class MockGatewayProvider:
         self._step_delay_ms = step_delay_ms
 
     def list_gateways(self) -> tuple[GatewayInfo, ...]:
-        """Expose one simulated RS-485 gateway and all supported capabilities."""
-        return (
+        """Expose the simulated RS-485 Gateways and all supported capabilities."""
+        return tuple(
             GatewayInfo(
                 provider=self.provider_id,
-                gateway_id=MOCK_GATEWAY_ID,
-                name="Simulated RS-485 Gateway",
+                gateway_id=gateway_id,
+                name=name,
                 capabilities=(
                     "device_identification",
                     "holding_register",
@@ -43,7 +59,9 @@ class MockGatewayProvider:
                 ),
                 mock_scenarios=tuple(scenario.value for scenario in MockScenario),
                 limits=MOCK_LIMITS,
-            ),
+                buses=deepcopy(buses),
+            )
+            for gateway_id, (name, buses) in MOCK_GATEWAYS.items()
         )
 
     async def run_scan(
@@ -56,8 +74,13 @@ class MockGatewayProvider:
         request.validate()
         if request.provider != self.provider_id:
             raise ValueError(f"Unsupported mock provider: {request.provider}")
-        if request.gateway_id != MOCK_GATEWAY_ID:
+        if request.gateway_id not in MOCK_GATEWAYS:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
+        buses = [row["bus"] for row in MOCK_GATEWAYS[request.gateway_id][1]]
+        if request.bus is None and len(buses) != 1:
+            raise ValueError(f"Mock gateway {request.gateway_id} needs a bus")
+        if request.bus is not None and request.bus not in buses:
+            raise ValueError(f"Mock gateway {request.gateway_id} has no Bus {request.bus}")
         if request.mock_scenario not in {item.value for item in MockScenario}:
             raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")
         delay_ms = max(self._step_delay_ms, request.inter_request_delay_ms)

@@ -8,8 +8,11 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
     modbus_scanner:
       - modbus_id: modbus_bus
 
-The node-wide probe/release actions and the info/result/lease text sensors are created once,
-by the first entry. Their names are fixed by the bridge v2 contract file
+On a node with several hubs, add one entry per hub (each is one Bus, optionally named with
+``bus:``; see firmware/examples/multi-bus-modbus-scanner.yaml). The info entry of each Bus
+reports its hub UART's baud rate, parity and stop bits. The node-wide probe/release actions
+and the info/result/lease text sensors are created once, by the first entry. Their names are
+fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
 
 Pausable Pollers are found here, at code generation: every component in the validated config
@@ -22,8 +25,16 @@ import re
 
 import esphome.codegen as cg
 from esphome.components import modbus, text_sensor
+from esphome.components.const import CONF_PARITY, CONF_STOP_BITS
 import esphome.config_validation as cv
-from esphome.const import CONF_ADDRESS, CONF_ID, CONF_NAME, ENTITY_CATEGORY_DIAGNOSTIC
+from esphome.const import (
+    CONF_ADDRESS,
+    CONF_BAUD_RATE,
+    CONF_ID,
+    CONF_NAME,
+    CONF_UART_ID,
+    ENTITY_CATEGORY_DIAGNOSTIC,
+)
 from esphome.core import CORE, ID
 import esphome.final_validate as fv
 
@@ -75,7 +86,39 @@ def _sensor(name):
     )
 
 
+_NODE_SENSORS = {
+    CONF_INFO_SENSOR: INFO_SENSOR_NAME,
+    CONF_RESULT_SENSOR: RESULT_SENSOR_NAME,
+    CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
+}
+_SENSORS_CLAIMED_KEY = "modbus_scanner_sensors_claimed"
+
+
+def _node_sensors_on_first_entry(config):
+    """The node-wide text sensors belong to the first entry only.
+
+    Their names are fixed by the contract and entity names are unique per node, so a
+    second hub's entry must not declare them again. Runs before the schema, once per entry,
+    in YAML order; CORE.data is reset together with ESPHome's entity-name registry.
+    """
+    if not isinstance(config, dict):
+        return config
+    config = dict(config)
+    first = not CORE.data.get(_SENSORS_CLAIMED_KEY)
+    CORE.data[_SENSORS_CLAIMED_KEY] = True
+    for key, name in _NODE_SENSORS.items():
+        if first:
+            config.setdefault(key, {CONF_NAME: name})
+        elif key in config:
+            raise cv.Invalid(
+                f"{key} is node-wide; set it on the first modbus_scanner entry only",
+                path=[key],
+            )
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
+    _node_sensors_on_first_entry,
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ModbusScannerBus),
@@ -83,15 +126,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(CONF_BRIDGE_ID): cv.declare_id(ModbusScannerBridge),
             cv.GenerateID(modbus.CONF_MODBUS_ID): cv.use_id(modbus.ModbusClient),
             cv.Optional(CONF_BUS): _bus_name,
-            cv.Optional(CONF_INFO_SENSOR, default={CONF_NAME: INFO_SENSOR_NAME}): _sensor(
-                INFO_SENSOR_NAME
-            ),
-            cv.Optional(CONF_RESULT_SENSOR, default={CONF_NAME: RESULT_SENSOR_NAME}): _sensor(
-                RESULT_SENSOR_NAME
-            ),
-            cv.Optional(CONF_LEASE_SENSOR, default={CONF_NAME: LEASE_SENSOR_NAME}): _sensor(
-                LEASE_SENSOR_NAME
-            ),
+            **{cv.Optional(key): _sensor(name) for key, name in _NODE_SENSORS.items()},
         }
     ),
     cv.require_esphome_version(*MIN_ESPHOME_VERSION),
@@ -133,6 +168,21 @@ def _hub_send_wait_ms(hub_id) -> int:
     return 2000
 
 
+def _hub_serial(hub_id):
+    """(baud_rate, parity, stop_bits) of the UART behind the hub, or None if not found."""
+    for hub in CORE.config.get("modbus", []):
+        if hub[CONF_ID] != hub_id or CONF_UART_ID not in hub:
+            continue
+        for uart in CORE.config.get("uart", []):
+            if uart[CONF_ID] == hub[CONF_UART_ID]:
+                return (
+                    int(uart[CONF_BAUD_RATE]),
+                    str(uart.get(CONF_PARITY, "NONE")),
+                    int(uart.get(CONF_STOP_BITS, 1)),
+                )
+    return None
+
+
 def _pausable_pollers(hub_id) -> list[dict]:
     """Every declared PollingComponent bound to ``hub_id``, in YAML order (stable indices)."""
     found: list[dict] = []
@@ -171,6 +221,8 @@ def _poller_address(config) -> int:
 async def _bridge(config):
     if _BRIDGE_KEY in CORE.data:
         return CORE.data[_BRIDGE_KEY]
+    # The entry that carries the node-wide sensors (the first one in YAML).
+    config = next(c for c in CORE.config["modbus_scanner"] if CONF_INFO_SENSOR in c)
     bridge = cg.new_Pvariable(config[CONF_BRIDGE_ID])
     await cg.register_component(bridge, {})
     info = await text_sensor.new_text_sensor(config[CONF_INFO_SENSOR])
@@ -195,6 +247,8 @@ async def to_code(config):
         config[CONF_ID], name, _hub_send_wait_ms(config[modbus.CONF_MODBUS_ID])
     )
     cg.add(var.set_parent(hub))
+    if serial := _hub_serial(config[modbus.CONF_MODBUS_ID]):
+        cg.add(var.set_serial(*serial))
     for poller in _pausable_pollers(config[modbus.CONF_MODBUS_ID]):
         component = await cg.get_variable(poller[CONF_ID])
         name = str(poller.get(CONF_NAME) or poller[CONF_ID])

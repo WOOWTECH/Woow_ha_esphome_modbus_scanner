@@ -254,10 +254,20 @@ class Bus {
     this->pollers_.push_back({std::move(name), address, poller});
   }
 
-  /// This bus's info entry: its name and its Pausable Poller table.
+  /// The hub UART's serial parameters from YAML, reported in this bus's info entry.
+  /// `parity` is one of the contract's serial_parities ("NONE", "EVEN", "ODD").
+  void set_serial(uint32_t baud_rate, const char *parity, uint8_t stop_bits) {
+    this->serial_ = "{\"baud_rate\":" + std::to_string(baud_rate) + ",\"parity\":";
+    append_json_string(this->serial_, parity);
+    this->serial_ += ",\"stop_bits\":" + std::to_string(stop_bits) + "}";
+  }
+
+  /// This bus's info entry: its name, serial parameters (when known) and Pausable Poller table.
   std::string info_json() const {
     std::string out = "{\"bus\":";
     append_json_string(out, this->name_);
+    if (!this->serial_.empty())
+      out += ",\"serial\":" + this->serial_;
     out += ",\"pollers\":[";
     for (size_t i = 0; i < this->pollers_.size(); i++) {
       if (i)
@@ -452,6 +462,7 @@ class Bus {
 
  private:
   std::string name_;
+  std::string serial_;  // compact JSON object, empty when unknown
   BusPort &port_;
   uint16_t normal_send_wait_ms_;
   std::vector<PollerEntry> pollers_;
