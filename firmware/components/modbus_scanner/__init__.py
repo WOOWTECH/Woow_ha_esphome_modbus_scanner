@@ -11,7 +11,8 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
 On a node with several hubs, add one entry per hub (each is one Bus, optionally named with
 ``bus:``; see firmware/examples/multi-bus-modbus-scanner.yaml). The info entry of each Bus
 reports its hub UART's baud rate, parity and stop bits. The node-wide probe/release actions
-and the info/result/lease text sensors are created once, by the first entry. Their names are fixed by the bridge v2 contract file
+and the info/result/lease text sensors are created once, by the first entry. Their names are
+fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
 
 Pausable Pollers are found here, at code generation: every component in the validated config
