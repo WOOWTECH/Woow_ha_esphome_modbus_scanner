@@ -12,8 +12,9 @@ import {
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
 const RECENT_KEY = "woow-esphome-modbus-scanner.recent.v1";
 const TERMINAL = new Set(["completed", "cancelled", "failed"]);
-const TUTORIAL = "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html";
-const DOWNLOAD = "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/releases/download/v0.2.0/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html";
+const TUTORIAL = "https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/blob/main/docs/tutorial/woow-esphome-modbus-scanner-v0.5.0-zh-TW.html";
+// No 0.5.0 release exists yet, so the download is the raw file on main.
+const DOWNLOAD = "https://raw.githubusercontent.com/WOOWTECH/Woow_ha_esphome_modbus_scanner/main/docs/tutorial/woow-esphome-modbus-scanner-v0.5.0-zh-TW.html";
 
 export class WoowEsphomeModbusScannerPanel extends LitElement {
   static styles = panelStyles;
