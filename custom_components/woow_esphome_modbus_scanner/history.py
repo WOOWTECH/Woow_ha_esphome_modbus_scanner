@@ -13,7 +13,8 @@ from .const import DOMAIN
 from .modbus_scan.models import ScanOutcome
 
 MAX_RECORDS = 20
-MAX_RECORD_BYTES = 128 * 1024
+# Room for 247 Responders that each carry 4 raw and 4 decoded register values.
+MAX_RECORD_BYTES = 256 * 1024
 
 
 class ScanHistory:

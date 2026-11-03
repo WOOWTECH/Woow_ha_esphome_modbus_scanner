@@ -91,6 +91,10 @@
     "gateway_action_required": {
       "title": "掃描閘道需要處理",
       "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及橋接韌體版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
+    },
+    "legacy_bridge": {
+      "title": "閘道 {name} 使用已淘汰的舊版 bridge v1",
+      "description": "閘道 {name}（{host}，{mac}）仍執行舊版 bridge v1 韌體。過渡期內仍可依舊版限制運作（站號 1-32、FC03、白名單內的單一暫存器、700 ms），但舊版支援將於日後版本移除。請在該節點的 ESPHome YAML 加入廠牌中立的 modbus_scanner 元件並重燒，再到本整合的「重新設定」選擇「從 ESPHome 裝置新增或更新閘道」（或以手動方式選 bridge v2）登錄此節點。閘道改以 bridge v2 登錄後，此問題會自動消失。原廠牌暫存器規格已改為範例 Device Profile（examples/device_profiles/guanjie-ind17.json），可在側欄匯入。"
     }
   }
 }
