@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal
 import json
 import math
 import re
@@ -132,6 +133,28 @@ class DeviceProfile:
         if "register_address" not in defaults and self.allowed_registers:
             defaults["register_address"] = self.allowed_registers[0]
         return defaults
+
+    def decode(self, register_address: int, values: tuple[int, ...]) -> list[dict[str, Any]]:
+        """Decoded values for every register in the block that has a field definition."""
+        fields = {field["register"]: field for field in self.document.get("fields", [])}
+        decoded = []
+        for offset, raw in enumerate(values):
+            field = fields.get(register_address + offset)
+            if field is None:
+                continue
+            if field.get("data_type", "u16") == "s16" and raw >= 0x8000:
+                raw -= 0x10000
+            # Decimal keeps a scale such as 0.1 exact (784 * 0.1 is 78.4, not 78.40000000000001).
+            value = Decimal(raw) * Decimal(str(field.get("scale", 1)))
+            decoded.append(
+                {
+                    "register": field["register"],
+                    "name": field["name"],
+                    "unit": field.get("unit"),
+                    "value": int(value) if value == value.to_integral_value() else float(value),
+                }
+            )
+        return decoded
 
     def summary(self) -> dict[str, Any]:
         """Identity only, for labelling Scan status and results."""

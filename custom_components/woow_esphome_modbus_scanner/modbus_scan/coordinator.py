@@ -49,6 +49,7 @@ def _utc_now() -> str:
 class _ScanState:
     scan_id: str
     request: ScanRequest
+    profile: DeviceProfile = GENERIC_DEVICE_PROFILE
     device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
     phase: ScanPhase = ScanPhase.RUNNING
     started_at: str = field(default_factory=_utc_now)
@@ -207,7 +208,9 @@ class ModbusScanCoordinator:
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
         scan_id = str(uuid4())
-        state = _ScanState(scan_id=scan_id, request=request, device_profile=profile.summary())
+        state = _ScanState(
+            scan_id=scan_id, request=request, profile=profile, device_profile=profile.summary()
+        )
         self._scans[scan_id] = state
         self._active[request.gateway_key] = scan_id
         run_coroutine = self._run(state, provider)
@@ -289,7 +292,9 @@ class ModbusScanCoordinator:
             "status": state.phase.value,
             "phase": state.phase.value,
             "responders": [
-                result.as_dict() for result in state.retained_results if result.is_responder
+                self._responder(state, result)
+                for result in state.retained_results
+                if result.is_responder
             ],
             "outcome_counts": self._serialized_counts(state),
             "completed_addresses": state.completed_addresses,
@@ -304,6 +309,18 @@ class ModbusScanCoordinator:
             "error": state.error,
             "error_info": state.error_info,
         }
+
+    @staticmethod
+    def _responder(state: _ScanState, result: ProbeResult) -> dict[str, Any]:
+        """Raw evidence always; decoded values beside it when the profile defines fields."""
+        row = result.as_dict()
+        values = result.raw_values
+        if values is None and result.raw_value is not None:
+            values = (result.raw_value,)  # single-register reply (legacy bridge v1)
+        if result.register_address is not None and values is not None:
+            if decoded := state.profile.decode(result.register_address, values):
+                row["decoded"] = decoded
+        return row
 
     @staticmethod
     def _lease(state: _ScanState) -> dict[str, Any]:

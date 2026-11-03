@@ -113,6 +113,21 @@ export function formatRawValues(row) {
   const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
   return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
 }
+/** Device Profile decoded values, e.g. "Voltage = 230.1 V; Current = -1.36 A", or null. */
+export function formatDecodedValues(row) {
+  const entries = Array.isArray(row?.decoded) ? row.decoded : [];
+  const shown = entries
+    .filter((entry) => entry && typeof entry.name === "string" && typeof entry.value === "number" && Number.isFinite(entry.value))
+    .map((entry) => {
+      const unit = typeof entry.unit === "string" && entry.unit ? ` ${entry.unit.slice(0, 16)}` : "";
+      return `${entry.name.slice(0, 64)} = ${entry.value}${unit}`;
+    });
+  return shown.length ? shown.join("; ") : null;
+}
+/** Whether any Responder carries decoded values (the Generic Device Profile never does). */
+export function hasDecodedValues(results) {
+  return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
+}
 const LEASE_STATES = ["active", "ended", "unconfirmed"];
 const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
 /**

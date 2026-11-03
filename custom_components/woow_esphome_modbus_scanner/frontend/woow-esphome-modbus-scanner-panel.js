@@ -41,7 +41,7 @@ const hardeningText = {
     healthTitle:"Last observed gateway health", apiEvidence:"API verification", busEvidence:"Last fresh bus response", encryption:"API encryption configured", yes:"Yes", no:"No",
     unchecked:"Not checked", healthChecked:"API check finished. This is not a fresh bus probe.",
     readOnly:"HA identity is inactive or unavailable; reconnect. All active HA users and internal automations may operate physical gateways.", unsupportedProfile:"Unknown or mismatched capability profile. Reload the integration and panel; physical operations are blocked.",
-    recovery:"Normal polling recovery", cleanup:"Connection cleanup", attempt:"Attempt", operation:"Operation", budget:"Execution budget (not ETA)", elapsed:"Elapsed", rawRegister:"Register / raw value", rawHelp:"Raw FC03/FC04 values are evidence only; engineering-unit decoding is not implied.",
+    recovery:"Normal polling recovery", cleanup:"Connection cleanup", attempt:"Attempt", operation:"Operation", budget:"Execution budget (not ETA)", elapsed:"Elapsed", rawRegister:"Register / raw value", rawHelp:"Raw FC03/FC04 values are evidence only; engineering units appear only as decoded values from a Device Profile.",
     recoveryStates:{unknown:"Not verified",pending:"Awaiting fresh normal polling",verified:"Fresh normal core polling verified",failed:"Recovery check failed"},
     operationStates:{queued:"Queued",connect:"Connecting",verify_identity:"Checking identity",verify_bridge:"Checking bridge",probe:"Read-only probe",inter_request_delay:"Waiting between reads",recovery:"Checking normal polling",finished:"Finished"},
     history:"Load saved history", historyHelp:"At most 20 terminal snapshots are retained in HA. Interrupted checkpoints are marked failed, never resumed automatically.", yaml:"Generate service YAML", yamlLabel:"Validated range-scan YAML (generation does not execute it)",
@@ -57,7 +57,7 @@ const hardeningText = {
     healthTitle:"上次觀測的閘道健康", apiEvidence:"API 身分核對", busEvidence:"最近有效匯流排回應", encryption:"已設定 API 加密", yes:"是", no:"否",
     unchecked:"尚未檢查", healthChecked:"API 檢查完成；這不是新的匯流排探測證據。",
     readOnly:"HA 身分已停用或無法使用，請重新連線。所有啟用中的 HA 使用者及內部自動化皆可操作實機。", unsupportedProfile:"能力設定未知或版本不符。請重載整合與面板；實機操作已阻擋。",
-    recovery:"正常輪詢復原", cleanup:"連線清理", attempt:"嘗試次數", operation:"目前操作", budget:"操作時間上限（非預計完成時間）", elapsed:"已耗時", rawRegister:"暫存器／原始值", rawHelp:"原始 FC03/FC04 數值僅作證據，並不代表已轉換為工程單位。",
+    recovery:"正常輪詢復原", cleanup:"連線清理", attempt:"嘗試次數", operation:"目前操作", budget:"操作時間上限（非預計完成時間）", elapsed:"已耗時", rawRegister:"暫存器／原始值", rawHelp:"原始 FC03/FC04 數值僅作證據；工程單位只會以設備規格的解讀值呈現。",
     recoveryStates:{unknown:"尚未驗證",pending:"等待新的正常輪詢",verified:"已驗證新的核心正常輪詢",failed:"復原檢查失敗"},
     operationStates:{queued:"排程中",connect:"連線中",verify_identity:"核對身分",verify_bridge:"核對橋接",probe:"唯讀探測",inter_request_delay:"等候下一次讀取",recovery:"確認正常輪詢",finished:"已結束"},
     history:"載入保存歷程", historyHelp:"HA 最多保存 20 筆終止快照。中斷檢查點會標為失敗，絕不自動重播掃描。", yaml:"產生服務 YAML", yamlLabel:"通過檢查的範圍掃描 YAML（產生不會執行）",
@@ -100,6 +100,8 @@ const en = {
   profileProbe: "The selected Device Profile does not allow this probe type.",
   profileRegister: (list) => `The selected Device Profile allows registers ${list} only.`,
   resultProfile: "Device Profile",
+  decodedValue: "Decoded value",
+  decodedHelp: "Decoded values come from the selected Device Profile's field definitions; the raw values stay the evidence.",
   physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
   physicalProfiles: "Mock scenarios do not apply to physical gateways. Results below must identify their actual provider and gateway.",
   physicalPause: "Required. Firmware drains the current transaction, reads once, then automatically restores polling even if the client disconnects.",
@@ -173,6 +175,8 @@ const zh = {
   profileProbe:"所選設備規格不允許此探測類型。",
   profileRegister:(list)=>`所選設備規格只允許暫存器 ${list}。`,
   resultProfile:"設備規格",
+  decodedValue:"解讀值",
+  decodedHelp:"解讀值依所選設備規格的欄位定義換算；原始值仍是證據。",
   physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
   physicalProfiles:"模擬情境不適用於實體閘道。下方結果會另行標明實際提供者與閘道。",
   physicalPause:"必要設定。韌體等候當前交易結束，單次讀取後自動恢復輪詢；客戶端斷線也會恢復。",
@@ -360,6 +364,21 @@ function formatRawValues(row) {
   const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
   const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
   return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
+}
+/** Device Profile decoded values, e.g. "Voltage = 230.1 V; Current = -1.36 A", or null. */
+function formatDecodedValues(row) {
+  const entries = Array.isArray(row?.decoded) ? row.decoded : [];
+  const shown = entries
+    .filter((entry) => entry && typeof entry.name === "string" && typeof entry.value === "number" && Number.isFinite(entry.value))
+    .map((entry) => {
+      const unit = typeof entry.unit === "string" && entry.unit ? ` ${entry.unit.slice(0, 16)}` : "";
+      return `${entry.name.slice(0, 64)} = ${entry.value}${unit}`;
+    });
+  return shown.length ? shown.join("; ") : null;
+}
+/** Whether any Responder carries decoded values (the Generic Device Profile never does). */
+function hasDecodedValues(results) {
+  return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
 }
 const LEASE_STATES = ["active", "ended", "unconfirmed"];
 const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
@@ -1057,7 +1076,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}${hasDecodedValues(this._results) ? ` ${t.decodedHelp}` : ""}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${hasDecodedValues(this._results) ? b`<th scope="col">${t.decodedValue}</th>` : A}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td>${hasDecodedValues(this._results) ? b`<td class="decoded">${formatDecodedValues(row) ?? t.dash}</td>` : A}<td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }
