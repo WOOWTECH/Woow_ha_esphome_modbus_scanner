@@ -128,7 +128,14 @@ jobs:
         run: |
           python -m venv /tmp/old-esphome
           /tmp/old-esphome/bin/pip install -q "esphome==2026.8.2"
-          if /tmp/old-esphome/bin/esphome config generic-modbus-scanner.yaml > /tmp/old.log 2>&1; then
+          # Drop the example's own esphome.min_version: ESPHome checks it first and stops before
+          # the component's gate runs. A user's YAML may not set min_version, so test the gate itself.
+          sed '/^  min_version:/d' generic-modbus-scanner.yaml > old-esphome-check.yaml
+          if grep -q 'min_version' old-esphome-check.yaml; then
+            echo "min_version was not removed from the check copy"; exit 1
+          fi
+          if /tmp/old-esphome/bin/esphome config old-esphome-check.yaml > /tmp/old.log 2>&1; then
+            cat /tmp/old.log
             echo "ESPHome 2026.8.2 unexpectedly accepted the modbus_scanner example"; exit 1
           fi
-          grep -F "requires at least ESPHome version 2026.9.0" /tmp/old.log
+          grep -F "requires at least ESPHome version 2026.9.0" /tmp/old.log || { cat /tmp/old.log; exit 1; }
