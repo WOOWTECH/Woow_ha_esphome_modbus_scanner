@@ -161,6 +161,7 @@ async def test_legacy_probe_uses_reported_defaults_and_keeps_result_format(hass)
         ({"register_address": 0}, "Register is not in the Bridge v1 read allowlist"),
         ({"timeout_ms": 500}, "Bridge v1 requires timeout_ms=700"),
         ({"pause_normal_polling": False}, "Bridge v1 requires pause_normal_polling=true"),
+        ({"bus": "rs485"}, "does not support bus selection"),
     ],
 )
 async def test_service_rejects_requests_outside_legacy_limits_without_bus_traffic(

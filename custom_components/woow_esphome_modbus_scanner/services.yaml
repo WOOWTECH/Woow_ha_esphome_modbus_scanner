@@ -50,6 +50,11 @@ start_scan:
       default: mock:rs485-gateway
       selector:
         text:
+    bus: &bus
+      name: Bus
+      description: Bus id from the gateway's buses in list_gateways. Required when the gateway has more than one Bus; one Scan at a time runs per Bus.
+      selector:
+        text:
     esphome_device_id: &device
       name: ESPHome device
       description: Optional additional device MAC cross-check.
@@ -168,6 +173,7 @@ test_address:
   fields:
     provider: *provider
     gateway_id: *gateway
+    bus: *bus
     esphome_device_id: *device
     address:
       name: Slave ID

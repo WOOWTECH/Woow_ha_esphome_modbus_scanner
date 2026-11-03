@@ -210,6 +210,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
             {
                 "provider",
                 "gateway_id",
+                "bus",
                 "esphome_device_id",
                 "start_id",
                 "end_id",
@@ -232,6 +233,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
             {
                 "provider",
                 "gateway_id",
+                "bus",
                 "esphome_device_id",
                 "address",
                 "probe_type",

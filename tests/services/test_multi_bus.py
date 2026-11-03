@@ -11,9 +11,11 @@ import pytest
 from test_bridge_v2 import GATEWAY_ID, RESULT_KEY, FakeClient, FakeV2Gateway, _settle, _setup
 import voluptuous as vol
 
+from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.services import async_register_services
 
 SERIAL_A = {"baud_rate": 9600, "parity": "NONE", "stop_bits": 1}
 SERIAL_B = {"baud_rate": 19200, "parity": "EVEN", "stop_bits": 2}
@@ -219,3 +221,62 @@ async def test_concurrent_buses_lose_no_result_to_esphome_state_batching(
         assert status["status"] == "completed", status["error_info"]
         assert (status["lease_status"], status["lease_end_reason"]) == ("ended", "released")
     assert len(gateway.probes) == 12
+
+
+# ---- The mock provider: one single-Bus and one multi-Bus simulated Gateway ----
+
+MOCK_MULTI = "mock:multi-bus-gateway"
+
+
+async def _mock_setup(hass):
+    async_register_services(hass)
+
+    async def call(service, data=None):
+        return await hass.services.async_call(
+            DOMAIN, service, data or {}, blocking=True, return_response=True
+        )
+
+    return call
+
+
+async def test_mock_gateways_report_their_buses(hass):
+    call = await _mock_setup(hass)
+    gateways = {g["gateway_id"]: g for g in (await call("list_gateways"))["gateways"]}
+
+    assert [row["bus"] for row in gateways["mock:rs485-gateway"]["buses"]] == ["rs485"]
+    assert gateways[MOCK_MULTI]["buses"] == [
+        {"bus": "rs485_a", "serial": {"baud_rate": 9600, "parity": "NONE", "stop_bits": 1}},
+        {"bus": "rs485_b", "serial": {"baud_rate": 19200, "parity": "EVEN", "stop_bits": 1}},
+    ]
+    assert gateways[MOCK_MULTI]["simulated"] is True
+
+
+async def test_mock_single_bus_gateway_needs_no_bus(hass):
+    call = await _mock_setup(hass)
+    started = await call("start_scan", {"start_id": 1, "end_id": 3, "safety_confirmed": True})
+    assert started["bus"] == "rs485"
+
+
+async def test_mock_multi_bus_gateway_scans_buses_side_by_side(hass):
+    call = await _mock_setup(hass)
+    fields = {
+        "gateway_id": MOCK_MULTI,
+        "start_id": 1,
+        "end_id": 12,
+        "inter_request_delay_ms": 50,
+        "safety_confirmed": True,
+    }
+    with pytest.raises(ServiceValidationError, match="choose one with bus"):
+        await call("start_scan", fields)
+
+    a = await call("start_scan", {**fields, "bus": "rs485_a"})
+    b = await call("start_scan", {**fields, "bus": "rs485_b"})
+    with pytest.raises(HomeAssistantError, match="Bus rs485_b .* is busy"):
+        await call("start_scan", {**fields, "bus": "rs485_b"})
+    assert (a["status"], b["status"]) == ("running", "running")
+
+    await _settle(hass)
+    for scan, bus in ((a, "rs485_a"), (b, "rs485_b")):
+        results = await call("get_scan_results", {"scan_id": scan["scan_id"]})
+        assert (results["status"], results["bus"]) == ("completed", bus)
+        assert results["completed_addresses"] == 12
