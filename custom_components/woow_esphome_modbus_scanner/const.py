@@ -25,11 +25,13 @@ SERVICE_GET_SCAN_STATUS = "get_scan_status"
 SERVICE_GET_SCAN_RESULTS = "get_scan_results"
 SERVICE_CANCEL_SCAN = "cancel_scan"
 SERVICE_TEST_ADDRESS = "test_address"
+SERVICE_SET_PAUSABLE_POLLERS = "set_pausable_pollers"
 
 PUBLIC_SERVICES = (
     "check_gateway",
     "get_history",
     SERVICE_LIST_GATEWAYS,
+    SERVICE_SET_PAUSABLE_POLLERS,
     SERVICE_START_SCAN,
     SERVICE_GET_SCAN_STATUS,
     SERVICE_GET_SCAN_RESULTS,

@@ -11,7 +11,9 @@ from custom_components.woow_esphome_modbus_scanner.const import DOMAIN, PUBLIC_S
 from custom_components.woow_esphome_modbus_scanner.services import async_register_services
 
 
-@pytest.mark.parametrize("service", [s for s in PUBLIC_SERVICES if s != "check_gateway"])
+@pytest.mark.parametrize(
+    "service", [s for s in PUBLIC_SERVICES if s not in {"check_gateway", "set_pausable_pollers"}]
+)
 async def test_mock_and_read_services_allow_non_admin_user(hass, service):
     """No physical transport is used by these mock/read service calls."""
     async_register_services(hass)

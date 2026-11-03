@@ -32,6 +32,7 @@ def test_services_yaml_exposes_exact_public_names():
         "check_gateway",
         "get_history",
         "list_gateways",
+        "set_pausable_pollers",
         "start_scan",
         "get_scan_status",
         "get_scan_results",
