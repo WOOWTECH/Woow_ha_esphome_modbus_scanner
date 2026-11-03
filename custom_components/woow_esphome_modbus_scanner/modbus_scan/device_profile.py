@@ -15,6 +15,7 @@ import math
 import re
 from typing import Any
 
+from .bridge_v2.contract import HARD_LIMITS
 from .limits import ProbeLimits
 from .models import MAX_INTER_REQUEST_DELAY_MS, MAX_REGISTER_ADDRESS, MAX_RETRIES, ProbeType
 
@@ -24,12 +25,13 @@ MAX_DOCUMENT_BYTES = 64 * 1024
 MAX_ALLOWED_REGISTERS = 1024
 MAX_FIELDS = 256
 
-# Generic Device Profile bounds; every imported profile must stay inside them.
-SLAVE_MIN, SLAVE_MAX = 1, 247
-COUNT_MIN, COUNT_MAX = 1, 4
-TIMEOUT_MIN, TIMEOUT_MAX = 100, 2000
-READ_FUNCTION_CODES = (3, 4)
-WRITE_FUNCTION_CODES = (5, 6, 15, 16, 22, 23)
+# Generic Device Profile bounds, every imported profile must stay inside them: the bridge v2
+# contract's hard limits (ADR 0005), read from contract.json rather than copied.
+SLAVE_MIN, SLAVE_MAX = HARD_LIMITS["slave_min"], HARD_LIMITS["slave_max"]
+COUNT_MIN, COUNT_MAX = HARD_LIMITS["count_min"], HARD_LIMITS["count_max"]
+TIMEOUT_MIN, TIMEOUT_MAX = HARD_LIMITS["timeout_ms_min"], HARD_LIMITS["timeout_ms_max"]
+READ_FUNCTION_CODES = tuple(HARD_LIMITS["function_codes"])
+WRITE_FUNCTION_CODES = tuple(HARD_LIMITS["write_function_codes"])
 DATA_TYPES = ("u16", "s16")
 
 _FUNCTION_CODE_PROBES = {3: ProbeType.HOLDING_REGISTER, 4: ProbeType.INPUT_REGISTER}

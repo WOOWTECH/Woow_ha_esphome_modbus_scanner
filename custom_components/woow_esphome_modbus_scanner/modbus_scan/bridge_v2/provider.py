@@ -181,7 +181,7 @@ def _valid_poller_table(pollers: Any) -> bool:
         and poller["index"] == position
         and isinstance(poller["name"], str)
         and _int(poller["address"])
-        and 0 <= poller["address"] <= 247
+        and 0 <= poller["address"] <= HARD_LIMITS["slave_max"]
         for position, poller in enumerate(pollers)
     )
 

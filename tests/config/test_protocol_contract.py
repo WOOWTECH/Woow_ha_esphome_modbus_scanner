@@ -81,6 +81,56 @@ def test_integration_panel_and_firmware_share_one_version():
     assert example["esphome"]["project"]["version"] == VERSION
 
 
+def test_generic_device_profile_bounds_are_the_contract_hard_limits():
+    """ADR 0005: the Generic Device Profile's bounds are the bridge v2 hard limits, not a copy."""
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.device_profile import (
+        GENERIC_DEVICE_PROFILE,
+        parse_device_profile,
+    )
+
+    hard = contract.CONTRACT["hard_limits"]
+    limits = GENERIC_DEVICE_PROFILE.limits.as_dict()
+    assert (limits["slave_min"], limits["slave_max"]) == (hard["slave_min"], hard["slave_max"])
+    assert limits["register_count_max"] == hard["count_max"]
+    assert (limits["timeout_ms_min"], limits["timeout_ms_max"]) == (
+        hard["timeout_ms_min"],
+        hard["timeout_ms_max"],
+    )
+    assert list(GENERIC_DEVICE_PROFILE.function_codes) == hard["function_codes"]
+    for code in hard["write_function_codes"]:
+        document = {
+            "schema_version": 1,
+            "id": "writer",
+            "name": "w",
+            "vendor": "v",
+            "model": "m",
+            "version": "1",
+            "function_codes": [code],
+        }
+        try:
+            parse_device_profile(document)
+        except ValueError as err:
+            assert f"FC{code:02d} is a write function code" in str(err)
+        else:
+            raise AssertionError(f"FC{code} was accepted")
+
+
+def test_panel_bridge_v2_defaults_are_the_v2_adapters_defaults():
+    """The panel's V2_DEFAULTS mirror what the v2 adapter fills in for omitted fields."""
+    import re
+
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2.provider import (
+        LIMITS,
+    )
+
+    model = (ROOT / "panel_frontend/src/model.js").read_text(encoding="utf-8")
+    literal = re.search(r"export const V2_DEFAULTS = Object\.freeze\(\{(.*?)\}\);", model, re.S)
+    body = re.sub(r"(\w+):", r'"\1":', literal.group(1)).strip().rstrip(",")
+    panel = json.loads("{" + body + "}")
+    assert panel == {key: str(value) if isinstance(value, str) else value
+                     for key, value in LIMITS.defaults.items()}
+
+
 def test_inter_request_delay_cap_leaves_the_lease_idle_time_for_round_trips():
     """The contract states the cap; HA validates against it, below the Gateway's idle limit."""
     from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
