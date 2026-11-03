@@ -33,7 +33,7 @@
         "data": {
           "host": "ESPHome 主機",
           "mac": "預期 MAC（AA:BB:CC:DD:EE:FF）",
-          "bridge": "橋接協定（v2：modbus_scanner 元件；v1：舊版韌體）",
+          "bridge": "橋接協定（v2：modbus_scanner 元件；v1：僅限現有的舊版閘道）",
           "noise_psk": "API 加密金鑰（留空保留）",
           "clear_psk": "明確清除金鑰（僅限未加密韌體）"
         }
@@ -64,7 +64,7 @@
       "conflicting_psk": "同一閘道不可同時輸入新金鑰又勾選清除。",
       "invalid_auth": "API 認證失敗，請核對金鑰與韌體加密設定。",
       "cannot_connect": "無法核對閘道 API 身分與橋接支援；未變更既有設定。",
-      "scanner_missing": "此 ESPHome 裝置未執行 modbus_scanner 元件（bridge v2）。請在其 ESPHome YAML 加入此元件並重燒，或以手動模式將它登錄為舊版 v1 閘道。",
+      "scanner_missing": "此 ESPHome 裝置未執行 modbus_scanner 元件（bridge v2）。請在其 ESPHome YAML 加入此元件並重燒，然後再登錄一次。",
       "bridge_mismatch": "裝置的 modbus_scanner 元件 bridge 版本與此整合不符，請將韌體與整合更新到相同版本。",
       "identity_mismatch": "此主機上的裝置回報的 MAC 與預期不同，未登錄任何閘道。"
     },

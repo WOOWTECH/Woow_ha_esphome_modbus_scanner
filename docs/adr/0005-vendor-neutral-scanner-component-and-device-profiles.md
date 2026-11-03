@@ -49,5 +49,10 @@ a single contract rather than three generated copies.
   through `modbus_scan/legacy_v1/`, and each one raises a Repairs issue asking
   for a reflash with `modbus_scanner`. That code is deleted when the last legacy
   Gateway is gone.
+- Manual Enrollment keeps the v1 choice until then, so an existing Legacy
+  Gateway whose entry was removed can enroll again before its reflash. It does
+  not admit new Legacy Gateways: verification requires the frozen v1 firmware's
+  `profile_hash`, and enrollment errors never suggest v1 to a node without the
+  `modbus_scanner` component.
 - The contract may only grow additively within bridge v2; removing or changing
   an action argument, field or error code needs bridge version 3.

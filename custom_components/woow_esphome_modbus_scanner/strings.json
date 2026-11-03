@@ -33,7 +33,7 @@
         "data": {
           "host": "ESPHome host",
           "mac": "Expected MAC (AA:BB:CC:DD:EE:FF)",
-          "bridge": "Bridge protocol (v2: modbus_scanner component; v1: legacy firmware)",
+          "bridge": "Bridge Protocol (v2: modbus_scanner component; v1: existing Legacy Gateways only)",
           "noise_psk": "API encryption key (blank retains existing)",
           "clear_psk": "Explicitly clear the key (only for unencrypted firmware)"
         }
@@ -64,7 +64,7 @@
       "conflicting_psk": "Do not enter a replacement key and select clear for the same gateway.",
       "invalid_auth": "API authentication failed. Check the key and the firmware encryption setting.",
       "cannot_connect": "Could not verify gateway API identity and bridge support. Existing settings were not changed.",
-      "scanner_missing": "This ESPHome device does not run the modbus_scanner component (bridge v2). Add the component to its ESPHome YAML and reflash, or enroll it as a legacy v1 Gateway in manual mode.",
+      "scanner_missing": "This ESPHome device does not run the modbus_scanner component (bridge v2). Add the component to its ESPHome YAML and reflash, then enroll it again.",
       "bridge_mismatch": "The device's modbus_scanner component speaks a different Bridge Protocol version than this integration. Update the firmware and the integration to the same release.",
       "identity_mismatch": "The device at this host reports a different MAC than expected; nothing was enrolled."
     },
