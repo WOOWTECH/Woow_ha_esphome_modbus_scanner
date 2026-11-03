@@ -56,14 +56,45 @@ async def _start(call, **fields):
 
 async def test_gateway_lists_each_bus_with_its_serial_parameters(hass, gateway):
     call = await _setup(hass)
-    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert _listed(await call("list_gateways"))["buses"] == []  # unknown until checked
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
 
     listed = _listed(await call("list_gateways"))
 
-    assert listed["buses"] == [
-        {"bus": "line_a", "serial": SERIAL_A},
-        {"bus": "line_b", "serial": SERIAL_B},
-    ]
+    expected = [{"bus": "line_a", "serial": SERIAL_A}, {"bus": "line_b", "serial": SERIAL_B}]
+    assert listed["buses"] == checked["buses"] == expected
+    assert gateway.probes == []  # learning the Buses sends no Modbus frame
+
+
+async def test_a_bus_without_reported_serial_parameters_is_still_listed(hass, gateway):
+    gateway.serial = {"line_a": SERIAL_A}
+    call = await _setup(hass)
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert checked["buses"][1] == {"bus": "line_b", "serial": None}
+
+
+@pytest.mark.parametrize(
+    "serial",
+    [
+        {"baud_rate": 0, "parity": "NONE", "stop_bits": 1},
+        {"baud_rate": 9600, "parity": "MARK", "stop_bits": 1},
+        {"baud_rate": 9600, "parity": "NONE", "stop_bits": 3},
+        {"baud_rate": "9600", "parity": "NONE", "stop_bits": 1},
+        {"parity": "NONE", "stop_bits": 1},
+    ],
+)
+async def test_malformed_serial_parameters_are_an_incompatible_bridge(hass, gateway, serial):
+    gateway.serial = {"line_a": serial}
+    call = await _setup(hass)
+    with pytest.raises(HomeAssistantError, match="incompatible bridge info"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+
+async def test_duplicate_bus_names_are_an_incompatible_bridge(hass, gateway):
+    gateway.buses = ["line_a", "line_a"]
+    call = await _setup(hass)
+    with pytest.raises(HomeAssistantError, match="incompatible bridge info"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
 
 
 async def test_scan_targets_the_chosen_bus(hass, gateway):
