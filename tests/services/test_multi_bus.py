@@ -200,3 +200,22 @@ async def test_explicit_poller_index_unknown_on_the_scanned_bus_is_not_paused(ha
 
     assert {probe["pause_pollers"] for probe in gateway.probes} == {"0"}
     assert status["removed_pollers"] == [{"index": 1, "name": None, "address": None}]
+
+
+async def test_concurrent_buses_lose_no_result_to_esphome_state_batching(
+    hass, gateway, monkeypatch
+):
+    # The node has one result sensor for all Buses, and the ESPHome API sends only the
+    # latest state of an entity per batch: results of two Buses must not share a batch.
+    monkeypatch.setattr(FakeClient, "batch_delay", 0.02)
+    monkeypatch.setattr(v2_provider, "_RESULT_MARGIN_S", 0.5)
+    call = await _setup(hass)
+
+    scans = [await _start(call, bus=bus, start_id=1, end_id=6) for bus in ("line_a", "line_b")]
+    await _settle(hass)
+
+    for scan in scans:
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed", status["error_info"]
+        assert (status["lease_status"], status["lease_end_reason"]) == ("ended", "released")
+    assert len(gateway.probes) == 12

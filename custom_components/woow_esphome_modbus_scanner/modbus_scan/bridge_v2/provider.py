@@ -641,28 +641,31 @@ class V2GatewayProvider:
                         "reg": request.register_address,
                         "count": request.register_count,
                     }
-                    pending = asyncio.get_running_loop().create_future()
-                    # From here on the Gateway may hold a lease, so cleanup must release it.
-                    lease["requested"] = lease["requested"] or bool(pause_pollers)
-                    result = client.execute_service(
-                        session.service,
-                        {
-                            "request_id": expected["id"],
-                            "bus": bus,
-                            "slave": slave,
-                            "function_code": function_code,
-                            "register": request.register_address,
-                            "count": request.register_count,
-                            "timeout_ms": request.timeout_ms,
-                            "scan_id": scan_id,
-                            "pause_pollers": pause_pollers,
-                        },
-                    )
-                    if inspect.isawaitable(result):
-                        await asyncio.wait_for(result, 5)
-                    payload = await asyncio.wait_for(
-                        pending, request.timeout_ms / 1000 + _RESULT_MARGIN_S
-                    )
+                    async with self._probe_slots[gateway.gateway_id]:
+                        if cancelled():
+                            return
+                        pending = asyncio.get_running_loop().create_future()
+                        # From here on the Gateway may hold a lease, so cleanup releases it.
+                        lease["requested"] = lease["requested"] or bool(pause_pollers)
+                        result = client.execute_service(
+                            session.service,
+                            {
+                                "request_id": expected["id"],
+                                "bus": bus,
+                                "slave": slave,
+                                "function_code": function_code,
+                                "register": request.register_address,
+                                "count": request.register_count,
+                                "timeout_ms": request.timeout_ms,
+                                "scan_id": scan_id,
+                                "pause_pollers": pause_pollers,
+                            },
+                        )
+                        if inspect.isawaitable(result):
+                            await asyncio.wait_for(result, 5)
+                        payload = await asyncio.wait_for(
+                            pending, request.timeout_ms / 1000 + _RESULT_MARGIN_S
+                        )
                     if payload["outcome"] != "timeout":
                         break
                 emit(self._probe_result(request, payload, attempt + 1))
@@ -694,9 +697,14 @@ class V2GatewayProvider:
                     # Completion, cancellation and errors all release at once. When HA cannot
                     # reach the Gateway, it resumes Normal Polling by itself (idle expiry).
                     lease_answer = asyncio.get_running_loop().create_future()
-                    released = not disconnected and await self._release(
-                        client, session, bus, scan_id, lease_answer
-                    )
+                    released = False
+                    if not disconnected:
+                        # The answer comes on the node-wide lease sensor: keep it out of
+                        # another Bus's batch like a probe result.
+                        async with self._probe_slots[gateway.gateway_id]:
+                            released = await self._release(
+                                client, session, bus, scan_id, lease_answer
+                            )
                     if not released and lease["status"] != "ended":
                         report_lease("unconfirmed")
             finally:

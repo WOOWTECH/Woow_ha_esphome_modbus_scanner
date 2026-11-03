@@ -259,8 +259,26 @@ class FakeClient:
         self.gateway.clients.append(self)
         callback(TextSensorState(key=INFO_KEY, state=json.dumps(self.gateway.info())))
 
+    # Seconds, or None to deliver each state at once. When set, states are sent like the
+    # ESPHome API server does: batched per connection, and only the latest state of each
+    # entity in a batch is sent (api_connection.h DeferredBatch::add_item deduplicates).
+    batch_delay = None
+
     def publish(self, key, payload):
-        self.callback(TextSensorState(key=key, state=json.dumps(payload, separators=(",", ":"))))
+        state = json.dumps(payload, separators=(",", ":"))
+        if self.batch_delay is None:
+            self.callback(TextSensorState(key=key, state=state))
+            return
+        batch = self.__dict__.setdefault("batch", {})
+        if not batch:
+            asyncio.get_running_loop().call_later(self.batch_delay, self._flush)
+        batch[key] = state
+
+    def _flush(self):
+        batch, self.batch = self.batch, {}
+        for key, state in batch.items():
+            if self.connected:
+                self.callback(TextSensorState(key=key, state=state))
 
     def execute_service(self, service, data):
         if not self.connected:
