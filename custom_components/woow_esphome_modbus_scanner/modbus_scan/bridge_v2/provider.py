@@ -454,7 +454,7 @@ class V2GatewayProvider:
             }
             if any(len(found) != 1 for found in (*actions.values(), *sensors.values())):
                 raise GatewayProviderError(
-                    "The modbus_scanner component (bridge v2) is not installed on this node",
+                    "The modbus_scanner component (bridge v2) is not installed on this Gateway",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
                     reason="scanner_missing",
@@ -735,7 +735,7 @@ class V2GatewayProvider:
                     lease_answer = asyncio.get_running_loop().create_future()
                     released = False
                     if not disconnected:
-                        # The answer comes on the node-wide lease sensor: keep it out of
+                        # The answer comes on the Gateway's one lease sensor: keep it out of
                         # another Bus's batch like a probe result.
                         async with self._probe_slots[gateway.gateway_id]:
                             released = await self._release(

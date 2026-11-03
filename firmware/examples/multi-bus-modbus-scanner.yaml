@@ -2,7 +2,7 @@
 # Add one `modbus_scanner` entry per Modbus hub. Each entry is one Bus: HA lists it with its
 # serial parameters (taken from the hub's UART below), and each Bus can run its own Scan.
 # Every Bus gets its own Pausable Poller table: here line_a has the meter, line_b the two
-# inverters. The node-wide probe/release actions and the three diagnostic text sensors are
+# inverters. The Gateway's probe/release actions and the three diagnostic text sensors are
 # created once.
 esphome:
   name: multi-bus-modbus-scanner
