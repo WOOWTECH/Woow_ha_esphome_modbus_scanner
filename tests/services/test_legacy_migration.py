@@ -7,6 +7,7 @@ Device Profile.
 """
 
 import asyncio
+from pathlib import Path
 
 from homeassistant.core import Context
 from homeassistant.exceptions import ServiceValidationError
@@ -22,9 +23,12 @@ from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import 
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1 import (
     provider as legacy_provider,
 )
+from tests.services.test_bridge_v2 import GATEWAY_ID as V2_GATEWAY_ID
 from tests.services.test_bridge_v2 import FakeClient, FakeV2Gateway
-from tests.services.test_legacy_v1_adapter import FakeLegacyClient
+from tests.services.test_bridge_v2 import _setup as setup_v2
+from tests.services.test_legacy_v1_adapter import IN_D17_REGISTERS, FakeLegacyClient
 
+EXAMPLE = Path(__file__).parents[2] / "examples" / "device_profiles" / "guanjie-ind17.json"
 LEGACY_GATEWAY_ID = "esphome:aabbccddeeff"
 LEGACY_A = {"host": "192.0.2.1", "mac": "AA:BB:CC:DD:EE:FF", "name": "dryer-a"}
 LEGACY_B = {"host": "192.0.2.2", "mac": "AA:BB:CC:DD:EE:FE", "name": "dryer-b", "bridge": "v1"}
@@ -154,6 +158,43 @@ async def test_removing_a_legacy_gateway_clears_its_issue(hass, reflashed_node):
     await _reconfigure(hass, entry, "remove_gateway", {"gateways": [LEGACY_B["mac"]]})
 
     assert set(legacy_issues(hass)) == {"dryer-a"}
+
+
+async def test_vendor_example_profile_imports_and_scans_a_v2_gateway(hass, monkeypatch):
+    node = FakeV2Gateway(devices={("rs485", 2): [1]})
+    FakeClient.gateway = node
+    FakeClient.instances = []
+    monkeypatch.setattr(v2_provider, "APIClient", FakeClient)
+    call = await setup_v2(hass)
+
+    # Uploaded the way the sidebar does it: the file's JSON text.
+    imported = await call("import_device_profile", {"profile": EXAMPLE.read_text("utf-8")})
+    profile_id = imported["profile"]["id"]
+    listed = next(
+        p for p in (await call("list_device_profiles"))["profiles"] if p["id"] == profile_id
+    )
+    assert listed["function_codes"] == [3]
+    assert listed["allowed_registers"] == IN_D17_REGISTERS
+    assert listed["deletable"] is True
+
+    started = await call(
+        "start_scan",
+        {
+            "provider": "esphome",
+            "gateway_id": V2_GATEWAY_ID,
+            "device_profile_id": profile_id,
+            "safety_confirmed": True,
+        },
+    )
+    await asyncio.gather(*hass.data[DOMAIN][DATA_COORDINATOR]._tasks.values())
+
+    assert [p["slave"] for p in node.probes] == [1, 2, 3]
+    assert {
+        (p["function_code"], p["register"], p["count"], p["timeout_ms"]) for p in node.probes
+    } == {(3, 0x6201, 1, 700)}
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["device_profile"]["id"] == profile_id
+    assert [(r["address"], r["raw_values"]) for r in results["responders"]] == [(2, [1])]
 
 
 async def test_removing_the_integration_clears_legacy_issues(hass, reflashed_node):
