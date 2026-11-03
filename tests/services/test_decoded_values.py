@@ -91,7 +91,7 @@ async def test_s16_sign_boundary_and_a_block_starting_on_a_later_field(hass, v2_
     call = await setup_v2(hass)
     profile = {
         **METER,
-        "allowed_registers": [16, 18, 19, 32],
+        "allowed_registers": [16, 17, 18, 19, 32],
         "fields": [*METER["fields"], {"register": 19, "name": "Power factor", "data_type": "u16"}],
     }
     await call("import_device_profile", {"profile": profile})

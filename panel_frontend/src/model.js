@@ -279,7 +279,9 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
     errors.probe_type = text.profileProbe || "The selected Device Profile does not allow this probe type.";
   }
   const allowed = profile?.allowed_registers;
-  if (!errors.register_address && Array.isArray(allowed) && !allowed.includes(Number(form.register_address))) {
+  // Every register of the block is read, so every one must be allowed.
+  const block = Array.from({length: Math.max(1, Number(form.register_count) || 1)}, (_, i) => Number(form.register_address) + i);
+  if (!errors.register_address && !errors.register_count && Array.isArray(allowed) && block.some((reg) => !allowed.includes(reg))) {
     errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
   }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";

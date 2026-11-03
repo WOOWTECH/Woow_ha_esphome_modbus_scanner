@@ -85,14 +85,17 @@ class ProbeLimits:
             raise ValueError(
                 f"The register block must end at or before register {MAX_REGISTER_ADDRESS}"
             )
-        if (
-            self.allowed_registers is not None
-            and request.register_address not in self.allowed_registers
-        ):
-            raise ValueError(
-                f"Register is not in the {self.label} read allowlist; "
-                f"example: {self.allowed_registers[0]} (0x{self.allowed_registers[0]:04X})"
-            )
+        if self.allowed_registers is not None:
+            # Every register of the block is read, so every one must be allowed.
+            first = request.register_address
+            block = range(first, first + request.register_count)
+            outside = next((reg for reg in block if reg not in self.allowed_registers), None)
+            if outside is not None:
+                raise ValueError(
+                    f"Register {outside} (0x{outside:04X}) is not in the {self.label} read "
+                    f"allowlist; every register of the block must be allowed; example: "
+                    f"{self.allowed_registers[0]} (0x{self.allowed_registers[0]:04X})"
+                )
         if not self.timeout_ms_min <= request.timeout_ms <= self.timeout_ms_max:
             if self.timeout_ms_min == self.timeout_ms_max:
                 raise ValueError(f"{self.label} requires timeout_ms={self.timeout_ms_min}")

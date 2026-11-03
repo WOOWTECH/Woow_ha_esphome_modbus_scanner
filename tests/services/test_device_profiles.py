@@ -35,7 +35,7 @@ METER = {
         "inter_request_delay_ms": 0,
         "retries": 0,
     },
-    "allowed_registers": [16, 18, 32],
+    "allowed_registers": [16, 17, 18, 19, 32],
     "fields": [
         {"register": 16, "name": "Voltage", "unit": "V", "scale": 0.1, "data_type": "u16"},
         {"register": 18, "name": "Current", "unit": "A", "scale": 0.01, "data_type": "s16"},
@@ -93,7 +93,7 @@ async def test_imported_profile_is_listed_and_exports_the_same_document(hass):
         "1.2.0",
     )
     assert (meter["builtin"], meter["deletable"]) == (False, True)
-    assert meter["allowed_registers"] == [16, 18, 32]
+    assert meter["allowed_registers"] == [16, 17, 18, 19, 32]
     assert meter["limits"]["probe_types"] == ["input_register"]
     assert meter["fields"][1]["data_type"] == "s16"
 
@@ -158,12 +158,14 @@ def _broken(**changes):
         (_broken(defaults__slave_start=9), "defaults.slave_end", "at least slave_start"),
         (_broken(defaults__slave_end=...), "defaults", "given together"),
         (_broken(defaults__function_code=3), "defaults.function_code", "function_codes"),
-        (_broken(defaults__register=17), "defaults.register", "allowed_registers"),
+        (_broken(defaults__register=20), "defaults.register", "allowed_registers"),
+        # 32 is allowed but 33 is not: the whole default block must be allowed.
+        (_broken(defaults__register=32), "defaults.count", "every register of the default block"),
         (_broken(defaults__speed=1), "defaults.speed", "not a Device Profile field"),
         (_broken(allowed_registers=[]), "allowed_registers", "non-empty list"),
         (_broken(allowed_registers=[16, 70000]), "allowed_registers[1]", "0 to 65535"),
         (_broken(fields__0__data_type="f32"), "fields[0].data_type", "'u16' or 's16'"),
-        (_broken(fields__0__register=17), "fields[0].register", "allowed_registers"),
+        (_broken(fields__0__register=20), "fields[0].register", "allowed_registers"),
         (_broken(fields__1__register=16), "fields[1].register", "already defined"),
         (_broken(fields__0__scale=0), "fields[0].scale", "non-zero"),
         (_broken(fields__0__name=...), "fields[0].name", "is required"),
@@ -328,11 +330,11 @@ async def test_explicit_fields_override_profile_defaults(hass):
     await call("import_device_profile", {"profile": METER})
     started = await call(
         "test_address",
-        {"device_profile_id": "acme-meter", "address": 3, "register_address": 32},
+        {"device_profile_id": "acme-meter", "address": 3, "register_address": 18},
     )
     await _settle(hass)
     [row] = (await call("get_scan_results", {"scan_id": started["scan_id"]}))["responders"]
-    assert (row["register_address"], len(row["raw_values"])) == (32, 2)
+    assert (row["register_address"], len(row["raw_values"])) == (18, 2)
 
 
 async def test_scan_without_range_and_without_profile_range_is_rejected(hass):
@@ -352,7 +354,10 @@ async def test_large_default_range_from_a_profile_still_needs_confirmation(hass)
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"register_address": 17}, "read allowlist"),
+        ({"register_address": 20}, "read allowlist"),
+        # The first register is allowed, the next one is not: the whole block is checked.
+        ({"register_address": 32, "register_count": 2}, r"Register 33 \(0x0021\) is not in"),
+        ({"register_address": 16, "register_count": 4}, None),
         ({"probe_type": "holding_register"}, "requires probe_type in: input_register"),
         ({"probe_type": "device_identification"}, "requires probe_type"),
     ],
@@ -360,6 +365,9 @@ async def test_large_default_range_from_a_profile_still_needs_confirmation(hass)
 async def test_service_layer_enforces_the_selected_profile(hass, changes, message):
     call = await _setup(hass)
     await call("import_device_profile", {"profile": METER})
+    if message is None:  # a block made only of allowed registers is accepted
+        await call("test_address", {"device_profile_id": "acme-meter", "address": 3, **changes})
+        return
     with pytest.raises(ServiceValidationError, match=message):
         await call("test_address", {"device_profile_id": "acme-meter", "address": 3, **changes})
     with pytest.raises(ServiceValidationError, match=message):
@@ -398,7 +406,7 @@ async def test_v2_scan_uses_the_profile_inside_the_gateway_limits(hass, v2_gatew
     target = {"provider": "esphome", "gateway_id": GATEWAY_ID, "device_profile_id": "acme-meter"}
 
     with pytest.raises(ServiceValidationError, match="read allowlist"):
-        await call("test_address", {**target, "address": 3, "register_address": 17})
+        await call("test_address", {**target, "address": 3, "register_address": 20})
     # Gateway limits still apply on top of the profile: Generic allows the mock-only
     # identification probe, Bridge v2 does not.
     with pytest.raises(ServiceValidationError, match="Bridge v2 requires probe_type"):

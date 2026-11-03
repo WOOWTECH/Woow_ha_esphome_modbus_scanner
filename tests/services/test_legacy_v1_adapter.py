@@ -162,7 +162,7 @@ async def test_legacy_probe_uses_reported_defaults_and_keeps_result_format(hass)
         ({"address": 33}, "Bridge v1 supports slave IDs 1–32 only"),
         ({"probe_type": "input_register"}, "Bridge v1 requires probe_type"),
         ({"register_count": 2}, "Bridge v1 requires register_count<=1"),
-        ({"register_address": 0}, "Register is not in the Bridge v1 read allowlist"),
+        ({"register_address": 0}, r"Register 0 \(0x0000\) is not in the Bridge v1 read allowlist"),
         ({"timeout_ms": 500}, "Bridge v1 requires timeout_ms=700"),
         ({"pause_normal_polling": False}, "Bridge v1 requires pause_normal_polling=true"),
         ({"bus": "rs485"}, "does not support bus selection"),

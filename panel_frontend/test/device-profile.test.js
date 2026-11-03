@@ -12,11 +12,11 @@ const V2_GATEWAY = {
 // The shape list_device_profiles returns for an imported profile.
 const METER = {
   id: "acme-meter", name: "Acme Meter", vendor: "Acme", model: "M-100", version: "1.2.0",
-  function_codes: [4], allowed_registers: [16, 18, 32], builtin: false, deletable: true,
+  function_codes: [4], allowed_registers: [16, 17, 18, 19, 32], builtin: false, deletable: true,
   defaults: {slave_start: 2, slave_end: 5, register: 16, count: 2, timeout_ms: 300, inter_request_delay_ms: 0, retries: 0},
   fields: [],
   limits: {slave_min: 1, slave_max: 247, probe_types: ["input_register"], register_count_max: 4,
-    allowed_registers: [16, 18, 32], timeout_ms_min: 100, timeout_ms_max: 2000},
+    allowed_registers: [16, 17, 18, 19, 32], timeout_ms_min: 100, timeout_ms_max: 2000},
 };
 
 test("the panel may call the Device Profile services", () => {
@@ -62,10 +62,14 @@ test("returning to the Generic Device Profile keeps the current values", () => {
 test("the form enforces the selected profile's function codes and register allowlist", () => {
   const form = {...selectDeviceProfile({...DEFAULTS}, METER), safety_confirmed: true};
   assert.deepEqual(validateForm(form, false, {}, METER), {});
-  const errors = validateForm({...form, probe_type: "holding_register", register_address: 17}, false,
+  const errors = validateForm({...form, probe_type: "holding_register", register_address: 20}, false,
     {profileProbe: "probe not allowed", profileRegister: (list) => `use ${list}`}, METER);
   assert.equal(errors.probe_type, "probe not allowed");
-  assert.equal(errors.register_address, "use 16, 18, 32");
+  assert.equal(errors.register_address, "use 16, 17, 18, 19, 32");
+  // Every register of the block is read: 32 is allowed, 33 is not.
+  const block = validateForm({...form, register_address: 32, register_count: 2}, false, {profileRegister: (list) => `use ${list}`}, METER);
+  assert.equal(block.register_address, "use 16, 17, 18, 19, 32");
+  assert.deepEqual(validateForm({...form, register_address: 16, register_count: 4}, false, {}, METER), {});
 });
 
 test("profile limits intersect with the gateway's limits", () => {

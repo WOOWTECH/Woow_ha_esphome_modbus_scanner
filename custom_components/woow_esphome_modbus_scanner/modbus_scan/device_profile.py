@@ -345,9 +345,16 @@ def _defaults(
         if defaults["slave_start"] > defaults["slave_end"]:
             check.fail("defaults.slave_end", "must be at least slave_start")
     if ok.get("register"):
+        count = defaults["count"] if ok.get("count") else 1
         if allowlist is not None and defaults["register"] not in allowlist:
             check.fail("defaults.register", "must be one of allowed_registers")
-        count = defaults["count"] if ok.get("count") else 1
+        elif allowlist is not None and any(
+            reg not in allowlist
+            for reg in range(defaults["register"], defaults["register"] + count)
+        ):
+            check.fail(
+                "defaults.count", "every register of the default block must be in allowed_registers"
+            )
         if defaults["register"] + count - 1 > MAX_REGISTER_ADDRESS:
             check.fail("defaults.count", "the register block must end at or before 65535")
 

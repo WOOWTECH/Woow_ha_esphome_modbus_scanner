@@ -360,7 +360,7 @@ try {
   await profiled.locator('#profile-upload').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{not json')});
   await profiled.getByText(/Invalid Device Profile: \$: is not valid JSON/).waitFor();
   const meter={schema_version:1,id:'acme-meter',name:'Acme Meter',vendor:'Acme',model:'M-100',version:'1.2.0',function_codes:[4],
-    defaults:{slave_start:2,slave_end:5,register:16,count:2,timeout_ms:300,inter_request_delay_ms:0,retries:0},allowed_registers:[16,18,32]};
+    defaults:{slave_start:2,slave_end:5,register:16,count:2,timeout_ms:300,inter_request_delay_ms:0,retries:0},allowed_registers:[16,17,18,19,32]};
   await profiled.locator('#profile-upload').setInputFiles({name:'acme-meter.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(meter))});
   await profiled.getByText('Device Profile Acme Meter imported.').waitFor();
   check(await profiled.locator('#device-profile').inputValue()==='acme-meter', 'imported Device Profile was not selected');
@@ -368,10 +368,10 @@ try {
   await profiled.locator('summary').click();
   check(await profiled.locator('#probe').inputValue()==='input_register' && await profiled.locator('#register_address').inputValue()==='16' && await profiled.locator('#timeout_ms').inputValue()==='300', 'profile probe defaults not applied');
   check(await profiled.locator('#register_count').getAttribute('max')==='4', 'form limits do not follow the Device Profile');
-  await profiled.locator('#register_address').fill('17'); await profiled.locator('#safety').check();
+  await profiled.locator('#register_address').fill('32'); await profiled.locator('#safety').check();
   await profilePage.evaluate(() => { calls.length=0; });
   await profiled.getByRole('button',{name:'Start scan'}).click();
-  await profiled.getByText('The selected Device Profile allows registers 16, 18, 32 only.').waitFor();
+  await profiled.getByText('The selected Device Profile allows registers 16, 17, 18, 19, 32 only.').waitFor();
   check(await profilePage.evaluate(() => !calls.some((c)=>c.service==='start_scan')), 'register outside the allowlist sent start_scan');
   await profiled.locator('#register_address').fill('16');
   await profilePage.evaluate(() => { mode='normal'; polls=0; resultProfile={id:'acme-meter',name:'Acme Meter',version:'1.2.0'}; resultResponders=[{address:3,outcome:'responded',latency_ms:8,detail:'FC04 register 0x0010 x2 = [784, 785]',register_address:16,raw_value:784,raw_values:[784,785],attempts:1,decoded:[{register:16,name:'Voltage',unit:'V',value:78.4}]},{address:5,outcome:'modbus_exception',latency_ms:9,exception_code:2,detail:'Modbus exception 2'}]; });
