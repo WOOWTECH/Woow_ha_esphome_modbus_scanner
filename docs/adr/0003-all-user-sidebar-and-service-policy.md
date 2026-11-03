@@ -1,8 +1,12 @@
 # ADR 0003: All-user sidebar and scanner services
 
-- Status: accepted
+- Status: accepted; service count superseded by [ADR 0008](0008-scanner-service-set-and-persisted-history.md)
 - Date: 2026-09-02
 - Version: 0.2.0
+
+> **Superseded in part.** The all-user policy applies to every service in
+> `services.yaml`, including the ones that save a Pausable Poller selection or a
+> Device Profile. See ADR 0008.
 
 ## Decision
 

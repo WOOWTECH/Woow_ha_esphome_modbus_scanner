@@ -42,7 +42,8 @@ The older mock-only tutorials are listed under [History](#history).
 Design decisions:
 [ADR 0005, vendor-neutral component and Device Profiles](docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md),
 [ADR 0006, Pausable Poller discovery and selection](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md),
-[ADR 0007, Scan Lease with Gateway-owned recovery](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md).
+[ADR 0007, Scan Lease with Gateway-owned recovery](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md),
+[ADR 0008, scanner service set and persisted history](docs/adr/0008-scanner-service-set-and-persisted-history.md).
 Earlier ADRs 0001–0003 cover the provider/coordinator split, the singleton
 lifecycle and the all-user sidebar.
 

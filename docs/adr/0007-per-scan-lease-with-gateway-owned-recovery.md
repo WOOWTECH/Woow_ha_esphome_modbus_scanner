@@ -55,4 +55,13 @@ pause.
   to one of its `update_interval`s; until then its HA entities show stale values.
   The sidebar names the paused devices while a lease may hold.
 - A Scan longer than 10 minutes continues after the hard limit, but its later
-  probes run without pausing.
+  probes run without pausing. When the Gateway ends the lease early (`idle`,
+  `hard_limit` or `superseded`) while the Scan runs, HA reports the last Slave ID
+  finished under the lease as `lease_ended_after_address`. The sidebar explains
+  the early end and marks the Responders probed after it. Before a Large Range
+  Scan on a bridge v2 Gateway, the sidebar warns when the estimate is longer than
+  the hard limit.
+- `superseded` happens only when a probe with another `scan_id` reaches a Bus
+  whose lease is still active: for example after an HA restart during a Scan, a
+  second HA instance, or a native ESPHome action call. HA itself runs one Scan
+  per Bus, so a normal Scan never supersedes another.

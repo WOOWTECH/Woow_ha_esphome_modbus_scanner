@@ -39,7 +39,8 @@ English: [README.md](README.md) · 術語：[GLOSSARY.md](GLOSSARY.md)
 設計決策：
 [ADR 0005：廠牌中立元件與 Device Profile](docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md)、
 [ADR 0006：Pausable Poller 的探索與選擇](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md)、
-[ADR 0007：由 Gateway 自行恢復的 Scan Lease](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)。
+[ADR 0007：由 Gateway 自行恢復的 Scan Lease](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)、
+[ADR 0008：掃描服務清單與持久保存的歷史](docs/adr/0008-scanner-service-set-and-persisted-history.md)。
 ADR 0001–0003 說明 provider／coordinator 分離、單一設定項目生命週期與全使用者側邊欄。
 
 ## 安全與存取

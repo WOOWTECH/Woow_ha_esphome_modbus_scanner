@@ -13,8 +13,18 @@ Unknown or inactive named users are rejected. Mock operations retain their
 existing contract. `list_gateways.can_operate` informs the UI; service handlers
 are authoritative.
 
-Config-entry/credential administration still follows HA's own administrative
-permissions. Opening scanner operations to users does not expose PSKs, authorize
+Enrollment and credential administration (the config flow: Gateway hosts, MACs,
+keys, adding and removing Gateways) still follows HA's own administrative
+permissions. Two kinds of scanner state are part of the all-user policy instead
+([ADR 0008](../adr/0008-scanner-service-set-and-persisted-history.md)):
+
+- the Pausable Poller selection of each Bus, which `set_pausable_pollers` saves
+  in the config entry options (ADR 0006);
+- imported Device Profiles, which `import_device_profile` and
+  `delete_device_profile` save in HA storage (ADR 0005).
+
+Neither reaches a key, a host or a register outside the Device Profile and
+Gateway limits. Opening scanner operations to users does not expose PSKs, authorize
 anonymous network access, or allow arbitrary gateway hosts/registers.
 
 ## Native ESPHome boundary
