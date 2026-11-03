@@ -27,6 +27,7 @@ const t=globalThis,i$1=t=>t,s$1=t.trustedTypes,e=s$1?s$1.createPolicy("lit-html"
 const panelStyles = i$3`
   :host{--brand:#6183FC;--quiet:var(--secondary-background-color,#f5f7fa);--surface:var(--card-background-color,#fff);--ink:var(--primary-text-color,#172033);--muted:var(--secondary-text-color,#5e6879);--line:var(--divider-color,#dfe3eb);--control-line:var(--outline-color,var(--primary-text-color,#5e6879));display:block;min-height:100%;color:var(--ink);background:var(--primary-background-color,#eef1f5);font-family:Outfit,var(--paper-font-body1_-_font-family),system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}h1,h2,h3{font-family:Poppins,Outfit,var(--paper-font-headline_-_font-family),system-ui,sans-serif}.top>ha-icon{color:var(--brand)}button ha-icon{color:currentColor}.top{height:64px;display:flex;align-items:center;gap:8px;padding:0 16px;background:var(--app-header-background-color,var(--surface));color:var(--app-header-text-color,var(--ink));box-shadow:0 1px 4px rgba(0,0,0,.16);position:sticky;top:0;z-index:2}.top h1{font-size:20px;margin:0}.menu{display:none}.narrow .menu{display:inline-flex}.shell{max-width:1200px;margin:auto;padding:20px}.banner{border-radius:28px;padding:20px;background:#172033;color:#fff;margin-bottom:20px;display:flex;justify-content:space-between;gap:16px;align-items:center}.banner p{margin:5px 0}.banner strong,.banner a{color:#e9edff}.banner nav{display:flex;gap:8px;flex:0 0 auto}.banner a{min-height:44px;display:inline-flex;align-items:center;padding:8px 12px;border:2px solid #e9edff;border-radius:12px;font-weight:700;text-align:center}.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:20px}.card{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px;margin-bottom:20px;box-shadow:var(--ha-card-box-shadow,0 8px 24px rgba(28,39,64,.07))}.card h2{font-size:20px;margin:0 0 12px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.field{min-width:0}.field.full{grid-column:1/-1}label{display:block;font-weight:650;margin-bottom:5px}small{display:block;color:var(--muted);margin-top:4px}input,select,button{font:inherit;min-height:44px;border-radius:12px}input,select{width:100%;padding:8px 10px;color:var(--ink);background:var(--surface);border:2px solid var(--control-line)}input[type=checkbox]{width:24px;min-height:24px;vertical-align:middle;margin-right:8px;accent-color:var(--brand)}.check label{display:flex;align-items:center;min-height:44px}.error{color:var(--error-color,#b42318);font-weight:700}.actions,.profiles{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:2px solid var(--control-line);padding:7px 15px;cursor:pointer;font-weight:700;background:var(--brand);color:#0c1839}button.secondary{background:var(--quiet);color:var(--ink)}button.danger{background:#8f1d1d;color:#fff;border-color:#fff}button:disabled,input:disabled,select:disabled{opacity:.55;cursor:not-allowed}a{color:var(--primary-color,#2347bd)}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--brand);outline-offset:2px}details{border-radius:12px;background:var(--quiet);padding:10px;margin-top:14px}summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:700}.profiles button{border-radius:999px}.profiles button.selected{border:4px solid var(--ink);padding:5px 13px;box-shadow:0 0 0 2px var(--surface)}.profile-description{margin-top:12px;padding:12px;border:2px solid var(--control-line);border-radius:12px;background:var(--quiet)}.profile-description p{margin:4px 0 0}.progress{height:12px;border-radius:999px;background:var(--quiet);overflow:hidden;border:1px solid var(--line)}.progress span{display:block;height:100%;background:var(--brand)}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.count{padding:10px;border-radius:12px;background:var(--quiet);overflow-wrap:anywhere}.count strong{display:block;font-size:20px}.notice{padding:12px;border-left:4px solid var(--brand);border-radius:12px;background:var(--quiet);margin:12px 0;overflow-wrap:anywhere}.notice.failure{border-color:var(--error-color,#b42318);color:var(--error-color,#b42318)}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.table-wrap{max-width:100%;overflow:auto;border:2px solid var(--control-line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:760px}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);vertical-align:top}th button{padding:4px 6px;min-height:44px;background:transparent;color:var(--ink);border-color:transparent}.future select{cursor:not-allowed}.tutorial{columns:2;column-gap:28px}.tutorial section{break-inside:avoid}.tutorial h3{font-size:16px;margin-bottom:5px}
   @media(max-width:900px){.banner{align-items:stretch;flex-direction:column}.banner nav{flex-wrap:wrap}.banner a{flex:1 1 220px}.grid{grid-template-columns:1fr}}
+  .profile-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}.profile-list li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:8px}.profile-list li>span:first-child{min-width:0;overflow-wrap:anywhere}.profile-list .actions{margin:0}
   @media(max-width:760px){.shell{padding:12px}.fields{grid-template-columns:1fr}.card{padding:16px;border-radius:20px}.banner{border-radius:28px}.banner nav{flex-direction:column}.banner a{flex-basis:auto;width:100%}.tutorial{columns:1}.counts{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:360px){.shell{padding:8px}.card{padding:12px;border-radius:12px}.banner{padding:14px;border-radius:20px}.actions button{width:100%}.top{padding:0 8px}.top h1{font-size:18px}.counts{grid-template-columns:1fr 1fr}}
 `;
@@ -81,6 +82,16 @@ const en = {
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x (timeout + delay)).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
   registerBlock: "The register block must end at or before register 65535.",
+  deviceProfile: "Device Profile", deviceProfileHelp: "Its defaults fill the form; its limits apply together with the gateway's limits.",
+  deviceProfiles: "Device Profiles", builtin: "built-in",
+  deviceProfilesHelp: "Upload a Device Profile JSON file. It is validated, then stored in Home Assistant (included in HA backups). The Generic Device Profile is built in and cannot be deleted.",
+  uploadProfile: "Upload Device Profile JSON", exportProfile: "Export", deleteProfile: "Delete",
+  profileImported: (name, replaced) => `Device Profile ${name} ${replaced ? "replaced" : "imported"}.`,
+  profileDeleted: (name) => `Device Profile ${name} deleted.`,
+  profileFallback: "The saved Device Profile no longer exists; the Generic Device Profile is selected.",
+  profileProbe: "The selected Device Profile does not allow this probe type.",
+  profileRegister: (list) => `The selected Device Profile allows registers ${list} only.`,
+  resultProfile: "Device Profile",
   physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
   physicalProfiles: "Mock scenarios do not apply to physical gateways. Results below must identify their actual provider and gateway.",
   physicalPause: "Required. Firmware drains the current transaction, reads once, then automatically restores polling even if the client disconnects.",
@@ -136,6 +147,16 @@ const zh = {
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 ×（逾時 + 間隔））。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
   registerBlock:"暫存器區塊不可超過 65535。",
+  deviceProfile:"設備規格（Device Profile）",deviceProfileHelp:"其預設值會帶入表單；其限制與閘道限制同時生效。",
+  deviceProfiles:"設備規格（Device Profile）",builtin:"內建",
+  deviceProfilesHelp:"上傳設備規格 JSON 檔。驗證通過後存於 Home Assistant（隨 HA 備份）。通用設備規格為內建，無法刪除。",
+  uploadProfile:"上傳設備規格 JSON",exportProfile:"匯出",deleteProfile:"刪除",
+  profileImported:(name, replaced)=>`設備規格 ${name} 已${replaced ? "取代" : "匯入"}。`,
+  profileDeleted:(name)=>`設備規格 ${name} 已刪除。`,
+  profileFallback:"儲存的設備規格已不存在，已改選通用設備規格。",
+  profileProbe:"所選設備規格不允許此探測類型。",
+  profileRegister:(list)=>`所選設備規格只允許暫存器 ${list}。`,
+  resultProfile:"設備規格",
   physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
   physicalProfiles:"模擬情境不適用於實體閘道。下方結果會另行標明實際提供者與閘道。",
   physicalPause:"必要設定。韌體等候當前交易結束，單次讀取後自動恢復輪詢；客戶端斷線也會恢復。",
@@ -220,6 +241,7 @@ const SERVICES = Object.freeze([
   "get_scan_results",
   "cancel_scan",
   "test_address",
+  "list_device_profiles", "import_device_profile", "export_device_profile", "delete_device_profile",
 ]);
 const MOCK_SCENARIOS = Object.freeze([
   "found_default", "all_offline", "partial_timeout", "modbus_exception",
@@ -236,7 +258,17 @@ const DEFAULTS = Object.freeze({
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
+  device_profile_id: "generic",
 });
+/** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
+const GENERIC_PROFILE = Object.freeze({
+  id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
+  function_codes: [3, 4], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
+  limits: Object.freeze({slave_min: 1, slave_max: 247, probe_types: ["device_identification", "holding_register", "input_register"],
+    register_count_max: 4, allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000}),
+});
+const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
 /** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
 const LARGE_RANGE_THRESHOLD = 32;
 const INTEGER_BOUNDS = Object.freeze({
@@ -260,7 +292,18 @@ function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
 const isV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
-function boundsFor(form) {
+/** The gateway's bounds intersected with the selected Device Profile's limits. */
+function boundsFor(form, profile = GENERIC_PROFILE) {
+  const gateway = gatewayBoundsFor(form);
+  const l = profile?.limits;
+  if (!l) return gateway;
+  const meet = ([low, high], min, max) => [Math.max(low, min), Math.min(high, max)];
+  return {...gateway,
+    start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),
+    address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
+    timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
+}
+function gatewayBoundsFor(form) {
   if (isV2Form(form)) {
     const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
     return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
@@ -268,6 +311,26 @@ function boundsFor(form) {
   }
   const l = PHYSICAL_PROFILE.limits;
   return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
+}
+/** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
+function selectDeviceProfile(form, profile) {
+  const d = profile?.defaults || {};
+  const next = {...form, device_profile_id: profile?.id || "generic", safety_confirmed: false, large_range_confirmed: false};
+  const mapping = {slave_start: "start_id", slave_end: "end_id", register: "register_address", count: "register_count",
+    timeout_ms: "timeout_ms", inter_request_delay_ms: "inter_request_delay_ms", retries: "retries"};
+  for (const [key, target] of Object.entries(mapping)) if (Number.isInteger(d[key])) next[target] = d[key];
+  if (FUNCTION_CODE_PROBES[d.function_code]) next.probe_type = FUNCTION_CODE_PROBES[d.function_code];
+  const probes = profile?.limits?.probe_types;
+  if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = probes[0];
+  const allowed = profile?.allowed_registers;
+  if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) next.register_address = allowed[0];
+  return next;
+}
+/** "Name version (id)" from a Scan status or result, or null when the Scan predates Device Profiles. */
+function profileLabel(record) {
+  const p = record?.device_profile;
+  if (!p || typeof p.id !== "string") return null;
+  return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
 }
 function selectGateway(form, gateway) {
   if (isBridgeV2(gateway)) {
@@ -319,12 +382,12 @@ function normalizeResponse(value) {
   return value;
 }
 
-function validateForm(form, single = false, text = {}) {
+function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE) {
   const errors = {};
   const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
   for (const name of names) {
     const number = Number(form[name]);
-    const [minimum, maximum] = boundsFor(form)[name];
+    const [minimum, maximum] = boundsFor(form, profile)[name];
     const raw = form[name];
     const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
     if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
@@ -343,6 +406,14 @@ function validateForm(form, single = false, text = {}) {
     if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
     if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
+  const probes = profile?.limits?.probe_types;
+  if (!errors.probe_type && Array.isArray(probes) && !probes.includes(form.probe_type)) {
+    errors.probe_type = text.profileProbe || "The selected Device Profile does not allow this probe type.";
+  }
+  const allowed = profile?.allowed_registers;
+  if (!errors.register_address && Array.isArray(allowed) && !allowed.includes(Number(form.register_address))) {
+    errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
+  }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
   if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
     errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
@@ -360,6 +431,7 @@ function sharedPayload(form) {
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
     pause_normal_polling: form.pause_normal_polling === true,
     ...(form.provider === "mock" ? {mock_scenario: form.mock_scenario} : {}),
+    ...(form.device_profile_id && form.device_profile_id !== "generic" ? {device_profile_id: form.device_profile_id} : {}),
   };
 }
 function startPayload(form) {
@@ -370,8 +442,8 @@ function testPayload(form) { return {...sharedPayload(form), address: Number(for
 function supportedGateway(gateway) {
   return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
 }
-function serviceYaml(form) {
-  if (Object.keys(validateForm(form)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
+function serviceYaml(form, profile = GENERIC_PROFILE) {
+  if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
   const lines = Object.entries(startPayload(form)).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`);
   return `action: ${DOMAIN}.start_scan\ndata:\n${lines.join("\n")}\n`;
 }
@@ -412,6 +484,8 @@ function sanitizePreferences(value) {
   const mockScenario = source.mock_scenario ?? source.mock_profile;
   if (MOCK_SCENARIOS.includes(mockScenario)) form.mock_scenario = mockScenario;
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
+  // Checked against the loaded profile list later; an unknown id falls back to Generic there.
+  if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;
@@ -471,6 +545,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     _results: {state: true}, _errors: {state: true}, _message: {state: true},
     _busy: {state: true}, _recent: {state: true}, _sort: {state: true},
     _advancedOpen: {state: true}, _yaml: {state: true}, _savedHistory: {state: true},
+    _profiles: {state: true},
   };
 
   constructor() {
@@ -482,6 +557,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     this._gateways = [];
     this._yaml = "";
     this._savedHistory = [];
+    this._profiles = [GENERIC_PROFILE];
     this._status = null;
     this._results = null;
     this._errors = {};
@@ -496,6 +572,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   }
 
   get _text() { return stringsFor(this.hass); }
+  get _profile() { return this._profiles.find((item) => item.id === this._form.device_profile_id) || GENERIC_PROFILE; }
   connectedCallback() {
     super.connectedCallback();
     if (this.hass && !this._loaded) this._loadGateways();
@@ -584,6 +661,64 @@ class WoowEsphomeModbusScannerPanel extends i {
       // Never silently replace a saved physical gateway with mock mode.
       const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
       this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
+      await this._fetchProfiles();
+    });
+  }
+  async _fetchProfiles() {
+    const payload = await this._call("list_device_profiles");
+    if (!Array.isArray(payload.profiles)) throw new Error(this._text.invalidResponse);
+    this._profiles = payload.profiles.filter((item) => item && typeof item.id === "string");
+    if (!this._profiles.some((item) => item.id === "generic")) this._profiles = [GENERIC_PROFILE, ...this._profiles];
+    if (!this._profiles.some((item) => item.id === this._form.device_profile_id)) {
+      this._form = {...this._form, device_profile_id: "generic"};
+      this._message = this._text.profileFallback;
+      this._persist();
+    }
+  }
+  _selectProfile(profileId) {
+    if (this._busy || this._status?.status === "running") return;
+    const profile = this._profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    this._yaml = "";
+    this._errors = {};
+    this._form = selectDeviceProfile(this._form, profile);
+    this._persist();
+  }
+  async _uploadProfile(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    return this._action("profiles", async () => {
+      try {
+        // The service validates the text itself, so JSON errors come back with line and column.
+        const result = await this._call("import_device_profile", {profile: await file.text()});
+        await this._fetchProfiles();
+        this._selectProfileAfterImport(result.profile?.id);
+        this._message = this._text.profileImported(result.profile?.name || result.profile?.id, result.replaced === true);
+      } finally { input.value = ""; }
+    });
+  }
+  _selectProfileAfterImport(profileId) {
+    const profile = this._profiles.find((item) => item.id === profileId);
+    if (profile && this._status?.status !== "running") { this._form = selectDeviceProfile(this._form, profile); this._persist(); }
+  }
+  async _exportProfile(profileId) {
+    return this._action("profiles", async () => {
+      const result = await this._call("export_device_profile", {profile_id: profileId});
+      const blob = new Blob([JSON.stringify(result.profile, null, 2)], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = `${profileId}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+  async _deleteProfile(profile) {
+    if (!profile.deletable) return;
+    return this._action("profiles", async () => {
+      await this._call("delete_device_profile", {profile_id: profile.id});
+      await this._fetchProfiles();
+      this._message = this._text.profileDeleted(profile.name);
     });
   }
   async _checkGateway() {
@@ -619,13 +754,13 @@ class WoowEsphomeModbusScannerPanel extends i {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   _showYaml() {
-    try { this._yaml = serviceYaml(this._form); }
+    try { this._yaml = serviceYaml(this._form, this._profile); }
     catch (_error) { this._message = this._text.correcting + " " + this._text.safetyError; }
   }
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -773,7 +908,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     });
   }
   _field(name, label, min, max, help) {
-    [min, max] = boundsFor(this._form)[name] || [min, max];
+    [min, max] = boundsFor(this._form, this._profile)[name] || [min, max];
     const fixed = this._form.provider === "esphome" && this._form.bridge !== "v2" && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
     return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
@@ -826,6 +961,7 @@ class WoowEsphomeModbusScannerPanel extends i {
           </section>
           ${physical ? b`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? b`<p class="notice failure" role="status">${t.firmwareFault}</p>` : A}${!compatible ? b`<p class="notice failure">${t.unsupportedProfile}</p>` : A}${!canOperate ? b`<p class="notice">${t.readOnly}</p>` : A}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : A}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
+            <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => b`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
             ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
             <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((profile) => b`<option value=${profile} .selected=${profile === selectedScenario}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
           </div><div class="profiles" aria-label=${t.quickProfiles}>${MOCK_SCENARIOS.map((profile) => { const selected = selectedScenario === profile; return b`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? b`<span class="sr-only">${t.selected}</span>` : A}</button>`; })}</div>
@@ -841,6 +977,10 @@ class WoowEsphomeModbusScannerPanel extends i {
           <div class="actions"><button class="secondary" @click=${this._showYaml} ?disabled=${!gatewayAvailable || !compatible || Boolean(this._busy) || running}>${t.yaml}</button></div>
           ${this._yaml ? b`<label for="service-yaml">${t.yamlLabel}</label><textarea id="service-yaml" readonly rows="16" style="width:100%;box-sizing:border-box" .value=${this._yaml}></textarea>` : A}
           </section>
+          <section class="card" aria-labelledby="profiles-title"><h2 id="profiles-title">${t.deviceProfiles}</h2><p>${t.deviceProfilesHelp}</p>
+            <div class="field full"><label for="profile-upload">${t.uploadProfile}</label><input id="profile-upload" type="file" accept="application/json,.json" ?disabled=${Boolean(this._busy)} @change=${this._uploadProfile}></div>
+            <ul class="profile-list">${this._profiles.map((item) => b`<li><span><strong>${item.name}</strong> ${item.version || ""} · <code>${item.id}</code>${item.builtin ? ` · ${t.builtin}` : ` · ${item.vendor || ""} ${item.model || ""}`}</span><span class="actions"><button class="secondary" @click=${() => this._exportProfile(item.id)} ?disabled=${Boolean(this._busy)} aria-label="${t.exportProfile} ${item.name}"><ha-icon icon="mdi:download"></ha-icon>${t.exportProfile}</button>${item.deletable ? b`<button class="danger" @click=${() => this._deleteProfile(item)} ?disabled=${Boolean(this._busy)} aria-label="${t.deleteProfile} ${item.name}"><ha-icon icon="mdi:delete"></ha-icon>${t.deleteProfile}</button>` : A}</span></li>`)}</ul>
+          </section>
         </div><div>
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return b`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
@@ -854,7 +994,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? b`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? b`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : A}</p>` : A}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => b`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : b`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => b`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }

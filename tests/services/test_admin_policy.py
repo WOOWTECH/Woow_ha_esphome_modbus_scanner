@@ -30,6 +30,24 @@ async def test_mock_and_read_services_allow_non_admin_user(hass, service):
             context=context,
         )
         scan_id = started["scan_id"]
+    profile = {
+        "schema_version": 1,
+        "id": "non-admin",
+        "name": "Non-admin profile",
+        "vendor": "Acme",
+        "model": "M",
+        "version": "1",
+        "function_codes": [3],
+    }
+    if service == "delete_device_profile":
+        await hass.services.async_call(
+            DOMAIN,
+            "import_device_profile",
+            {"profile": profile},
+            blocking=True,
+            return_response=True,
+            context=context,
+        )
 
     data = {
         "list_gateways": {},
@@ -39,6 +57,10 @@ async def test_mock_and_read_services_allow_non_admin_user(hass, service):
         "get_scan_results": {"scan_id": scan_id},
         "cancel_scan": {"scan_id": scan_id},
         "test_address": {"address": 1},
+        "list_device_profiles": {},
+        "import_device_profile": {"profile": profile},
+        "export_device_profile": {"profile_id": "generic"},
+        "delete_device_profile": {"profile_id": "non-admin"},
     }[service]
     response = await hass.services.async_call(
         DOMAIN,
@@ -53,6 +75,12 @@ async def test_mock_and_read_services_allow_non_admin_user(hass, service):
         assert response["gateways"]
     elif service == "get_history":
         assert isinstance(response["scans"], list)
+    elif service == "list_device_profiles":
+        assert response["profiles"]
+    elif service in {"import_device_profile", "export_device_profile"}:
+        assert response["profile"]["id"]
+    elif service == "delete_device_profile":
+        assert response == {"deleted": "non-admin"}
     else:
         assert response["scan_id"]
 

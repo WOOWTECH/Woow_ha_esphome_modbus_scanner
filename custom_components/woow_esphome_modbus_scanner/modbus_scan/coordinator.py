@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 
+from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
 from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
 from .provider import GatewayProvider, GatewayProviderError
 
@@ -47,6 +48,7 @@ def _utc_now() -> str:
 class _ScanState:
     scan_id: str
     request: ScanRequest
+    device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
     phase: ScanPhase = ScanPhase.RUNNING
     started_at: str = field(default_factory=_utc_now)
     finished_at: str | None = None
@@ -113,14 +115,35 @@ class ModbusScanCoordinator:
             (item for item in provider.list_gateways() if item.gateway_id == gateway_id), None
         )
 
-    def request_defaults(self, provider_id: str, gateway_id: str) -> dict[str, Any]:
-        """Probe defaults reported by the gateway's adapter, else generic defaults."""
+    def request_defaults(
+        self,
+        provider_id: str,
+        gateway_id: str,
+        profile: DeviceProfile = GENERIC_DEVICE_PROFILE,
+    ) -> dict[str, Any]:
+        """Device Profile defaults, then the gateway adapter's, then generic defaults."""
         gateway = self._gateway(provider_id, gateway_id)
         reported = gateway.limits.defaults if gateway and gateway.limits else {}
-        return {**GENERIC_REQUEST_DEFAULTS, **reported}
+        return {**GENERIC_REQUEST_DEFAULTS, **reported, **profile.request_defaults}
 
-    async def start(self, request: ScanRequest) -> dict[str, Any]:
-        """Validate and schedule a scan without awaiting its address loop."""
+    def profile_in_use(self, profile_id: str) -> str | None:
+        """The running Scan that uses this Device Profile, if any."""
+        return next(
+            (
+                scan_id
+                for scan_id in self._active.values()
+                if self._scans[scan_id].device_profile["id"] == profile_id
+            ),
+            None,
+        )
+
+    async def start(
+        self, request: ScanRequest, profile: DeviceProfile = GENERIC_DEVICE_PROFILE
+    ) -> dict[str, Any]:
+        """Validate and schedule a scan without awaiting its address loop.
+
+        The effective limits are the gateway's limits intersected with the Device Profile's.
+        """
         if self._shutting_down:
             raise RuntimeError("Modbus scan coordinator is shutting down")
         request.validate()
@@ -132,11 +155,12 @@ class ModbusScanCoordinator:
             raise ValueError(f"Unknown Modbus gateway: {request.gateway_id}")
         if gateway.limits is not None:
             gateway.limits.validate(request)
+        profile.limits.validate(request)
         if existing := self._active.get(request.gateway_key):
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
         scan_id = str(uuid4())
-        state = _ScanState(scan_id=scan_id, request=request)
+        state = _ScanState(scan_id=scan_id, request=request, device_profile=profile.summary())
         self._scans[scan_id] = state
         self._active[request.gateway_key] = scan_id
         run_coroutine = self._run(state, provider)
@@ -169,6 +193,7 @@ class ModbusScanCoordinator:
             "scan_id": state.scan_id,
             "provider": state.request.provider,
             "gateway_id": state.request.gateway_id,
+            "device_profile": dict(state.device_profile),
             "status": state.phase.value,
             "phase": state.phase.value,
             "current_address": state.current_address,
@@ -213,6 +238,7 @@ class ModbusScanCoordinator:
             "scan_id": state.scan_id,
             "provider": state.request.provider,
             "gateway_id": state.request.gateway_id,
+            "device_profile": dict(state.device_profile),
             "status": state.phase.value,
             "phase": state.phase.value,
             "responders": [
