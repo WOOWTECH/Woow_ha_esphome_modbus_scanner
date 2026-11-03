@@ -5,7 +5,7 @@ import {
   DEFAULTS, DOMAIN, OUTCOMES, MOCK_SCENARIOS, SERVICES, errorMessage, normalizeResponse,
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues,
-  estimatedDurationMs, needsLargeRangeConfirmation,
+  estimatedDurationMs, needsLargeRangeConfirmation, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -22,6 +22,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     _results: {state: true}, _errors: {state: true}, _message: {state: true},
     _busy: {state: true}, _recent: {state: true}, _sort: {state: true},
     _advancedOpen: {state: true}, _yaml: {state: true}, _savedHistory: {state: true},
+    _profiles: {state: true},
   };
 
   constructor() {
@@ -33,6 +34,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     this._gateways = [];
     this._yaml = "";
     this._savedHistory = [];
+    this._profiles = [GENERIC_PROFILE];
     this._status = null;
     this._results = null;
     this._errors = {};
@@ -47,6 +49,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   }
 
   get _text() { return stringsFor(this.hass); }
+  get _profile() { return this._profiles.find((item) => item.id === this._form.device_profile_id) || GENERIC_PROFILE; }
   connectedCallback() {
     super.connectedCallback();
     if (this.hass && !this._loaded) this._loadGateways();
@@ -135,6 +138,64 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       // Never silently replace a saved physical gateway with mock mode.
       const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
       this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
+      await this._fetchProfiles();
+    });
+  }
+  async _fetchProfiles() {
+    const payload = await this._call("list_device_profiles");
+    if (!Array.isArray(payload.profiles)) throw new Error(this._text.invalidResponse);
+    this._profiles = payload.profiles.filter((item) => item && typeof item.id === "string");
+    if (!this._profiles.some((item) => item.id === "generic")) this._profiles = [GENERIC_PROFILE, ...this._profiles];
+    if (!this._profiles.some((item) => item.id === this._form.device_profile_id)) {
+      this._form = {...this._form, device_profile_id: "generic"};
+      this._message = this._text.profileFallback;
+      this._persist();
+    }
+  }
+  _selectProfile(profileId) {
+    if (this._busy || this._status?.status === "running") return;
+    const profile = this._profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    this._yaml = "";
+    this._errors = {};
+    this._form = selectDeviceProfile(this._form, profile);
+    this._persist();
+  }
+  async _uploadProfile(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    return this._action("profiles", async () => {
+      try {
+        // The service validates the text itself, so JSON errors come back with line and column.
+        const result = await this._call("import_device_profile", {profile: await file.text()});
+        await this._fetchProfiles();
+        this._selectProfileAfterImport(result.profile?.id);
+        this._message = this._text.profileImported(result.profile?.name || result.profile?.id, result.replaced === true);
+      } finally { input.value = ""; }
+    });
+  }
+  _selectProfileAfterImport(profileId) {
+    const profile = this._profiles.find((item) => item.id === profileId);
+    if (profile && this._status?.status !== "running") { this._form = selectDeviceProfile(this._form, profile); this._persist(); }
+  }
+  async _exportProfile(profileId) {
+    return this._action("profiles", async () => {
+      const result = await this._call("export_device_profile", {profile_id: profileId});
+      const blob = new Blob([JSON.stringify(result.profile, null, 2)], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = `${profileId}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+  async _deleteProfile(profile) {
+    if (!profile.deletable) return;
+    return this._action("profiles", async () => {
+      await this._call("delete_device_profile", {profile_id: profile.id});
+      await this._fetchProfiles();
+      this._message = this._text.profileDeleted(profile.name);
     });
   }
   async _checkGateway() {
@@ -170,13 +231,13 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   _showYaml() {
-    try { this._yaml = serviceYaml(this._form); }
+    try { this._yaml = serviceYaml(this._form, this._profile); }
     catch (_error) { this._message = this._text.correcting + " " + this._text.safetyError; }
   }
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock});
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -324,7 +385,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     });
   }
   _field(name, label, min, max, help) {
-    [min, max] = boundsFor(this._form)[name] || [min, max];
+    [min, max] = boundsFor(this._form, this._profile)[name] || [min, max];
     const fixed = this._form.provider === "esphome" && this._form.bridge !== "v2" && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
     return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
@@ -374,6 +435,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           </section>
           ${physical ? html`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? html`<p class="notice failure" role="status">${t.firmwareFault}</p>` : nothing}${!compatible ? html`<p class="notice failure">${t.unsupportedProfile}</p>` : nothing}${!canOperate ? html`<p class="notice">${t.readOnly}</p>` : nothing}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : nothing}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
+            <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => html`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
             ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
             <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((profile) => html`<option value=${profile} .selected=${profile === selectedScenario}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
           </div><div class="profiles" aria-label=${t.quickProfiles}>${MOCK_SCENARIOS.map((profile) => { const selected = selectedScenario === profile; return html`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", profile)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.profileNames[profile]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
@@ -389,6 +451,10 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           <div class="actions"><button class="secondary" @click=${this._showYaml} ?disabled=${!gatewayAvailable || !compatible || Boolean(this._busy) || running}>${t.yaml}</button></div>
           ${this._yaml ? html`<label for="service-yaml">${t.yamlLabel}</label><textarea id="service-yaml" readonly rows="16" style="width:100%;box-sizing:border-box" .value=${this._yaml}></textarea>` : nothing}
           </section>
+          <section class="card" aria-labelledby="profiles-title"><h2 id="profiles-title">${t.deviceProfiles}</h2><p>${t.deviceProfilesHelp}</p>
+            <div class="field full"><label for="profile-upload">${t.uploadProfile}</label><input id="profile-upload" type="file" accept="application/json,.json" ?disabled=${Boolean(this._busy)} @change=${this._uploadProfile}></div>
+            <ul class="profile-list">${this._profiles.map((item) => html`<li><span><strong>${item.name}</strong> ${item.version || ""} · <code>${item.id}</code>${item.builtin ? ` · ${t.builtin}` : ` · ${item.vendor || ""} ${item.model || ""}`}</span><span class="actions"><button class="secondary" @click=${() => this._exportProfile(item.id)} ?disabled=${Boolean(this._busy)} aria-label="${t.exportProfile} ${item.name}"><ha-icon icon="mdi:download"></ha-icon>${t.exportProfile}</button>${item.deletable ? html`<button class="danger" @click=${() => this._deleteProfile(item)} ?disabled=${Boolean(this._busy)} aria-label="${t.deleteProfile} ${item.name}"><ha-icon icon="mdi:delete"></ha-icon>${t.deleteProfile}</button>` : nothing}</span></li>`)}</ul>
+          </section>
         </div><div>
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return html`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
@@ -402,7 +468,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>
         </div></div>
-        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? html`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}</p>` : nothing}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
+        <section class="card"><h2>${t.evidence}</h2><p>${t.evidenceHelp} ${t.rawHelp}</p><button class="secondary" @click=${this._downloadEvidence} ?disabled=${!this._results || Boolean(this._busy)}>${t.exportEvidence}</button>${this._results ? html`<p class="evidence-source"><strong>${t.resultGateway}:</strong> ${this._results.provider || t.simulated} · ${this._results.gateway_id || this._chosenId()}${profileLabel(this._results) ? html`<br><strong>${t.resultProfile}:</strong> <span id="result-profile">${profileLabel(this._results)}</span>` : nothing}</p>` : nothing}<div class="table-wrap" tabindex="0" role="region" aria-label=${t.tableLabel}><table><thead><tr>${this._sortHeader("address", t.columns.address)}${this._sortHeader("outcome", t.columns.outcome)}${this._sortHeader("latency_ms", t.columns.latency_ms)}${this._sortHeader("exception_code", t.columns.exception_code)}${this._sortHeader("vendor", t.columns.vendor)}${this._sortHeader("product", t.columns.product)}${this._sortHeader("raw_value", t.rawRegister)}${this._sortHeader("detail", t.columns.detail)}</tr></thead><tbody>${this._responders().length ? this._responders().map((row) => html`<tr><td>${row.address}</td><td>${t.outcomes[row.outcome] || row.outcome}</td><td>${row.latency_ms}</td><td>${row.exception_code ?? t.dash}</td><td>${row.identity?.vendor || t.dash}</td><td>${row.identity?.product || t.dash}</td><td>${Number.isInteger(row.register_address) ? `0x${row.register_address.toString(16)}` : t.dash} / ${formatRawValues(row) ?? t.dash}</td><td>${row.detail ? this._detail(row.detail) : t.dash}</td></tr>`) : html`<tr><td colspan="8">${t.noEvidence}</td></tr>`}</tbody></table></div></section>
         <section class="card tutorial"><h2>${t.interpretation}</h2>${OUTCOMES.map((outcome) => html`<section><h3>${t.outcomes[outcome]}</h3><p>${t.help[outcome]}</p></section>`)}<section><h3>${t.unknownHeading}</h3><p>${t.help.unknown}</p></section><section><h3>${t.networkHeading}</h3><p>${t.help.network}</p></section></section>
       </main>`;
   }
