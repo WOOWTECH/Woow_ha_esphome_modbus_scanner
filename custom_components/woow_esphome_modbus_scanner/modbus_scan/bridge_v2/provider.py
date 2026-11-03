@@ -28,6 +28,7 @@ from aioesphomeapi import (
 
 from ..limits import ProbeLimits
 from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanRequest
+from ..pollers import choose, paused_pollers, reconcile
 from ..provider import GatewayProviderError
 from .contract import (
     BRIDGE_VERSION,
@@ -193,6 +194,23 @@ def _parse_lease(state: str, bus: str, scan_id: str) -> tuple[str, str | None] |
     if lease.get("reason") not in LEASE_END_REASONS:
         return None
     return "ended", lease["reason"]
+
+
+def _pause_selection(
+    request: ScanRequest, bus: str, table: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(pollers this Scan pauses, chosen pollers the current table no longer has).
+
+    The choice is revalidated against the table the Gateway reports now: explicit indices
+    first, else the Bus's saved checklist, else every poller.
+    """
+    if not request.pause_normal_polling:
+        return [], []
+    if request.pause_pollers is not None:
+        checklist, unknown = choose(table, request.pause_pollers)
+        return paused_pollers(checklist), [{"index": index} for index in unknown]
+    checklist, removed = reconcile(table, (request.pause_checklists or {}).get(bus))
+    return paused_pollers(checklist), removed
 
 
 def _signature(service: Any, args: dict[str, str]) -> bool:
@@ -553,10 +571,9 @@ class V2GatewayProvider:
                     phase=phase,
                 )
             bus = session.buses[0]["bus"]
-            # This ticket pauses every Pausable Poller on the Bus; per-poller choice comes later.
-            paused = deepcopy(session.buses[0]["pollers"]) if request.pause_normal_polling else []
+            paused, removed = _pause_selection(request, bus, session.buses[0]["pollers"])
             pause_pollers = ",".join(str(poller["index"]) for poller in paused)
-            progress({"paused_pollers": paused})
+            progress({"paused_pollers": paused, "removed_pollers": removed})
             function_code = _FUNCTION_CODES[request.probe_type]
             for slave in range(request.start_id, request.end_id + 1):
                 for attempt in range(request.retries + 1):

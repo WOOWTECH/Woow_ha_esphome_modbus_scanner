@@ -10,6 +10,27 @@ check_gateway:
       required: true
       selector:
         text:
+set_pausable_pollers:
+  name: Save Pausable Poller selection
+  description: Save which Pausable Pollers of one Bus a bridge v2 Scan pauses. Kept in the integration's settings across restarts and revalidated against the firmware's table on every check and Scan. Check the Gateway first so its table is known. Physical-operation authorization applies.
+  fields:
+    gateway_id:
+      name: Physical gateway
+      required: true
+      selector:
+        text:
+    bus:
+      name: Bus
+      description: Bus id as listed by check_gateway.
+      required: true
+      selector:
+        text:
+    pause_pollers:
+      name: Pausable Pollers to pause
+      description: Indices from the Bus's Pausable Poller table; an empty list pauses none.
+      required: true
+      selector:
+        object:
 get_history:
   name: Get saved scan history
   description: Return up to 20 terminal snapshots. Stored or interrupted jobs are never replayed automatically.
@@ -91,6 +112,12 @@ start_scan:
       default: true
       selector:
         boolean:
+    pause_pollers: &pause_pollers
+      name: Pausable Pollers to pause
+      description: Bridge v2 only. Indices from the Bus's Pausable Poller table (check_gateway) to pause for this Scan only; an empty list pauses none. Omit to use the selection saved with set_pausable_pollers (all pollers when nothing is saved). Indices the firmware no longer has are reported in removed_pollers and never sent.
+      required: false
+      selector:
+        object:
     mock_scenario: &mock_scenario
       name: Mock scenario
       description: Fixed mock-provider outcome set; never simulates a physical response. Replaces the deprecated mock_profile alias, which is still accepted but cannot be combined with mock_scenario.
@@ -155,6 +182,7 @@ test_address:
     retries: *retries
     inter_request_delay_ms: *delay
     pause_normal_polling: *pause
+    pause_pollers: *pause_pollers
     mock_scenario: *mock_scenario
     device_profile_id: *device_profile
 list_device_profiles:

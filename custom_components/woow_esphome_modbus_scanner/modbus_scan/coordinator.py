@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 
 from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
 from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
+from .pollers import choose
 from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
@@ -69,6 +70,8 @@ class _ScanState:
     lease_status: str = "none"
     lease_end_reason: str | None = None
     paused_pollers: list[dict[str, Any]] = field(default_factory=list)
+    # Chosen pollers the Gateway's current table no longer has; they were not paused.
+    removed_pollers: list[dict[str, Any]] = field(default_factory=list)
     started_clock: float = field(default_factory=monotonic)
     elapsed_ms: int = 0
     events: deque = field(default_factory=lambda: deque(maxlen=32))
@@ -85,12 +88,15 @@ class ModbusScanCoordinator:
         max_history: int = 20,
         history=None,
         issue_callback=None,
+        selection_store=None,
     ) -> None:
         self._hass = hass
         self._providers = {provider.provider_id: provider for provider in providers}
         self._max_history = max_history
         self._history = history
         self._issue_callback = issue_callback
+        # Saved Pausable Poller checklists (PollerSelectionStore), revalidated here.
+        self._selection_store = selection_store
         self._issues_failed = False
         self._scans: dict[str, _ScanState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -101,11 +107,19 @@ class ModbusScanCoordinator:
     def list_gateways(self) -> dict[str, Any]:
         """Return every provider gateway in a stable service response."""
         gateways = [
-            gateway.as_dict()
+            {**gateway.as_dict(), **self._poller_selection(gateway, prune=False)}
             for provider in self._providers.values()
             for gateway in provider.list_gateways()
         ]
         return {"gateways": gateways}
+
+    def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
+        """Pausable Poller checklist per Bus of a bridge v2 Gateway, revalidated if known."""
+        if self._selection_store is None or "bridge_v2" not in gateway.capabilities:
+            return {}
+        tables = (gateway.health or {}).get("pausable_pollers")
+        selection, removed = self._selection_store.report(gateway.gateway_id, tables, prune=prune)
+        return {"poller_selection": selection, "removed_pollers": removed}
 
     def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
         provider = self._providers.get(provider_id)
@@ -114,6 +128,37 @@ class ModbusScanCoordinator:
         return next(
             (item for item in provider.list_gateways() if item.gateway_id == gateway_id), None
         )
+
+    def saved_poller_selection(self, gateway_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Saved Pausable Poller checklist per Bus of one Gateway, for a Scan request."""
+        return self._selection_store.saved(gateway_id) if self._selection_store else {}
+
+    def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
+        """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
+        gateway = self._gateway("esphome", gateway_id)
+        if (
+            gateway is None
+            or self._selection_store is None
+            or "bridge_v2" not in gateway.capabilities
+        ):
+            raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
+        tables = (gateway.health or {}).get("pausable_pollers")
+        selection, _removed = self._selection_store.report(gateway_id, tables, prune=False)
+        if bus not in selection:
+            raise ValueError(
+                f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
+            )
+        checklist, unknown = choose(selection[bus], indices)
+        if unknown:
+            raise ValueError(f"Bus {bus} has no Pausable Poller with index {unknown}")
+        saved = self._selection_store.saved(gateway_id)
+        saved[bus] = checklist
+        self._selection_store.save(gateway_id, saved)
+        return {
+            "gateway_id": gateway_id,
+            "bus": bus,
+            **self._poller_selection(gateway, prune=False),
+        }
 
     def request_defaults(
         self,
@@ -156,6 +201,8 @@ class ModbusScanCoordinator:
         if gateway.limits is not None:
             gateway.limits.validate(request)
         profile.limits.validate(request)
+        if request.pause_pollers is not None and "bridge_v2" not in gateway.capabilities:
+            raise ValueError("pause_pollers needs a bridge v2 Gateway with Pausable Pollers")
         if existing := self._active.get(request.gateway_key):
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
@@ -264,6 +311,7 @@ class ModbusScanCoordinator:
             "lease_status": state.lease_status,
             "lease_end_reason": state.lease_end_reason,
             "paused_pollers": [dict(poller) for poller in state.paused_pollers],
+            "removed_pollers": [dict(poller) for poller in state.removed_pollers],
         }
 
     async def cancel(self, scan_id: str) -> dict[str, Any]:
@@ -362,12 +410,17 @@ class ModbusScanCoordinator:
                 "superseded",
             }:
                 state.lease_end_reason = update["lease_end_reason"]
-            if isinstance(update.get("paused_pollers"), list):
-                state.paused_pollers = [
-                    {key: poller[key] for key in ("index", "name", "address")}
-                    for poller in update["paused_pollers"]
-                    if isinstance(poller, dict) and {"index", "name", "address"} <= poller.keys()
-                ]
+            for key in ("paused_pollers", "removed_pollers"):
+                if isinstance(update.get(key), list):
+                    setattr(
+                        state,
+                        key,
+                        [
+                            {name: poller.get(name) for name in ("index", "name", "address")}
+                            for poller in update[key]
+                            if isinstance(poller, dict) and "index" in poller
+                        ],
+                    )
             if update.get("recovery_error_code") in {
                 "FIRMWARE_FAULT",
                 "DEVICE_RESTARTED",
@@ -445,8 +498,19 @@ class ModbusScanCoordinator:
                 self._active.pop(state.request.gateway_key, None)
             if state.recovery_error_code:
                 self._report_issue(state.request.gateway_id, state.recovery_error_code)
+            self._prune_poller_selection(state.request)
             self._record_terminal(state.scan_id)
             self._tasks.pop(state.scan_id, None)
+
+    def _prune_poller_selection(self, request: ScanRequest) -> None:
+        """A Scan read the Gateway's poller table: drop saved choices it no longer has."""
+        gateway = self._gateway(request.provider, request.gateway_id)
+        if gateway is None:
+            return
+        try:
+            self._poller_selection(gateway, prune=True)
+        except Exception:  # noqa: BLE001 - never replace the Scan's own outcome
+            return
 
     def _report_issue(self, gateway_id, code):
         if self._issue_callback:
@@ -582,7 +646,11 @@ class ModbusScanCoordinator:
             raise ValueError("No physical gateways are configured")
         if existing := self._active.get(("esphome", gateway_id)):
             raise GatewayBusyError("esphome", gateway_id, existing)
-        return {"gateway_id": gateway_id, "health": await provider.check_gateway(gateway_id)}
+        health = await provider.check_gateway(gateway_id)
+        response = {"gateway_id": gateway_id, "health": health}
+        if gateway := self._gateway("esphome", gateway_id):
+            response.update(self._poller_selection(gateway, prune=True))
+        return response
 
     def _record_terminal(self, scan_id: str) -> None:
         if self._history:

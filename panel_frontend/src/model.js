@@ -3,7 +3,7 @@ export {PHYSICAL_PROFILE} from "./profile-generated.js";
 export const DOMAIN = "woow_esphome_modbus_scanner";
 export const SERVICES = Object.freeze([
   "check_gateway", "get_history",
-  "list_gateways",
+  "list_gateways", "set_pausable_pollers",
   "start_scan",
   "get_scan_status",
   "get_scan_results",
@@ -119,19 +119,42 @@ const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
  * `stale` names the paused devices whose entity values are frozen while the lease may hold.
  */
+/** "name (slave address)" of a Pausable Poller from untrusted response data. */
+function pollerLabel(poller) {
+  const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
+  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
+}
+const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) => poller && typeof poller === "object") : [];
 export function leaseNotice(status) {
   const state = status?.lease_status;
   if (!LEASE_STATES.includes(state)) return null;
-  const pollers = Array.isArray(status.paused_pollers) ? status.paused_pollers : [];
-  const label = (poller) => {
-    const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
-    return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
-  };
   return {
     state,
     reason: state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null,
-    stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
+    stale: state === "ended" ? [] : pollerObjects(status.paused_pollers).map(pollerLabel),
   };
+}
+/** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
+export function removedPollers(status) {
+  return pollerObjects(status?.removed_pollers).map(pollerLabel);
+}
+/**
+ * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
+ * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ */
+export function pollerChecklists(gateway) {
+  if (!isBridgeV2(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  return Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows)).map(([bus, rows]) => ({
+    bus,
+    pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
+      .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
+    removed: pollerObjects(gateway.removed_pollers?.[bus]).map(pollerLabel),
+  }));
+}
+/** set_pausable_pollers data after checking (paused=true) or unchecking one poller, or "all". */
+export function selectionPayload(gatewayId, bus, pollers, index, paused) {
+  const chosen = pollers.filter((poller) => index === "all" ? paused : poller.index === index ? paused : poller.paused);
+  return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
 /** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
@@ -265,7 +288,7 @@ export function sanitizePreferences(value) {
     if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
     if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
-    // A v2 Scan pauses every Pausable Poller on its Bus; per-poller choice is a later release.
+    // A v2 Scan pauses the Pausable Pollers saved in HA for its Bus (set_pausable_pollers).
     form.pause_normal_polling = true;
   } else if (source.provider === "esphome") {
     form.provider = "esphome";

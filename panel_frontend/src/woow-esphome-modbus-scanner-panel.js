@@ -6,6 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
+  isBridgeV2, pollerChecklists, removedPollers, selectionPayload,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -206,9 +207,32 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     return this._action("check", async () => {
       const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
       if (generation !== this._operationGeneration || !this.isConnected) return;
-      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health} : g);
+      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers} : g);
       this._message = this._text.healthChecked;
     });
+  }
+  async _savePollers(bus, pollers, index, paused) {
+    if (this._status?.status === "running") return;
+    const gatewayId = this._form.gateway_id;
+    const generation = this._operationGeneration;
+    return this._action("pollers", async () => {
+      const result = await this._call("set_pausable_pollers", selectionPayload(gatewayId, bus, pollers, index, paused));
+      if (generation !== this._operationGeneration || !this.isConnected) return;
+      // Keep removals reported by the last check visible; the saved checklist is the answer's.
+      this._gateways = this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, poller_selection:result.poller_selection} : g);
+      this._message = this._text.pollersSaved;
+    });
+  }
+  _pollersCard(gateway, disabled) {
+    const t = this._text;
+    const checklists = pollerChecklists(gateway);
+    if (!checklists.length) return html`<p>${t.pollersUnknown}</p>`;
+    return checklists.map(({bus, pollers, removed}) => html`<fieldset class="pollers"><legend>${t.pollersBus(bus)}</legend>
+      ${pollers.length ? pollers.map((poller) => html`<div class="field check"><label><input type="checkbox" data-poller=${poller.index} .checked=${poller.paused} ?disabled=${disabled} @change=${(event) => this._savePollers(bus, pollers, poller.index, event.target.checked)}>${poller.label}</label></div>`) : html`<p>${t.pollersEmpty}</p>`}
+      ${pollers.length ? html`<div class="actions"><button class="secondary" ?disabled=${disabled} @click=${() => this._savePollers(bus, pollers, "all", true)}>${t.pollersAll}</button><button class="secondary" ?disabled=${disabled} @click=${() => this._savePollers(bus, pollers, "all", false)}>${t.pollersClear}</button></div>` : nothing}
+      ${pollers.length && !pollers.some((poller) => poller.paused) ? html`<p class="notice" role="status">${t.pollersNone}</p>` : nothing}
+      ${removed.length ? html`<p class="notice failure" role="status">${t.pollersRemoved} ${removed.join(", ")}</p>` : nothing}
+      <small>${t.pollersHelp}</small></fieldset>`);
   }
   async _loadHistory() {
     const generation = this._operationGeneration;
@@ -437,6 +461,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           ${physical ? html`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? html`<p class="notice failure" role="status">${t.firmwareFault}</p>` : nothing}${!compatible ? html`<p class="notice failure">${t.unsupportedProfile}</p>` : nothing}${!canOperate ? html`<p class="notice">${t.readOnly}</p>` : nothing}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : nothing}
+          ${isBridgeV2(gateway) && gatewayAvailable ? html`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : nothing}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => html`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
             ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
@@ -462,7 +487,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return html`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
             <div class="actions"><button class="secondary" @click=${this._loadHistory} ?disabled=${Boolean(this._busy) || running}>${t.history}</button></div><small>${t.historyHelp}</small>
-            ${this._status ? html`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? html`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? html`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : nothing}` : nothing}${this._status.error_info ? html`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : nothing}${this._status.progress_is_checkpoint ? html`<p class="notice failure">${t.checkpoint}</p>` : nothing}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? html`<p class="notice failure" role="status">${t.attention}</p>` : nothing}` : nothing}
+            ${this._status ? html`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? html`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? html`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : nothing}` : nothing}${removedPollers(this._status).length ? html`<p class="notice failure" role="status">${t.scanRemoved} ${removedPollers(this._status).join(", ")}</p>` : nothing}${this._status.error_info ? html`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : nothing}${this._status.progress_is_checkpoint ? html`<p class="notice failure">${t.checkpoint}</p>` : nothing}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? html`<p class="notice failure" role="status">${t.attention}</p>` : nothing}` : nothing}
             <p><strong>${t.phase}:</strong> ${t.statuses[phase] || phase} ${this._status?.current_address ? html`· ${t.columns.address} ${this._status.current_address}` : nothing}<br><code>${this._chosenId() || t.noScanId}</code></p>
             <div class="progress" role="progressbar" aria-label=${t.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progress}><span style="width:${Math.min(100, Math.max(0, progress))}%"></span></div><small>${this._status?.completed_addresses || 0} / ${this._status?.total_addresses || 0} ${t.addresses} · ${progress}% · ${this._status?.responder_count || 0} ${t.responders}</small>
             ${this._status?.events?.length ? html`<section aria-label=${t.timeline}><strong>${t.timeline}</strong><ol>${this._status.events.slice(-8).map((event) => html`<li>${Math.round(event.elapsed_ms/1000)}s · ${t.operationStates[event.phase] || t.statuses[event.phase] || t.dash}</li>`)}</ol></section>` : nothing}

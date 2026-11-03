@@ -220,6 +220,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
+                "pause_pollers",
                 "mock_scenario",
                 "device_profile_id",
                 "safety_confirmed",
@@ -240,6 +241,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
+                "pause_pollers",
                 "mock_scenario",
                 "device_profile_id",
             },
@@ -247,6 +249,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
         ("get_scan_status", {"scan_id"}),
         ("get_scan_results", {"scan_id"}),
         ("cancel_scan", {"scan_id"}),
+        ("set_pausable_pollers", {"gateway_id", "bus", "pause_pollers"}),
     ],
 )
 def test_service_metadata_has_selector_for_every_parameter(service, expected):

@@ -31,6 +31,7 @@ from .const import (
     SERVICE_IMPORT_DEVICE_PROFILE,
     SERVICE_LIST_DEVICE_PROFILES,
     SERVICE_LIST_GATEWAYS,
+    SERVICE_SET_PAUSABLE_POLLERS,
     SERVICE_START_SCAN,
     SERVICE_TEST_ADDRESS,
 )
@@ -59,6 +60,7 @@ from .modbus_scan.models import (
     ScanRequest,
 )
 from .modbus_scan.provider import GatewayProviderError
+from .poller_selection import PollerSelectionStore
 
 
 def _exact_int(value: object) -> int:
@@ -98,6 +100,10 @@ def _canonical_uuid(value: object) -> str:
     return value
 
 
+_POLLER_INDICES = vol.All(
+    [vol.All(_exact_int, vol.Range(min=0, max=255))], vol.Unique(), vol.Coerce(tuple)
+)
+
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
@@ -120,6 +126,8 @@ _PROBE_FIELDS = {
         _exact_int, vol.Range(min=0, max=MAX_INTER_REQUEST_DELAY_MS)
     ),
     vol.Optional("pause_normal_polling"): bool,
+    # Explicit Pausable Poller indices; absent means the Bus's saved selection.
+    vol.Optional("pause_pollers"): _POLLER_INDICES,
     vol.Optional("mock_scenario"): vol.In([item.value for item in MockScenario]),
     # Deprecated alias of mock_scenario, kept so existing scripts keep working.
     vol.Optional("mock_profile"): vol.In([item.value for item in MockScenario]),
@@ -147,6 +155,8 @@ def _with_gateway_defaults(
     for key, value in defaults.items():
         data.setdefault(key, value)
     data["probe_type"] = ProbeType(data["probe_type"])
+    if data["provider"] == "esphome":
+        data["pause_checklists"] = coordinator.saved_poller_selection(data["gateway_id"])
     return data
 
 
@@ -234,6 +244,7 @@ def _coordinator(
             providers,
             history=domain_data.get("history"),
             issue_callback=lambda gateway, code: report_gateway_issue(hass, gateway, code),
+            selection_store=PollerSelectionStore(hass, owner[0] if owner else None),
         )
         domain_data[DATA_COORDINATOR] = coordinator
         domain_data[DATA_COORDINATOR_OWNER] = owner
@@ -262,6 +273,8 @@ def _scan_request(
         pause_normal_polling=data["pause_normal_polling"],
         mock_scenario=data["mock_scenario"],
         safety_confirmed=safety_confirmed,
+        pause_pollers=data.get("pause_pollers"),
+        pause_checklists=data.get("pause_checklists"),
     )
 
 
@@ -394,6 +407,16 @@ async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResp
         raise HomeAssistantError(str(err)) from err
 
 
+async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _authorize_physical(call, owner, "esphome")
+    try:
+        return _coordinator(call.hass, owner).save_poller_selection(
+            call.data["gateway_id"], call.data["bus"], call.data["pause_pollers"]
+        )
+    except ValueError as err:
+        raise _as_home_assistant_error(err) from err
+
+
 async def _handle_get_history(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     return _coordinator(call.hass, owner).history()
 
@@ -490,6 +513,18 @@ _SERVICE_DEFINITIONS = (
         SupportsResponse.ONLY,
     ),
     ("get_history", _handle_get_history, vol.Schema({}), SupportsResponse.ONLY),
+    (
+        SERVICE_SET_PAUSABLE_POLLERS,
+        _handle_set_pausable_pollers,
+        vol.Schema(
+            {
+                vol.Required("gateway_id"): str,
+                vol.Required("bus"): str,
+                vol.Required("pause_pollers"): _POLLER_INDICES,
+            }
+        ),
+        SupportsResponse.OPTIONAL,
+    ),
     (
         SERVICE_LIST_GATEWAYS,
         _handle_list_gateways,
