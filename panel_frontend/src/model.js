@@ -9,6 +9,7 @@ export const SERVICES = Object.freeze([
   "get_scan_results",
   "cancel_scan",
   "test_address",
+  "list_device_profiles", "import_device_profile", "export_device_profile", "delete_device_profile",
 ]);
 export const MOCK_SCENARIOS = Object.freeze([
   "found_default", "all_offline", "partial_timeout", "modbus_exception",
@@ -25,7 +26,17 @@ export const DEFAULTS = Object.freeze({
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
+  device_profile_id: "generic",
 });
+/** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
+export const GENERIC_PROFILE = Object.freeze({
+  id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
+  function_codes: [3, 4], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
+  limits: Object.freeze({slave_min: 1, slave_max: 247, probe_types: ["device_identification", "holding_register", "input_register"],
+    register_count_max: 4, allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000}),
+});
+const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
 /** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
 export const LARGE_RANGE_THRESHOLD = 32;
 export const INTEGER_BOUNDS = Object.freeze({
@@ -49,7 +60,18 @@ export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
 const isV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
-export function boundsFor(form) {
+/** The gateway's bounds intersected with the selected Device Profile's limits. */
+export function boundsFor(form, profile = GENERIC_PROFILE) {
+  const gateway = gatewayBoundsFor(form);
+  const l = profile?.limits;
+  if (!l) return gateway;
+  const meet = ([low, high], min, max) => [Math.max(low, min), Math.min(high, max)];
+  return {...gateway,
+    start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),
+    address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
+    timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
+}
+function gatewayBoundsFor(form) {
   if (isV2Form(form)) {
     const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
     return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
@@ -57,6 +79,26 @@ export function boundsFor(form) {
   }
   const l = PHYSICAL_PROFILE.limits;
   return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
+}
+/** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
+export function selectDeviceProfile(form, profile) {
+  const d = profile?.defaults || {};
+  const next = {...form, device_profile_id: profile?.id || "generic", safety_confirmed: false, large_range_confirmed: false};
+  const mapping = {slave_start: "start_id", slave_end: "end_id", register: "register_address", count: "register_count",
+    timeout_ms: "timeout_ms", inter_request_delay_ms: "inter_request_delay_ms", retries: "retries"};
+  for (const [key, target] of Object.entries(mapping)) if (Number.isInteger(d[key])) next[target] = d[key];
+  if (FUNCTION_CODE_PROBES[d.function_code]) next.probe_type = FUNCTION_CODE_PROBES[d.function_code];
+  const probes = profile?.limits?.probe_types;
+  if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = probes[0];
+  const allowed = profile?.allowed_registers;
+  if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) next.register_address = allowed[0];
+  return next;
+}
+/** "Name version (id)" from a Scan status or result, or null when the Scan predates Device Profiles. */
+export function profileLabel(record) {
+  const p = record?.device_profile;
+  if (!p || typeof p.id !== "string") return null;
+  return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
 }
 export function selectGateway(form, gateway) {
   if (isBridgeV2(gateway)) {
@@ -131,12 +173,12 @@ export function normalizeResponse(value) {
   return value;
 }
 
-export function validateForm(form, single = false, text = {}) {
+export function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE) {
   const errors = {};
   const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
   for (const name of names) {
     const number = Number(form[name]);
-    const [minimum, maximum] = boundsFor(form)[name];
+    const [minimum, maximum] = boundsFor(form, profile)[name];
     const raw = form[name];
     const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
     if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
@@ -155,6 +197,14 @@ export function validateForm(form, single = false, text = {}) {
     if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
     if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
   }
+  const probes = profile?.limits?.probe_types;
+  if (!errors.probe_type && Array.isArray(probes) && !probes.includes(form.probe_type)) {
+    errors.probe_type = text.profileProbe || "The selected Device Profile does not allow this probe type.";
+  }
+  const allowed = profile?.allowed_registers;
+  if (!errors.register_address && Array.isArray(allowed) && !allowed.includes(Number(form.register_address))) {
+    errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
+  }
   if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
   if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
     errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
@@ -172,6 +222,7 @@ function sharedPayload(form) {
     inter_request_delay_ms: Number(form.inter_request_delay_ms),
     pause_normal_polling: form.pause_normal_polling === true,
     ...(form.provider === "mock" ? {mock_scenario: form.mock_scenario} : {}),
+    ...(form.device_profile_id && form.device_profile_id !== "generic" ? {device_profile_id: form.device_profile_id} : {}),
   };
 }
 export function startPayload(form) {
@@ -182,8 +233,8 @@ export function testPayload(form) { return {...sharedPayload(form), address: Num
 export function supportedGateway(gateway) {
   return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
 }
-export function serviceYaml(form) {
-  if (Object.keys(validateForm(form)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
+export function serviceYaml(form, profile = GENERIC_PROFILE) {
+  if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
   const lines = Object.entries(startPayload(form)).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`);
   return `action: ${DOMAIN}.start_scan\ndata:\n${lines.join("\n")}\n`;
 }
@@ -224,6 +275,8 @@ export function sanitizePreferences(value) {
   const mockScenario = source.mock_scenario ?? source.mock_profile;
   if (MOCK_SCENARIOS.includes(mockScenario)) form.mock_scenario = mockScenario;
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
+  // Checked against the loaded profile list later; an unknown id falls back to Generic there.
+  if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;

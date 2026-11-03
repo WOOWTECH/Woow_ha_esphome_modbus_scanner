@@ -16,6 +16,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
+    DATA_DEVICE_PROFILES,
     DATA_LIFECYCLE,
     DATA_STATIC_PATH_REGISTERED,
     DOMAIN,
@@ -26,6 +27,7 @@ from .const import (
     PANEL_URL_PATH,
     VERSION,
 )
+from .device_profiles import DeviceProfileStore
 from .history import ScanHistory
 from .services import async_register_services, async_unregister_services
 
@@ -103,6 +105,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 history = ScanHistory(hass)
                 await history.async_load()
                 domain_data["history"] = history
+            if DATA_DEVICE_PROFILES not in domain_data:
+                profiles = DeviceProfileStore(hass)
+                await profiles.async_load()
+                domain_data[DATA_DEVICE_PROFILES] = profiles
             await _async_register_panel(hass)
         except BaseException:
             if (

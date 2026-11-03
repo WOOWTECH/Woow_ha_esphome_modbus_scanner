@@ -15,7 +15,11 @@ window.calls=[]; window.menuEvents=0; window.mode='normal'; window.polls=0; wind
 const uuid='11111111-1111-4111-8111-111111111111'; const uuid2='22222222-2222-4222-8222-222222222222';
 const responders=[{address:3,outcome:'responded',latency_ms:8,detail:'Generic valid response'},{address:1,outcome:'identified',latency_ms:5,identity:{vendor:'WOOWTECH',product:'WT-RS485-01'},detail:'Identity'}];
 const result={scan_id:uuid,status:'completed',phase:'completed',responders,outcome_counts:{identified:1,responded:1,modbus_exception:0,timeout:0,possible_collision:0,gateway_error:0},completed_addresses:2,total_addresses:2,best_effort:true,uniqueness_guaranteed:false};
-const hass={locale:{language:new URL(location.href).searchParams.get('lang')||'en'},callService:async(domain,service,data,target,notify,returnResponse)=>{window.calls.push({domain,service,data,target,notify,returnResponse}); if(window.mode==='network') throw new Error('Connection lost'); if(window.mode==='busy'&&service==='start_scan') throw new Error('Gateway mock/mock:rs485-gateway is busy'); if(window.mode==='unknown'&&['get_scan_status','get_scan_results','cancel_scan'].includes(service)) throw new Error('Unknown scan ID'); if(service==='list_gateways') return {response:{gateways:[{provider:'mock',gateway_id:'mock:rs485-gateway',name:'Simulated RS-485 Gateway',simulated:true}]}}; if(service==='start_scan'||service==='test_address') return {scan_id:uuid,status:'running',phase:'running',progress_percent:0,outcome_counts:{}}; if(service==='cancel_scan'){if(window.mode==='deferredCancel') return new Promise((resolve,reject)=>window.cancelDeferred.push({resolve,reject})); return {response:{scan_id:uuid,status:'cancelled',phase:'cancelled',progress_percent:50,outcome_counts:{timeout:1}}};} if(service==='get_scan_status'){window.polls++; if(window.mode==='deferredStatus') return new Promise((resolve,reject)=>window.statusDeferred.push({resolve,reject})); if(window.mode==='failure') return {...result,status:'failed',phase:'failed',error:'Simulated gateway disconnected'}; if(window.mode==='hold') return {scan_id:uuid,status:'running',phase:'running',progress_percent:25,completed_addresses:1,total_addresses:4,outcome_counts:{timeout:1}}; return window.polls<2?{scan_id:uuid,status:'running',phase:'running',progress_percent:50,completed_addresses:1,total_addresses:2,outcome_counts:{timeout:1}}:result;} if(service==='get_history') return {scans:[{scan_id:uuid,status:'completed',provider:'mock'}]}; if(service==='check_gateway') return {gateway_id:data.gateway_id,health:{api_status:'verified',checked_at:'2026-09-30T00:00:00Z',encrypted:false,firmware_state:{fault:false}}}; if(service==='get_scan_results'){if(window.mode==='deferredResults') return new Promise((resolve,reject)=>window.resultsDeferred.push({resolve,reject})); return {response:result};} throw new Error('unexpected service');}};
+const generic={id:'generic',name:'Generic Device Profile',vendor:'Generic',model:'Any Modbus RTU device',version:'1',function_codes:[3,4],allowed_registers:null,defaults:{},fields:[],builtin:true,deletable:false,limits:{slave_min:1,slave_max:247,probe_types:['device_identification','holding_register','input_register'],register_count_max:4,allowed_registers:null,timeout_ms_min:100,timeout_ms_max:2000}};
+window.profiles=[generic]; window.resultProfile=null;
+const listed=(doc)=>({...doc,allowed_registers:doc.allowed_registers??null,defaults:doc.defaults||{},fields:doc.fields||[],builtin:false,deletable:true,limits:{slave_min:1,slave_max:247,probe_types:doc.function_codes.map((c)=>c===3?'holding_register':'input_register'),register_count_max:4,allowed_registers:doc.allowed_registers??null,timeout_ms_min:100,timeout_ms_max:2000}});
+const profileService=(service,data)=>{ if(service==='list_device_profiles') return {response:{profiles:window.profiles}}; if(service==='import_device_profile'){let doc; try{doc=JSON.parse(data.profile);}catch(_e){throw new Error('Invalid Device Profile: $: is not valid JSON (line 1, column 2)');} const replaced=window.profiles.some((p)=>p.id===doc.id); window.profiles=[...window.profiles.filter((p)=>p.id!==doc.id),listed(doc)]; return {response:{profile:listed(doc),replaced}};} if(service==='export_device_profile'){const p=window.profiles.find((item)=>item.id===data.profile_id); return {response:{profile:{schema_version:1,id:p.id,name:p.name}}};} if(service==='delete_device_profile'){window.profiles=window.profiles.filter((p)=>p.id!==data.profile_id); return {response:{deleted:data.profile_id}};} return null; };
+const hass={locale:{language:new URL(location.href).searchParams.get('lang')||'en'},callService:async(domain,service,data,target,notify,returnResponse)=>{window.calls.push({domain,service,data,target,notify,returnResponse}); if(window.mode==='network') throw new Error('Connection lost'); if(window.mode==='busy'&&service==='start_scan') throw new Error('Gateway mock/mock:rs485-gateway is busy'); if(window.mode==='unknown'&&['get_scan_status','get_scan_results','cancel_scan'].includes(service)) throw new Error('Unknown scan ID'); if(service.endsWith('_device_profile')||service==='list_device_profiles') return profileService(service,data); if(service==='list_gateways') return {response:{gateways:[{provider:'mock',gateway_id:'mock:rs485-gateway',name:'Simulated RS-485 Gateway',simulated:true}]}}; if(service==='start_scan'||service==='test_address') return {scan_id:uuid,status:'running',phase:'running',progress_percent:0,outcome_counts:{}}; if(service==='cancel_scan'){if(window.mode==='deferredCancel') return new Promise((resolve,reject)=>window.cancelDeferred.push({resolve,reject})); return {response:{scan_id:uuid,status:'cancelled',phase:'cancelled',progress_percent:50,outcome_counts:{timeout:1}}};} if(service==='get_scan_status'){window.polls++; if(window.mode==='deferredStatus') return new Promise((resolve,reject)=>window.statusDeferred.push({resolve,reject})); if(window.mode==='failure') return {...result,status:'failed',phase:'failed',error:'Simulated gateway disconnected'}; if(window.mode==='hold') return {scan_id:uuid,status:'running',phase:'running',progress_percent:25,completed_addresses:1,total_addresses:4,outcome_counts:{timeout:1}}; return window.polls<2?{scan_id:uuid,status:'running',phase:'running',progress_percent:50,completed_addresses:1,total_addresses:2,outcome_counts:{timeout:1}}:result;} if(service==='get_history') return {scans:[{scan_id:uuid,status:'completed',provider:'mock'}]}; if(service==='check_gateway') return {gateway_id:data.gateway_id,health:{api_status:'verified',checked_at:'2026-09-30T00:00:00Z',encrypted:false,firmware_state:{fault:false}}}; if(service==='get_scan_results'){if(window.mode==='deferredResults') return new Promise((resolve,reject)=>window.resultsDeferred.push({resolve,reject})); return {response:window.resultProfile?{...result,device_profile:window.resultProfile}:result};} throw new Error('unexpected service');}};
 const panel=document.querySelector('woow-esphome-modbus-scanner-panel'); panel.hass=hass; panel.narrow=true; window.panel=panel; window.fixture={uuid,uuid2,result};</script></body></html>`;
 const server = createServer((request, response) => {
   const pathName = new URL(request.url, "http://127.0.0.1").pathname;
@@ -316,6 +320,49 @@ try {
   await pollerPage.evaluate(async () => {panel._status={scan_id:fixture.uuid,status:'completed',phase:'completed',provider:'esphome',lease_status:'none',removed_pollers:[{index:7,name:null,address:null}]}; await panel.updateComplete;});
   await polled.getByText(/firmware no longer has were not paused: #7/).waitFor();
   await pollerPage.close();
+
+  // Device Profiles: upload (invalid and valid), profile-driven form limits, labelled results, export and delete.
+  const profilePage=await browser.newPage({viewport:{width:800,height:1100}}); await profilePage.goto(base);
+  const profiled=profilePage.locator('woow-esphome-modbus-scanner-panel'); await profiled.getByText('1 gateway available.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='generic', 'Generic Device Profile not selected by default');
+  check(await profiled.locator('.profile-list li').count()===1 && await profiled.getByRole('button',{name:/^Delete /}).count()===0, 'Generic Device Profile must be listed and not deletable');
+  await profiled.locator('#profile-upload').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{not json')});
+  await profiled.getByText(/Invalid Device Profile: \$: is not valid JSON/).waitFor();
+  const meter={schema_version:1,id:'acme-meter',name:'Acme Meter',vendor:'Acme',model:'M-100',version:'1.2.0',function_codes:[4],
+    defaults:{slave_start:2,slave_end:5,register:16,count:2,timeout_ms:300,inter_request_delay_ms:0,retries:0},allowed_registers:[16,18,32]};
+  await profiled.locator('#profile-upload').setInputFiles({name:'acme-meter.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(meter))});
+  await profiled.getByText('Device Profile Acme Meter imported.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='acme-meter', 'imported Device Profile was not selected');
+  check(await profiled.locator('#start_id').inputValue()==='2' && await profiled.locator('#end_id').inputValue()==='5', 'profile slave range defaults not applied');
+  await profiled.locator('summary').click();
+  check(await profiled.locator('#probe').inputValue()==='input_register' && await profiled.locator('#register_address').inputValue()==='16' && await profiled.locator('#timeout_ms').inputValue()==='300', 'profile probe defaults not applied');
+  check(await profiled.locator('#register_count').getAttribute('max')==='4', 'form limits do not follow the Device Profile');
+  await profiled.locator('#register_address').fill('17'); await profiled.locator('#safety').check();
+  await profilePage.evaluate(() => { calls.length=0; });
+  await profiled.getByRole('button',{name:'Start scan'}).click();
+  await profiled.getByText('The selected Device Profile allows registers 16, 18, 32 only.').waitFor();
+  check(await profilePage.evaluate(() => !calls.some((c)=>c.service==='start_scan')), 'register outside the allowlist sent start_scan');
+  await profiled.locator('#register_address').fill('16');
+  await profilePage.evaluate(() => { mode='normal'; polls=0; resultProfile={id:'acme-meter',name:'Acme Meter',version:'1.2.0'}; });
+  await profiled.getByRole('button',{name:'Start scan'}).click();
+  await profilePage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
+  check(await profilePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.device_profile_id==='acme-meter'), 'start_scan omitted device_profile_id');
+  await profiled.locator('#result-profile').filter({hasText:'Acme Meter 1.2.0 (acme-meter)'}).waitFor({timeout:5000});
+  await capturePanel(profilePage, 'mocked-device-profiles.png');
+  const download=profilePage.waitForEvent('download');
+  await profiled.getByRole('button',{name:'Export Acme Meter'}).click();
+  check((await download).suggestedFilename()==='acme-meter.json', 'exported Device Profile file name');
+  await profiled.getByRole('button',{name:'Delete Acme Meter'}).click();
+  await profiled.getByText('Device Profile Acme Meter deleted.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='generic' && await profiled.locator('.profile-list li').count()===1, 'deleted Device Profile still selected or listed');
+  await profilePage.close();
+  // A remembered Device Profile that no longer exists falls back to Generic with a notice.
+  const gonePage=await browser.newPage(); await gonePage.addInitScript(() => localStorage.setItem('woow-esphome-modbus-scanner.preferences.v1',JSON.stringify({form:{device_profile_id:'gone'}})));
+  await gonePage.goto(base);
+  const gone=gonePage.locator('woow-esphome-modbus-scanner-panel');
+  await gone.getByText('The saved Device Profile no longer exists; the Generic Device Profile is selected.').waitFor();
+  check(await gone.locator('#device-profile').inputValue()==='generic', 'missing Device Profile did not fall back to Generic');
+  await gonePage.close();
 
   await page.evaluate(() => { mode='hold'; polls=0; calls.length=0; panel._form={...panel._form,safety_confirmed:true}; panel._start(false); });
   await page.waitForTimeout(1200); await page.evaluate(() => panel.remove());

@@ -38,6 +38,10 @@ def test_services_yaml_exposes_exact_public_names():
         "get_scan_results",
         "cancel_scan",
         "test_address",
+        "list_device_profiles",
+        "import_device_profile",
+        "export_device_profile",
+        "delete_device_profile",
     }
 
 
