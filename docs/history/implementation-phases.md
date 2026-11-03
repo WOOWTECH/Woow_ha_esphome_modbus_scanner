@@ -3,7 +3,7 @@
 Baseline: `0.3.0.dev3` / `62eabb3`. Current experimental deployment: `0.4.0.dev1`.
 Node 2 was the canary; node 1 followed only after its acceptance. See
 [live acceptance and evidence boundaries](hardening-live-acceptance.md),
-[authorization](authorization-boundary.md), and
+[authorization](../design/authorization-boundary.md), and
 [upgrade/rollback](hardening-upgrade-rollback.md).
 
 The checked items mean implementation and the targeted acceptance described in
