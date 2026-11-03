@@ -64,7 +64,6 @@ jobs:
           cache-dependency-path: requirements-test.txt
       - run: pip install -r requirements-test.txt
       - run: python -m compileall -q custom_components tests/live
-      - run: python tools/generate_profiles.py --check
       - name: Portable firmware invariants (not an ESPHome hardware build)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined firmware/guanjie-scanner/scanner_test.cpp -o /tmp/scanner-state

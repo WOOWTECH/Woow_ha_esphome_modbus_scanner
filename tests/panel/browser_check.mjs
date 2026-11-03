@@ -5,7 +5,7 @@ import {mkdir} from "node:fs/promises";
 import {createServer} from "node:http";
 import {resolve, sep} from "node:path";
 import {chromium} from "../../panel_frontend/node_modules/playwright/index.mjs";
-import {PHYSICAL_PROFILE} from "../../panel_frontend/src/profile-generated.js";
+import {PHYSICAL_PROFILE} from "../../panel_frontend/src/legacy-v1-profile.js";
 
 const root = resolve(process.cwd(), "..");
 const screenshots = process.env.SCANNER_SCREENSHOTS_DIR ? resolve(process.env.SCANNER_SCREENSHOTS_DIR) : resolve(root, "docs/screenshots");

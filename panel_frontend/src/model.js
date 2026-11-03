@@ -1,5 +1,5 @@
-import {PHYSICAL_PROFILE} from "./profile-generated.js";
-export {PHYSICAL_PROFILE} from "./profile-generated.js";
+import {PHYSICAL_PROFILE} from "./legacy-v1-profile.js";
+export {PHYSICAL_PROFILE} from "./legacy-v1-profile.js";
 export const DOMAIN = "woow_esphome_modbus_scanner";
 export const SERVICES = Object.freeze([
   "check_gateway", "get_history",

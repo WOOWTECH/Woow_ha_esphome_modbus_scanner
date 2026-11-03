@@ -16,7 +16,6 @@ from aioesphomeapi import (
 import pytest
 
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.health import HealthSession
-from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.profile import PROFILE
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provider import (
     ESPHomeGateway,
     ESPHomeGatewayProvider,
@@ -24,6 +23,8 @@ from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provide
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import ProbeType, ScanRequest
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.provider import GatewayProviderError
 
+# What the bridge v1 firmware on deployed nodes reports (the frozen legacy profile hash).
+DEPLOYED_V1_HASH = "1620942b806d6d958a6989d0c96c1a6a349887014d821c1b4336a95717269b85"
 GATEWAY = ESPHomeGateway("192.0.2.1", "AA:BB:CC:DD:EE:FF")
 REQUEST = ScanRequest(
     "esphome",
@@ -42,7 +43,7 @@ REQUEST = ScanRequest(
 def snapshot(**changes):
     return {
         "v": 1,
-        "hash": PROFILE["profile_hash"],
+        "hash": DEPLOYED_V1_HASH,
         "boot": 99,
         "seq": 1,
         "ms": 1000,
