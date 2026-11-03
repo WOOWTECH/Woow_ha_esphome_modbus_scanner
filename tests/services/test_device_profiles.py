@@ -396,9 +396,18 @@ async def test_v2_scan_uses_the_profile_inside_the_gateway_limits(hass, v2_gatew
 
     with pytest.raises(ServiceValidationError, match="read allowlist"):
         await call("test_address", {**target, "address": 3, "register_address": 17})
-    # Gateway limits still apply on top of the profile: Bridge v2 cannot pause polling.
-    with pytest.raises(ServiceValidationError, match="Bridge v2 cannot pause"):
-        await call("test_address", {**target, "address": 3, "pause_normal_polling": True})
+    # Gateway limits still apply on top of the profile: Generic allows the mock-only
+    # identification probe, Bridge v2 does not.
+    with pytest.raises(ServiceValidationError, match="Bridge v2 requires probe_type"):
+        await call(
+            "test_address",
+            {
+                **target,
+                "device_profile_id": "generic",
+                "address": 3,
+                "probe_type": "device_identification",
+            },
+        )
     assert FakeClient.instances == []
 
     started = await call("test_address", {**target, "address": 3})

@@ -54,7 +54,7 @@ export const V2_LIMITS = Object.freeze({
 });
 export const V2_DEFAULTS = Object.freeze({
   probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
-  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: false,
+  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: true,
 });
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
@@ -113,6 +113,26 @@ export function formatRawValues(row) {
   const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
   return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
 }
+const LEASE_STATES = ["active", "ended", "unconfirmed"];
+const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
+/**
+ * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
+ * `stale` names the paused devices whose entity values are frozen while the lease may hold.
+ */
+export function leaseNotice(status) {
+  const state = status?.lease_status;
+  if (!LEASE_STATES.includes(state)) return null;
+  const pollers = Array.isArray(status.paused_pollers) ? status.paused_pollers : [];
+  const label = (poller) => {
+    const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
+    return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
+  };
+  return {
+    state,
+    reason: state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null,
+    stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
+  };
+}
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
 /** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
 export function estimatedDurationMs(form) {
@@ -143,9 +163,8 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
     }
   }
   if (isV2Form(form)) {
-    const message = text.v2 || "Bridge v2 reads FC03/FC04 only and cannot pause Normal Polling yet.";
+    const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
-    if (form.pause_normal_polling === true) errors.pause_normal_polling = message;
     if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
       errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
     }
@@ -246,7 +265,8 @@ export function sanitizePreferences(value) {
     if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
     if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
-    form.pause_normal_polling = false;
+    // A v2 Scan pauses every Pausable Poller on its Bus; per-poller choice is a later release.
+    form.pause_normal_polling = true;
   } else if (source.provider === "esphome") {
     form.provider = "esphome";
     form.bridge = "v1";

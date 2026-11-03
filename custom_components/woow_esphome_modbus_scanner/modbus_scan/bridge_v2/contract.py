@@ -32,6 +32,16 @@ RESULT_OUTCOME_FIELDS: dict[str, tuple[str, ...]] = {
 INFO_SCHEMA_VERSION: int = CONTRACT["info"]["schema_version"]
 INFO_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["fields"])
 INFO_BUS_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["bus_fields"])
+INFO_POLLER_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["poller_fields"])
+
+RELEASE_ACTION: str = CONTRACT["actions"]["release"]["name"]
+RELEASE_ARGS: dict[str, str] = {
+    arg["name"]: arg["type"] for arg in CONTRACT["actions"]["release"]["args"]
+}
+LEASE_SENSOR: str = CONTRACT["text_sensors"]["lease"]["name"]
+LEASE_SCHEMA_VERSION: int = CONTRACT["lease"]["schema_version"]
+LEASE_STATES: tuple[str, ...] = tuple(CONTRACT["lease"]["states"])
+LEASE_END_REASONS: tuple[str, ...] = tuple(CONTRACT["lease"]["end_reasons"])
 
 _ID = CONTRACT["identifiers"]["request_id"]
 REQUEST_ID_PATTERN = re.compile(f"[{_ID['charset']}]{{{_ID['min_length']},{_ID['max_length']}}}")

@@ -8,9 +8,14 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
     modbus_scanner:
       - modbus_id: modbus_bus
 
-The node-wide probe action and the info/result text sensors are created once, by the first
-entry. Their names are fixed by the bridge v2 contract file
+The node-wide probe/release actions and the info/result/lease text sensors are created once,
+by the first entry. Their names are fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
+
+Pausable Pollers are found here, at code generation: every component in the validated config
+that is bound to the same hub (``modbus_id``) and whose generated class inherits
+``PollingComponent`` (for example each ``modbus_controller``) gets a stable index in YAML
+order. Nothing is listed by hand; adding a poller needs a recompile to appear.
 """
 
 import re
@@ -18,8 +23,8 @@ import re
 import esphome.codegen as cg
 from esphome.components import modbus, text_sensor
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_NAME, ENTITY_CATEGORY_DIAGNOSTIC
-from esphome.core import CORE
+from esphome.const import CONF_ADDRESS, CONF_ID, CONF_NAME, ENTITY_CATEGORY_DIAGNOSTIC
+from esphome.core import CORE, ID
 import esphome.final_validate as fv
 
 CODEOWNERS = ["@WOOWTECH"]
@@ -30,12 +35,14 @@ MULTI_CONF = True
 # Fixed by the bridge v2 contract; tests/config/test_firmware_contract.py checks they match.
 INFO_SENSOR_NAME = "Modbus Scanner v2 Info"
 RESULT_SENSOR_NAME = "Modbus Scanner v2 Result"
+LEASE_SENSOR_NAME = "Modbus Scanner v2 Lease"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
 CONF_BUS = "bus"
 CONF_BRIDGE_ID = "bridge_id"
 CONF_INFO_SENSOR = "info_sensor"
 CONF_RESULT_SENSOR = "result_sensor"
+CONF_LEASE_SENSOR = "lease_sensor"
 _BRIDGE_KEY = "modbus_scanner_bridge"
 
 modbus_scanner_ns = cg.esphome_ns.namespace("modbus_scanner")
@@ -82,6 +89,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_RESULT_SENSOR, default={CONF_NAME: RESULT_SENSOR_NAME}): _sensor(
                 RESULT_SENSOR_NAME
             ),
+            cv.Optional(CONF_LEASE_SENSOR, default={CONF_NAME: LEASE_SENSOR_NAME}): _sensor(
+                LEASE_SENSOR_NAME
+            ),
         }
     ),
     cv.require_esphome_version(*MIN_ESPHOME_VERSION),
@@ -123,6 +133,41 @@ def _hub_send_wait_ms(hub_id) -> int:
     return 2000
 
 
+def _pausable_pollers(hub_id) -> list[dict]:
+    """Every declared PollingComponent bound to ``hub_id``, in YAML order (stable indices)."""
+    found: list[dict] = []
+    seen: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            declared = node.get(CONF_ID)
+            if (
+                isinstance(declared, ID)
+                and declared.is_declaration
+                and declared.type is not None
+                and declared.type.inherits_from(cg.PollingComponent)
+                and isinstance(node.get(modbus.CONF_MODBUS_ID), ID)
+                and str(node[modbus.CONF_MODBUS_ID]) == str(hub_id)
+                and str(declared) not in seen
+            ):
+                seen.add(str(declared))
+                found.append(node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(CORE.config)
+    return found
+
+
+def _poller_address(config) -> int:
+    """The poller's slave address, or 0 when it has none (its frames are then not cleared)."""
+    address = config.get(CONF_ADDRESS)
+    return address if isinstance(address, int) and 1 <= address <= 247 else 0
+
+
 async def _bridge(config):
     if _BRIDGE_KEY in CORE.data:
         return CORE.data[_BRIDGE_KEY]
@@ -132,6 +177,8 @@ async def _bridge(config):
     cg.add(bridge.set_info_sensor(info))
     result = await text_sensor.new_text_sensor(config[CONF_RESULT_SENSOR])
     cg.add(bridge.set_result_sensor(result))
+    lease = await text_sensor.new_text_sensor(config[CONF_LEASE_SENSOR])
+    cg.add(bridge.set_lease_sensor(lease))
     # The component registers its own API action, so the user does not need
     # `api: custom_services: true` in YAML.
     cg.add_define("USE_API_USER_DEFINED_ACTIONS")
@@ -148,4 +195,8 @@ async def to_code(config):
         config[CONF_ID], name, _hub_send_wait_ms(config[modbus.CONF_MODBUS_ID])
     )
     cg.add(var.set_parent(hub))
+    for poller in _pausable_pollers(config[modbus.CONF_MODBUS_ID]):
+        component = await cg.get_variable(poller[CONF_ID])
+        name = str(poller.get(CONF_NAME) or poller[CONF_ID])
+        cg.add(var.add_poller(name, _poller_address(poller), component))
     cg.add(bridge.add_bus(var))

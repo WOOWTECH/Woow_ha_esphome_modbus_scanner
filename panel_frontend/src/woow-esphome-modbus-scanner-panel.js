@@ -4,7 +4,7 @@ import {stringsFor} from "./i18n.js";
 import {
   DEFAULTS, DOMAIN, OUTCOMES, MOCK_SCENARIOS, SERVICES, errorMessage, normalizeResponse,
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
-  selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues,
+  selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
 } from "./model.js";
 
@@ -415,6 +415,9 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const physical = this._form.provider === "esphome";
     // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
     const v1 = physical && this._form.bridge !== "v2";
+    // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
+    const lease = leaseNotice(this._status);
+    const v2Status = Boolean(lease) || (physical && !v1);
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     const compatible = supportedGateway(gateway);
@@ -459,7 +462,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return html`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
             <div class="actions"><button class="secondary" @click=${this._loadHistory} ?disabled=${Boolean(this._busy) || running}>${t.history}</button></div><small>${t.historyHelp}</small>
-            ${this._status ? html`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${this._status.error_info ? html`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : nothing}${this._status.progress_is_checkpoint ? html`<p class="notice failure">${t.checkpoint}</p>` : nothing}${TERMINAL.has(phase) && this._status.provider === "esphome" && this._status.recovery_status !== "verified" ? html`<p class="notice failure" role="status">${t.attention}</p>` : nothing}` : nothing}
+            ${this._status ? html`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? html`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? html`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : nothing}` : nothing}${this._status.error_info ? html`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : nothing}${this._status.progress_is_checkpoint ? html`<p class="notice failure">${t.checkpoint}</p>` : nothing}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? html`<p class="notice failure" role="status">${t.attention}</p>` : nothing}` : nothing}
             <p><strong>${t.phase}:</strong> ${t.statuses[phase] || phase} ${this._status?.current_address ? html`· ${t.columns.address} ${this._status.current_address}` : nothing}<br><code>${this._chosenId() || t.noScanId}</code></p>
             <div class="progress" role="progressbar" aria-label=${t.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progress}><span style="width:${Math.min(100, Math.max(0, progress))}%"></span></div><small>${this._status?.completed_addresses || 0} / ${this._status?.total_addresses || 0} ${t.addresses} · ${progress}% · ${this._status?.responder_count || 0} ${t.responders}</small>
             ${this._status?.events?.length ? html`<section aria-label=${t.timeline}><strong>${t.timeline}</strong><ol>${this._status.events.slice(-8).map((event) => html`<li>${Math.round(event.elapsed_ms/1000)}s · ${t.operationStates[event.phase] || t.statuses[event.phase] || t.dash}</li>`)}</ol></section>` : nothing}

@@ -3,8 +3,10 @@
 // ESPHome glue for the vendor-neutral Modbus scanner (bridge protocol v2). All decisions live in
 // scanner_core.h; this file only adapts ESPHome's hub, clock, API action and text sensors to it.
 
+#include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "esphome/components/api/custom_api_device.h"
 #include "esphome/components/modbus/modbus.h"
@@ -13,6 +15,17 @@
 #include "scanner_core.h"
 
 namespace esphome::modbus_scanner {
+
+/// A Pausable Poller: any PollingComponent on the same hub, found by codegen.
+class PollingComponentPoller : public modbus_scanner_core::Poller {
+ public:
+  explicit PollingComponentPoller(PollingComponent *component) : component_(component) {}
+  void pause() override { this->component_->stop_poller(); }
+  void resume() override { this->component_->start_poller(); }
+
+ protected:
+  PollingComponent *component_;
+};
 
 /// One scanner per Modbus client hub (a Bus). Probes are queued to arbitrary slaves through the
 /// hub's public queue; the hub keeps one frame in flight and correlates the reply to it.
@@ -26,6 +39,13 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
     return this->parent_->queue_pdu(slave, std::span<const uint8_t>(pdu, len), this);
   }
   void set_send_wait_ms(uint16_t ms) override { this->parent_->set_send_wait_time(ms); }
+  void clear_queue_for_address(uint8_t address) override { this->parent_->clear_tx_queue_for_address(address); }
+
+  /// Codegen emits one call per Pausable Poller, in stable table order.
+  void add_poller(const char *name, uint8_t address, PollingComponent *component) {
+    this->pollers_.push_back(std::make_unique<PollingComponentPoller>(component));
+    this->core_.add_poller(name, address, this->pollers_.back().get());
+  }
 
   void on_sent(std::span<const uint8_t> /*request_pdu*/) override { this->core_.on_sent(); }
   void on_response(std::span<const uint8_t> /*request_pdu*/, std::span<const uint8_t> response_pdu) override {
@@ -42,31 +62,38 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
 
  protected:
   modbus_scanner_core::Bus core_;
+  std::vector<std::unique_ptr<PollingComponentPoller>> pollers_;
 };
 
-/// Node-wide singleton: registers the v2 probe action and owns the info/result text sensors.
+/// Node-wide singleton: registers the v2 probe and release actions, owns the info/result/lease
+/// text sensors and runs each Bus's lease recovery from loop().
 class ModbusScannerBridge : public Component,
                             public api::CustomAPIDevice,
                             public modbus_scanner_core::Clock,
                             public modbus_scanner_core::ResultSink {
  public:
   void setup() override;
+  void loop() override;
   void dump_config() override;
 
   void set_info_sensor(text_sensor::TextSensor *sensor) { this->info_sensor_ = sensor; }
   void set_result_sensor(text_sensor::TextSensor *sensor) { this->result_sensor_ = sensor; }
+  void set_lease_sensor(text_sensor::TextSensor *sensor) { this->lease_sensor_ = sensor; }
   void add_bus(ModbusScannerBus *bus) { this->core_.add_bus(&bus->core()); }
 
   uint32_t now_ms() override;
   void publish_result(const std::string &json) override;
+  void publish_lease(const std::string &json) override;
 
   void on_probe(std::string request_id, std::string bus, int32_t slave, int32_t function_code, int32_t reg,
                 int32_t count, int32_t timeout_ms, std::string scan_id, std::string pause_pollers);
+  void on_release(std::string bus, std::string scan_id);
 
  protected:
   modbus_scanner_core::Bridge core_{*this, *this};
   text_sensor::TextSensor *info_sensor_{nullptr};
   text_sensor::TextSensor *result_sensor_{nullptr};
+  text_sensor::TextSensor *lease_sensor_{nullptr};
 };
 
 }  // namespace esphome::modbus_scanner

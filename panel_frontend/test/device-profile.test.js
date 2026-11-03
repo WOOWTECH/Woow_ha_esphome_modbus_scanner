@@ -74,8 +74,8 @@ test("profile limits intersect with the gateway's limits", () => {
   const bounds = boundsFor(v2, tight);
   assert.deepEqual(bounds.register_count, [1, 2]);
   assert.deepEqual(bounds.timeout_ms, [200, 900]);
-  // Bridge v2 still refuses polling pause whatever the profile says.
-  assert.ok(validateForm({...v2, pause_normal_polling: true}, false, {}, tight).pause_normal_polling);
+  // Generic allows the mock identification probe, but Bridge v2 still refuses it.
+  assert.ok(validateForm({...v2, probe_type: "device_identification"}, false, {}, GENERIC_PROFILE).probe_type);
 });
 
 test("payloads name the selected Device Profile and omit it for Generic", () => {
