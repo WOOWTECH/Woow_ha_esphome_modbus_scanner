@@ -42,6 +42,6 @@ and the four Device Profile services.
   for the next Scan of every user on that Bus. The selection only has an effect
   inside a Scan Lease, which the Gateway ends after 5 s idle or 10 min (ADR 0007).
 - A user can delete an imported Device Profile that another user imported.
-  Finished Scan results keep the profile label they were recorded with.
+  Finished Scan results keep the Device Profile label they were recorded with.
 - [Authorization boundary](../design/authorization-boundary.md) names these
   writes as part of the all-user policy.

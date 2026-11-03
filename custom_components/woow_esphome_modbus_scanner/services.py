@@ -311,7 +311,7 @@ def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
     return HomeAssistantError(str(err))
 
 
-async def _physical_allowed(call: ServiceCall) -> bool:
+async def _is_active_user_or_automation(call: ServiceCall) -> bool:
     """All active HA users and internal automations, per the approved policy (ADR 0008)."""
     if call.context.user_id is None:
         return True
@@ -321,7 +321,7 @@ async def _physical_allowed(call: ServiceCall) -> bool:
 
 async def _require_active_user(call: ServiceCall) -> None:
     """Refuse unknown and inactive named users; also guards Device Profile writes."""
-    if not await _physical_allowed(call):
+    if not await _is_active_user_or_automation(call):
         raise Unauthorized(context=call.context)
 
 
@@ -332,7 +332,7 @@ async def _authorize_physical(call: ServiceCall, provider: str) -> None:
 
 async def _handle_list_gateways(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     result = _coordinator(call.hass, owner).list_gateways()
-    allowed = await _physical_allowed(call)
+    allowed = await _is_active_user_or_automation(call)
     for gateway in result["gateways"]:
         gateway["can_operate"] = gateway["provider"] == "mock" or allowed
     return result
@@ -447,8 +447,6 @@ async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> Serv
 
 async def _handle_get_history(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     return _coordinator(call.hass, owner).history()
-
-
 
 
 def _profile_error(err: Exception) -> HomeAssistantError:

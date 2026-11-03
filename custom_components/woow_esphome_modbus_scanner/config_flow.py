@@ -130,7 +130,7 @@ def _verification_error(exc) -> str:
 
 
 async def verify_gateway(gateway) -> str | None:
-    """API-only MAC and bridge check; never sends a Modbus frame. Returns a form error."""
+    """API-only MAC and Bridge Protocol check; never sends a Modbus frame. Returns a form error."""
     provider = build_physical_provider([gateway])
     try:
         async with asyncio.timeout(20):
@@ -218,7 +218,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             gateways = None
             if gateway is not None:
                 gateways, error = upsert_gateway(existing, gateway)
-                # Same API-only MAC and bridge check as the ESPHome device path.
+                # Same API-only MAC and Bridge Protocol check as the ESPHome device path.
                 error = error or await verify_gateway(gateway)
             if error is None:
                 return self._save(gateways)

@@ -65,5 +65,5 @@ A component polling the same Bus as the scanner that a Scan may hold paused; the
 _Avoid_: Pause list entry, controller
 
 **Scan Lease**:
-The window during which a Gateway holds the selected Pausable Pollers paused for one Scan, ended by completion, idle expiry or a hard limit enforced on the Gateway itself.
+The window during which a Gateway holds the selected Pausable Pollers paused for one Scan, ended by completion, idle expiry, a hard limit, or a probe of another Scan superseding it; the Gateway itself enforces every ending except completion.
 _Avoid_: Pause window, lock
