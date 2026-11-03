@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
+import re
 from typing import Any
 
 MIN_SLAVE_ID = 1
@@ -17,6 +18,8 @@ MAX_RETRIES = 5
 MAX_INTER_REQUEST_DELAY_MS = 5_000
 # A range Scan over more IDs than this needs large_range_confirmed besides safety_confirmed.
 LARGE_RANGE_THRESHOLD = 32
+# A Bus name: what a Gateway reports and what a Scan targets (bridge v2 identifier charset).
+BUS_NAME_PATTERN = r"[0-9A-Za-z_-]{1,32}"
 
 
 class ProbeType(StrEnum):
@@ -70,6 +73,8 @@ class GatewayInfo:
     profile: dict[str, Any] | None = None
     health: dict[str, Any] | None = None
     limits: Any = None  # ProbeLimits reported by the provider adapter
+    # The Gateway's Buses as {"bus", "serial"} rows; empty while the provider does not know.
+    buses: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
@@ -83,6 +88,7 @@ class GatewayInfo:
             **({"profile": deepcopy(self.profile)} if self.profile is not None else {}),
             **({"health": deepcopy(self.health)} if self.health is not None else {}),
             **({"limits": self.limits.as_dict()} if self.limits is not None else {}),
+            "buses": deepcopy(list(self.buses)),
         }
 
 
@@ -95,6 +101,8 @@ class ScanRequest:
     start_id: int
     end_id: int
     probe_type: ProbeType = ProbeType.DEVICE_IDENTIFICATION
+    # The Bus a Scan targets; None lets a Gateway with exactly one Bus use that one.
+    bus: str | None = None
     register_address: int = 0
     register_count: int = 1
     timeout_ms: int = 500
@@ -137,9 +145,12 @@ class ScanRequest:
         return self.end_id - self.start_id + 1
 
     @property
-    def gateway_key(self) -> tuple[str, str]:
-        """Concurrency key used by the coordinator."""
-        return self.provider, self.gateway_id
+    def gateway_key(self) -> tuple[str, str, str | None]:
+        """Concurrency key used by the coordinator: one Scan at a time per Bus.
+
+        A None Bus stands for the whole Gateway, so it conflicts with every Bus of it.
+        """
+        return self.provider, self.gateway_id, self.bus
 
     @property
     def estimated_worst_case_ms(self) -> int:
@@ -168,6 +179,10 @@ class ScanRequest:
             raise ValueError("provider must be a non-empty string")
         if not isinstance(self.gateway_id, str) or not self.gateway_id:
             raise ValueError("gateway_id must be a non-empty string")
+        if self.bus is not None and (
+            not isinstance(self.bus, str) or not re.fullmatch(BUS_NAME_PATTERN, self.bus)
+        ):
+            raise ValueError("bus must be 1-32 characters from 0-9, A-Z, a-z, '_' and '-'")
         integer_fields = {
             "start_id": self.start_id,
             "end_id": self.end_id,

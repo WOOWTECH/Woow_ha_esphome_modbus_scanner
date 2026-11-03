@@ -54,20 +54,24 @@ class FakeV2Gateway:
 
     ``devices`` maps (bus, slave) to a responder: a list of register values, or an int
     Modbus exception code. Anything else times out, like a silent RS-485 address.
-    ``pollers`` maps a bus to its Pausable Poller table as (name, address) pairs. The Scan
-    Lease follows the contract's lease rules except the timers (firmware host tests own those).
+    ``pollers`` maps a bus to its Pausable Poller table as (name, address) pairs, and
+    ``serial`` a bus to the serial parameters its info entry reports. Each Bus holds its own
+    Scan Lease, following the contract's lease rules except the timers (firmware host tests
+    own those). Every sensor state goes to every connected API client, as on a real node.
     """
 
-    def __init__(self, *, mac=MAC, buses=("rs485",), devices=None, pollers=None):
+    def __init__(self, *, mac=MAC, buses=("rs485",), devices=None, pollers=None, serial=None):
         self.mac = mac
         self.buses = list(buses)
         self.devices = devices or {}
         self.pollers = pollers or {}
+        self.serial = serial or {}
         self.probes = []
         self.releases = []
-        self.paused = set()  # (bus, index) currently held paused by the lease
-        self.lease = None  # {"bus", "scan", "pollers", "active", "reason"}
+        self.paused = set()  # (bus, index) currently held paused by a lease
+        self.leases = {}  # bus -> {"bus", "scan", "pollers", "active", "reason"}
         self.result_override = None
+        self.clients = []  # connected FakeClients subscribed to states
         self.services = [
             UserService(
                 name=CONTRACT["actions"]["probe"]["name"], key=PROBE_KEY, args=_args("probe")
@@ -83,22 +87,35 @@ class FakeV2Gateway:
             TextSensorInfo(key=RESULT_KEY, name=CONTRACT["text_sensors"]["result"]["name"]),
             TextSensorInfo(key=LEASE_KEY, name=CONTRACT["text_sensors"]["lease"]["name"]),
         ]
-        self.publish = lambda key, payload: None  # replaced by the connected FakeClient
+
+    def publish(self, key, payload):
+        """Publish a sensor state to every connected client."""
+        for client in list(self.clients):
+            if client.connected:
+                client.publish(key, payload)
+
+    @property
+    def lease(self):
+        """The most recent Scan Lease of any Bus (single-Bus tests)."""
+        return next(reversed(self.leases.values()), None)
 
     def info(self):
+        def entry(bus):
+            row = {
+                "bus": bus,
+                "pollers": [
+                    {"index": index, "name": name, "address": address}
+                    for index, (name, address) in enumerate(self.pollers.get(bus, ()))
+                ],
+            }
+            if bus in self.serial:
+                row["serial"] = dict(self.serial[bus])
+            return row
+
         return {
             "v": CONTRACT["info"]["schema_version"],
             "bridge": CONTRACT["bridge_version"],
-            "buses": [
-                {
-                    "bus": bus,
-                    "pollers": [
-                        {"index": index, "name": name, "address": address}
-                        for index, (name, address) in enumerate(self.pollers.get(bus, ()))
-                    ],
-                }
-                for bus in self.buses
-            ],
+            "buses": [entry(bus) for bus in self.buses],
         }
 
     @staticmethod
@@ -114,41 +131,41 @@ class FakeV2Gateway:
             message["reason"] = reason
         return message
 
-    def end_lease(self, reason):
-        """The Gateway ends the lease (released, idle, hard_limit or superseded)."""
-        lease = self.lease
+    def end_lease(self, reason, bus=None):
+        """The Gateway ends a Bus's lease (released, idle, hard_limit or superseded)."""
+        lease = self.leases[bus] if bus is not None else self.lease
         lease.update(active=False, reason=reason)
-        self.paused.clear()
+        self.paused = {item for item in self.paused if item[0] != lease["bus"]}
         self.publish(
             LEASE_KEY,
             self.lease_message(lease["bus"], lease["scan"], "ended", lease["pollers"], reason),
         )
 
     def _lease_for(self, data):
-        if self.lease and self.lease["active"] and self.lease["scan"] != data["scan_id"]:
-            self.end_lease("superseded")
-        if self.lease and (self.lease["active"] or self.lease["scan"] == data["scan_id"]):
+        bus = data["bus"]
+        lease = self.leases.get(bus)
+        if lease and lease["active"] and lease["scan"] != data["scan_id"]:
+            self.end_lease("superseded", bus)
+        if lease and (lease["active"] or lease["scan"] == data["scan_id"]):
             return
         selected = (
             [int(i) for i in data["pause_pollers"].split(",")] if data["pause_pollers"] else []
         )
         if not selected:
             return
-        self.lease = {"bus": data["bus"], "scan": data["scan_id"], "pollers": selected}
-        self.lease["active"] = True
-        self.paused = {(data["bus"], index) for index in selected}
-        self.publish(
-            LEASE_KEY, self.lease_message(data["bus"], data["scan_id"], "active", selected)
-        )
+        self.leases[bus] = {"bus": bus, "scan": data["scan_id"], "pollers": selected}
+        self.leases[bus]["active"] = True
+        self.paused |= {(bus, index) for index in selected}
+        self.publish(LEASE_KEY, self.lease_message(bus, data["scan_id"], "active", selected))
 
     def release(self, data):
         self.releases.append(dict(data))
         if data["bus"] not in self.buses:
             return
-        lease = self.lease
+        lease = self.leases.get(data["bus"])
         if lease and lease["scan"] == data["scan_id"]:
             if lease["active"]:
-                self.end_lease("released")
+                self.end_lease("released", data["bus"])
             else:
                 self.publish(
                     LEASE_KEY,
@@ -239,7 +256,7 @@ class FakeClient:
 
     def subscribe_states(self, callback):
         self.callback = callback
-        self.gateway.publish = self.publish
+        self.gateway.clients.append(self)
         callback(TextSensorState(key=INFO_KEY, state=json.dumps(self.gateway.info())))
 
     def publish(self, key, payload):
@@ -253,7 +270,7 @@ class FakeClient:
             return None
         result = self.gateway.execute(data)
         if result is not None:
-            self.publish(RESULT_KEY, result)
+            self.gateway.publish(RESULT_KEY, result)
         return None
 
     async def disconnect(self, force=False):

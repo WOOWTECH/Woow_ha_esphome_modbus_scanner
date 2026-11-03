@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import inspect
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -27,7 +28,14 @@ from aioesphomeapi import (
 )
 
 from ..limits import ProbeLimits
-from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanRequest
+from ..models import (
+    BUS_NAME_PATTERN,
+    GatewayInfo,
+    ProbeResult,
+    ProbeType,
+    ScanOutcome,
+    ScanRequest,
+)
 from ..pollers import choose, paused_pollers, reconcile
 from ..provider import GatewayProviderError
 from .contract import (
@@ -39,6 +47,7 @@ from .contract import (
     INFO_POLLER_FIELDS,
     INFO_SCHEMA_VERSION,
     INFO_SENSOR,
+    INFO_SERIAL_FIELDS,
     LEASE_END_REASONS,
     LEASE_SCHEMA_VERSION,
     LEASE_SENSOR,
@@ -52,6 +61,7 @@ from .contract import (
     RESULT_OUTCOME_FIELDS,
     RESULT_SCHEMA_VERSION,
     RESULT_SENSOR,
+    SERIAL_PARITIES,
 )
 
 _ARG_TYPES = {"string": UserServiceArgType.STRING, "int": UserServiceArgType.INT}
@@ -157,6 +167,19 @@ def _valid_poller_table(pollers: Any) -> bool:
     )
 
 
+def _valid_serial(serial: Any) -> bool:
+    """The optional serial parameters of a Bus's hub UART."""
+    return (
+        isinstance(serial, dict)
+        and all(key in serial for key in INFO_SERIAL_FIELDS)
+        and _int(serial["baud_rate"])
+        and serial["baud_rate"] >= 1
+        and serial["parity"] in SERIAL_PARITIES
+        and serial["stop_bits"] in (1, 2)
+        and _int(serial["stop_bits"])
+    )
+
+
 def _parse_info(state: str) -> dict[str, Any]:
     info = json.loads(state)
     if not isinstance(info, dict) or any(key not in info for key in INFO_FIELDS):
@@ -168,11 +191,28 @@ def _parse_info(state: str) -> dict[str, Any]:
         isinstance(bus, dict)
         and all(key in bus for key in INFO_BUS_FIELDS)
         and isinstance(bus["bus"], str)
+        and re.fullmatch(BUS_NAME_PATTERN, bus["bus"])
         and _valid_poller_table(bus["pollers"])
+        and ("serial" not in bus or _valid_serial(bus["serial"]))
         for bus in buses
     ):
         raise ValueError
+    if len({bus["bus"] for bus in buses}) != len(buses):
+        raise ValueError
     return info
+
+
+def _bus_rows(buses: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """The Gateway's Buses as list_gateways reports them: name and serial parameters."""
+    return tuple(
+        {
+            "bus": bus["bus"],
+            "serial": {key: bus["serial"][key] for key in INFO_SERIAL_FIELDS}
+            if "serial" in bus
+            else None,
+        }
+        for bus in buses
+    )
 
 
 def _parse_lease(state: str, bus: str, scan_id: str) -> tuple[str, str | None] | None:
@@ -258,7 +298,14 @@ class V2GatewayProvider:
     def __init__(self, gateways, *, client_factory=None):
         self.gateways = {g.gateway_id: g for g in gateways}
         self.client_factory = client_factory
+        # Held by a check; a Scan waits for it, a check refuses while any Scan runs.
         self._locks = {key: asyncio.Lock() for key in self.gateways}
+        self._scans = dict.fromkeys(self.gateways, 0)
+        # One Probe (or lease release) in flight per Gateway across all its Buses' Scans.
+        # ESPHome batches text sensor states and sends only the latest state of an entity
+        # per batch, so two results published close together would lose the first one.
+        self._probe_slots = {key: asyncio.Lock() for key in self.gateways}
+        self._buses: dict[str, tuple[dict[str, Any], ...]] = {}
         self.health = {
             key: {
                 "api_status": "unchecked",
@@ -278,6 +325,7 @@ class V2GatewayProvider:
                 ("bridge_v2", "holding_register", "input_register", "multi_register"),
                 health=deepcopy(self.health[g.gateway_id]),
                 limits=LIMITS,
+                buses=deepcopy(self._buses.get(g.gateway_id, ())),
             )
             for g in self.gateways.values()
         ]
@@ -409,6 +457,7 @@ class V2GatewayProvider:
                 reason="bridge_mismatch",
             ) from None
         session.buses = info["buses"]
+        self._buses[gateway_id] = _bus_rows(session.buses)
         self.health[gateway_id].update(
             api_status="verified",
             checked_at=_now(),
@@ -444,7 +493,7 @@ class V2GatewayProvider:
         """API-only identity/signature check. Never sends a Modbus frame."""
         if gateway_id not in self.gateways:
             raise ValueError("Unknown physical gateway")
-        if self._locks[gateway_id].locked():
+        if self._locks[gateway_id].locked() or self._scans[gateway_id]:
             raise GatewayProviderError(
                 "Gateway is busy", code="GATEWAY_BUSY", phase="preflight", retryable=True
             )
@@ -482,14 +531,20 @@ class V2GatewayProvider:
             return deepcopy(self.health[gateway_id])
 
     async def run_scan(self, request, emit, cancelled, *, progress=None):
+        """Scan one Bus. The coordinator allows one Scan per Bus; Buses run side by side."""
         self.validate_request(request)
-        async with self._locks[request.gateway_id]:
+        gateway_id = request.gateway_id
+        self._scans[gateway_id] += 1
+        try:
+            async with self._locks[gateway_id]:
+                pass  # let a running check finish first
             if cancelled():
                 return
-            try:
-                await self._run(request, emit, cancelled, progress or (lambda _data: None))
-            except _Cancelled:
-                return
+            await self._run(request, emit, cancelled, progress or (lambda _data: None))
+        except _Cancelled:
+            return
+        finally:
+            self._scans[gateway_id] -= 1
 
     async def _run(self, request, emit, cancelled, progress):
         gateway = self.gateways[request.gateway_id]
@@ -563,15 +618,10 @@ class V2GatewayProvider:
             phase = "verify_bridge"
             client.subscribe_states(on_state)
             await self._read_info(session, gateway.gateway_id, cancelled)
-            if len(session.buses) != 1:
-                # Bus selection arrives with multi-bus support; never guess a Bus.
-                raise GatewayProviderError(
-                    "Gateway reports more than one Bus; bus selection is not supported yet",
-                    code="BUS_SELECTION_REQUIRED",
-                    phase=phase,
-                )
-            bus = session.buses[0]["bus"]
-            paused, removed = _pause_selection(request, bus, session.buses[0]["pollers"])
+            target = self._target_bus(request, session.buses, phase)
+            bus = target["bus"]
+            progress({"bus": bus})
+            paused, removed = _pause_selection(request, bus, target["pollers"])
             pause_pollers = ",".join(str(poller["index"]) for poller in paused)
             progress({"paused_pollers": paused, "removed_pollers": removed})
             function_code = _FUNCTION_CODES[request.probe_type]
@@ -652,6 +702,27 @@ class V2GatewayProvider:
             finally:
                 await self._disconnect(client, gateway.gateway_id)
             progress({"cleanup_status": self.health[gateway.gateway_id].get("cleanup_status")})
+
+    @staticmethod
+    def _target_bus(request: ScanRequest, buses: list[dict[str, Any]], phase: str):
+        """The info entry of the Bus this Scan targets, as the Gateway reports it now."""
+        if request.bus is not None:
+            for entry in buses:
+                if entry["bus"] == request.bus:
+                    return entry
+            raise GatewayProviderError(
+                f"Gateway reports no Bus {request.bus}; no probe sent",
+                code="UNKNOWN_BUS",
+                phase=phase,
+            )
+        if len(buses) != 1:
+            # Never guess a Bus.
+            raise GatewayProviderError(
+                f"Gateway reports {len(buses)} Buses; choose one with bus",
+                code="BUS_SELECTION_REQUIRED",
+                phase=phase,
+            )
+        return buses[0]
 
     @staticmethod
     async def _release(client, session, bus, scan_id, answer: asyncio.Future) -> bool:
