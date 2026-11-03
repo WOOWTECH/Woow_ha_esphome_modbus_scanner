@@ -78,6 +78,11 @@ class GatewayInfo:
     # The Gateway's Buses as {"bus", "serial"} rows; empty while the provider does not know.
     buses: tuple[dict[str, Any], ...] = ()
 
+    @property
+    def is_bridge_v2(self) -> bool:
+        """Whether the Gateway speaks Bridge Protocol v2 (Buses, Pausable Pollers, Scan Lease)."""
+        return "bridge_v2" in self.capabilities
+
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
         return {

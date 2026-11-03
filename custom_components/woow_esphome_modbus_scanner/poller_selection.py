@@ -61,14 +61,14 @@ class PollerSelectionStore:
             entry, options={**entry.options, OPTION_KEY: selection}
         )
 
-    def report(
+    def revalidate(
         self, gateway_id: str, tables: dict[str, list[dict[str, Any]]] | None, *, prune: bool
     ) -> tuple[Checklists, Checklists]:
         """(checklist per Bus, saved rows the firmware no longer has, per Bus).
 
         ``tables`` is the Gateway's current poller table per Bus, or None while unknown, in
-        which case the saved checklists are shown as they are. With ``prune`` the saved
-        checklists drop the removed rows, so each removal is reported once.
+        which case the saved checklists are returned as they are. With ``prune`` this also
+        saves the checklists without the removed rows, so each removal is reported once.
         """
         saved = self.saved(gateway_id)
         if tables is None:

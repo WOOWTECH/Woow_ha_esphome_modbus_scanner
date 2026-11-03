@@ -111,7 +111,8 @@ def _gateway_sensors_on_first_entry(config):
             config.setdefault(key, {CONF_NAME: name})
         elif key in config:
             raise cv.Invalid(
-                f"{key} is shared by every Bus of the Gateway; set it on the first modbus_scanner entry only",
+                f"{key} is shared by every Bus of the Gateway; "
+                "set it on the first modbus_scanner entry only",
                 path=[key],
             )
     return config

@@ -8,8 +8,8 @@ a result only counts when it echoes the request id of the Probe just sent.
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 import inspect
@@ -168,7 +168,7 @@ class _Session:
     buses: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _int(value: Any) -> bool:
+def _is_int(value: Any) -> bool:
     return type(value) is int
 
 
@@ -177,10 +177,10 @@ def _valid_poller_table(pollers: Any) -> bool:
     return isinstance(pollers, list) and all(
         isinstance(poller, dict)
         and all(key in poller for key in INFO_POLLER_FIELDS)
-        and _int(poller["index"])
+        and _is_int(poller["index"])
         and poller["index"] == position
         and isinstance(poller["name"], str)
-        and _int(poller["address"])
+        and _is_int(poller["address"])
         and 0 <= poller["address"] <= HARD_LIMITS["slave_max"]
         for position, poller in enumerate(pollers)
     )
@@ -191,11 +191,11 @@ def _valid_serial(serial: Any) -> bool:
     return (
         isinstance(serial, dict)
         and all(key in serial for key in INFO_SERIAL_FIELDS)
-        and _int(serial["baud_rate"])
+        and _is_int(serial["baud_rate"])
         and serial["baud_rate"] >= 1
         and serial["parity"] in SERIAL_PARITIES
         and serial["stop_bits"] in (1, 2)
-        and _int(serial["stop_bits"])
+        and _is_int(serial["stop_bits"])
     )
 
 
@@ -287,7 +287,7 @@ def _check_result(payload: Any, expected: dict[str, Any]) -> dict[str, Any]:
     for key, value in expected.items():
         if payload[key] != value or type(payload[key]) is not type(value):
             raise ValueError
-    if not _int(payload["latency_ms"]) or not 0 <= payload["latency_ms"] <= 60_000:
+    if not _is_int(payload["latency_ms"]) or not 0 <= payload["latency_ms"] <= 60_000:
         raise ValueError
     outcome = payload["outcome"]
     if any(key not in payload for key in RESULT_OUTCOME_FIELDS[outcome]):
@@ -297,11 +297,11 @@ def _check_result(payload: Any, expected: dict[str, Any]) -> dict[str, Any]:
         if (
             not isinstance(values, list)
             or len(values) != expected["count"]
-            or not all(_int(v) and 0 <= v <= 65535 for v in values)
+            or not all(_is_int(v) and 0 <= v <= 65535 for v in values)
         ):
             raise ValueError
     elif outcome == "modbus_exception":
-        if not _int(payload["exception"]) or not 1 <= payload["exception"] <= 255:
+        if not _is_int(payload["exception"]) or not 1 <= payload["exception"] <= 255:
             raise ValueError
     elif outcome == "gateway_error" and payload["error"] not in ERROR_CODES:
         raise ValueError

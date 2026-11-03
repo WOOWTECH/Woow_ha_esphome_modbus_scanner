@@ -126,10 +126,12 @@ class ModbusScanCoordinator:
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a bridge v2 Gateway, revalidated if known."""
-        if self._selection_store is None or "bridge_v2" not in gateway.capabilities:
+        if self._selection_store is None or not gateway.is_bridge_v2:
             return {}
         tables = (gateway.health or {}).get("pausable_pollers")
-        selection, removed = self._selection_store.report(gateway.gateway_id, tables, prune=prune)
+        selection, removed = self._selection_store.revalidate(
+            gateway.gateway_id, tables, prune=prune
+        )
         return {"poller_selection": selection, "removed_pollers": removed}
 
     def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
@@ -150,11 +152,11 @@ class ModbusScanCoordinator:
         if (
             gateway is None
             or self._selection_store is None
-            or "bridge_v2" not in gateway.capabilities
+            or not gateway.is_bridge_v2
         ):
             raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
         tables = (gateway.health or {}).get("pausable_pollers")
-        selection, _removed = self._selection_store.report(gateway_id, tables, prune=False)
+        selection, _removed = self._selection_store.revalidate(gateway_id, tables, prune=False)
         if bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
@@ -221,7 +223,7 @@ class ModbusScanCoordinator:
                     f"Gateway {request.gateway_id} has no Bus {request.bus}; "
                     f"its Buses are {', '.join(names)}"
                 )
-            if not names and "bridge_v2" not in gateway.capabilities:
+            if not names and not gateway.is_bridge_v2:
                 raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
             return request
         if len(names) == 1:
@@ -252,7 +254,7 @@ class ModbusScanCoordinator:
         if gateway.limits is not None:
             gateway.limits.validate(request)
         profile.limits.validate(request)
-        if request.pause_pollers is not None and "bridge_v2" not in gateway.capabilities:
+        if request.pause_pollers is not None and not gateway.is_bridge_v2:
             raise ValueError("pause_pollers needs a bridge v2 Gateway with Pausable Pollers")
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):
