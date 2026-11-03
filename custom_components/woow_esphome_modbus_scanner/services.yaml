@@ -38,39 +38,39 @@ start_scan:
             - integration: esphome
     start_id:
       name: Start Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; legacy bridge v1 gateways allow 1–32.
       default: 1
       selector:
         number: {min: 1, max: 247, mode: box}
     end_id:
       name: End Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; legacy bridge v1 gateways allow 1–32.
       default: 3
       selector:
         number: {min: 1, max: 247, mode: box}
     probe_type: &probe
       name: Probe type
-      description: Physical Guanjie supports holding_register (FC03) only.
+      description: holding_register (FC03) or input_register (FC04) as the Device Profile allows; device_identification is mock-only.
       default: holding_register
       selector:
         select:
           options: [device_identification, holding_register, input_register]
     register_address: &register
       name: Register address
-      description: Physical default 25089 (0x6201); the versioned profile whitelist is enforced.
-      default: 25089
+      description: Defaults from the selected Device Profile; its register allowlist, if any, is enforced.
+      default: 0
       selector:
         number: {min: 0, max: 65535, mode: box}
     register_count: &count
       name: Register count
-      description: Physical Guanjie requires exactly 1.
+      description: 1–4 on bridge v2 gateways; legacy bridge v1 requires exactly 1.
       default: 1
       selector:
         number: {min: 1, max: 125, mode: box}
     timeout_ms: &timeout
       name: Timeout
-      description: Physical Guanjie requires exactly 700 ms.
-      default: 700
+      description: 100–2000 ms on bridge v2 gateways; legacy bridge v1 requires exactly 700 ms.
+      default: 1000
       selector:
         number: {min: 10, max: 10000, mode: box, unit_of_measurement: ms}
     retries: &retries
@@ -144,7 +144,7 @@ test_address:
     esphome_device_id: *device
     address:
       name: Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; legacy bridge v1 gateways allow 1–32.
       default: 1
       selector:
         number: {min: 1, max: 247, mode: box}
