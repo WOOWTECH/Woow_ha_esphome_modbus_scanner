@@ -35,11 +35,18 @@ from .contract import (
     HARD_LIMITS,
     INFO_BUS_FIELDS,
     INFO_FIELDS,
+    INFO_POLLER_FIELDS,
     INFO_SCHEMA_VERSION,
     INFO_SENSOR,
+    LEASE_END_REASONS,
+    LEASE_SCHEMA_VERSION,
+    LEASE_SENSOR,
+    LEASE_STATES,
     OUTCOMES,
     PROBE_ACTION,
     PROBE_ARGS,
+    RELEASE_ACTION,
+    RELEASE_ARGS,
     RESULT_COMMON_FIELDS,
     RESULT_OUTCOME_FIELDS,
     RESULT_SCHEMA_VERSION,
@@ -50,6 +57,9 @@ _ARG_TYPES = {"string": UserServiceArgType.STRING, "int": UserServiceArgType.INT
 _FUNCTION_CODES = {ProbeType.HOLDING_REGISTER: 3, ProbeType.INPUT_REGISTER: 4}
 # Margin over the per-probe timeout for API round trips and the hub's turnaround delay.
 _RESULT_MARGIN_S = 5
+# How long cleanup waits for the Gateway to answer a lease release. Without an answer the
+# Gateway still resumes Normal Polling by itself after the contract's idle time.
+_RELEASE_ANSWER_S = 1.0
 
 LIMITS = ProbeLimits(
     "Bridge v2",
@@ -61,7 +71,6 @@ LIMITS = ProbeLimits(
     register_count_max=HARD_LIMITS["count_max"],
     timeout_ms_min=HARD_LIMITS["timeout_ms_min"],
     timeout_ms_max=HARD_LIMITS["timeout_ms_max"],
-    pause_normal_polling_supported=False,
     defaults={
         "probe_type": ProbeType.HOLDING_REGISTER,
         "register_address": 0,
@@ -69,7 +78,8 @@ LIMITS = ProbeLimits(
         "timeout_ms": 1000,
         "retries": 0,
         "inter_request_delay_ms": 100,
-        "pause_normal_polling": False,
+        # A Scan pauses every Pausable Poller on its Bus under one Scan Lease.
+        "pause_normal_polling": True,
     },
 )
 
@@ -120,14 +130,30 @@ class _Session:
     """One verified API connection: the probe action, sensor keys and bus table."""
 
     service: Any
+    release_service: Any
     info_key: int
     result_key: int
+    lease_key: int
     info: asyncio.Future
     buses: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _int(value: Any) -> bool:
     return type(value) is int
+
+
+def _valid_poller_table(pollers: Any) -> bool:
+    """The Pausable Poller table: stable indices 0..n-1, names, slave addresses 0..247."""
+    return isinstance(pollers, list) and all(
+        isinstance(poller, dict)
+        and all(key in poller for key in INFO_POLLER_FIELDS)
+        and _int(poller["index"])
+        and poller["index"] == position
+        and isinstance(poller["name"], str)
+        and _int(poller["address"])
+        and 0 <= poller["address"] <= 247
+        for position, poller in enumerate(pollers)
+    )
 
 
 def _parse_info(state: str) -> dict[str, Any]:
@@ -141,11 +167,38 @@ def _parse_info(state: str) -> dict[str, Any]:
         isinstance(bus, dict)
         and all(key in bus for key in INFO_BUS_FIELDS)
         and isinstance(bus["bus"], str)
-        and isinstance(bus["pollers"], list)
+        and _valid_poller_table(bus["pollers"])
         for bus in buses
     ):
         raise ValueError
     return info
+
+
+def _parse_lease(state: str, bus: str, scan_id: str) -> tuple[str, str | None] | None:
+    """(state, end reason) of a lease message for this bus and scan; None for anything else."""
+    try:
+        lease = json.loads(state)
+    except (ValueError, TypeError):
+        return None
+    if (
+        not isinstance(lease, dict)
+        or lease.get("v") != LEASE_SCHEMA_VERSION
+        or lease.get("bus") != bus
+        or lease.get("scan") != scan_id
+        or lease.get("state") not in LEASE_STATES
+    ):
+        return None
+    if lease["state"] != "ended":
+        return lease["state"], None
+    if lease.get("reason") not in LEASE_END_REASONS:
+        return None
+    return "ended", lease["reason"]
+
+
+def _signature(service: Any, args: dict[str, str]) -> bool:
+    return len(service.args) == len(args) and {a.name: a.type for a in service.args} == {
+        name: _ARG_TYPES[kind] for name, kind in args.items()
+    }
 
 
 def _check_result(payload: Any, expected: dict[str, Any]) -> dict[str, Any]:
@@ -289,21 +342,23 @@ class V2GatewayProvider:
             phase = "verify_bridge"
             progress({"operation_phase": phase})
             entities, services = await _bounded(client.list_entities_services(), 10, cancelled)
-            matches = [s for s in services if s.name == PROBE_ACTION]
+            actions = {
+                name: [s for s in services if s.name == name]
+                for name in (PROBE_ACTION, RELEASE_ACTION)
+            }
             sensors = {
                 name: [e for e in entities if isinstance(e, TextSensorInfo) and e.name == name]
-                for name in (INFO_SENSOR, RESULT_SENSOR)
+                for name in (INFO_SENSOR, RESULT_SENSOR, LEASE_SENSOR)
             }
-            if len(matches) != 1 or any(len(found) != 1 for found in sensors.values()):
+            if any(len(found) != 1 for found in (*actions.values(), *sensors.values())):
                 raise GatewayProviderError(
                     "The modbus_scanner component (bridge v2) is not installed on this node",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
                 )
-            service = matches[0]
-            if len(service.args) != len(PROBE_ARGS) or {a.name: a.type for a in service.args} != {
-                name: _ARG_TYPES[kind] for name, kind in PROBE_ARGS.items()
-            }:
+            service = actions[PROBE_ACTION][0]
+            release_service = actions[RELEASE_ACTION][0]
+            if not _signature(service, PROBE_ARGS) or not _signature(release_service, RELEASE_ARGS):
                 raise GatewayProviderError(
                     "Unexpected bridge v2 action signature",
                     code="BRIDGE_UNSUPPORTED",
@@ -311,8 +366,10 @@ class V2GatewayProvider:
                 )
             session = _Session(
                 service=service,
+                release_service=release_service,
                 info_key=sensors[INFO_SENSOR][0].key,
                 result_key=sensors[RESULT_SENSOR][0].key,
+                lease_key=sensors[LEASE_SENSOR][0].key,
                 info=asyncio.get_running_loop().create_future(),
             )
             return session
@@ -336,6 +393,7 @@ class V2GatewayProvider:
             checked_at=_now(),
             bridge_status="v2_signature_verified",
             buses=[bus["bus"] for bus in session.buses],
+            pausable_pollers={bus["bus"]: deepcopy(bus["pollers"]) for bus in session.buses},
             error_info=None,
         )
 
@@ -419,12 +477,33 @@ class V2GatewayProvider:
         pending: asyncio.Future | None = None
         expected: dict[str, Any] | None = None
         phase = "connect"
+        bus: str | None = None
+        scan_id = uuid4().hex
+        # Scan Lease as last reported by the Gateway for this bus and scan.
+        lease: dict[str, Any] = {"status": "none", "reason": None, "requested": False}
+        lease_answer: asyncio.Future | None = None
+        disconnected = False
+
+        def report_lease(status, reason=None):
+            lease.update(status=status, reason=reason)
+            progress({"lease_status": status, "lease_end_reason": reason})
+
+        def on_lease(state):
+            parsed = _parse_lease(state.state, bus, scan_id) if bus is not None else None
+            if parsed is None:
+                return  # foreign, stale or malformed lease messages are never evidence
+            report_lease(*parsed)
+            if lease_answer is not None and not lease_answer.done() and parsed[0] != "active":
+                lease_answer.set_result(parsed)
 
         def on_state(state):
             if session is None or getattr(state, "missing_state", False):
                 return
             if state.key == session.info_key:
                 self._accept_info(session, state)
+                return
+            if state.key == session.lease_key:
+                on_lease(state)
                 return
             if state.key != session.result_key or pending is None or pending.done():
                 return
@@ -445,6 +524,8 @@ class V2GatewayProvider:
                 )
 
         async def on_stop(_expected_disconnect):
+            nonlocal disconnected
+            disconnected = True
             if pending is not None and not pending.done():
                 pending.set_exception(
                     GatewayProviderError(
@@ -468,7 +549,10 @@ class V2GatewayProvider:
                     phase=phase,
                 )
             bus = session.buses[0]["bus"]
-            scan_id = uuid4().hex
+            # This ticket pauses every Pausable Poller on the Bus; per-poller choice comes later.
+            paused = deepcopy(session.buses[0]["pollers"]) if request.pause_normal_polling else []
+            pause_pollers = ",".join(str(poller["index"]) for poller in paused)
+            progress({"paused_pollers": paused})
             function_code = _FUNCTION_CODES[request.probe_type]
             for slave in range(request.start_id, request.end_id + 1):
                 for attempt in range(request.retries + 1):
@@ -487,6 +571,8 @@ class V2GatewayProvider:
                         "count": request.register_count,
                     }
                     pending = asyncio.get_running_loop().create_future()
+                    # From here on the Gateway may hold a lease, so cleanup must release it.
+                    lease["requested"] = lease["requested"] or bool(pause_pollers)
                     result = client.execute_service(
                         session.service,
                         {
@@ -498,7 +584,7 @@ class V2GatewayProvider:
                             "count": request.register_count,
                             "timeout_ms": request.timeout_ms,
                             "scan_id": scan_id,
-                            "pause_pollers": "",
+                            "pause_pollers": pause_pollers,
                         },
                     )
                     if inspect.isawaitable(result):
@@ -532,8 +618,37 @@ class V2GatewayProvider:
                 pending.cancel()
             if session is not None and not session.info.done():
                 session.info.cancel()
-            await self._disconnect(client, gateway.gateway_id)
+            try:
+                if lease["requested"]:
+                    # Completion, cancellation and errors all release at once. When HA cannot
+                    # reach the Gateway, it resumes Normal Polling by itself (idle expiry).
+                    lease_answer = asyncio.get_running_loop().create_future()
+                    released = not disconnected and await self._release(
+                        client, session, bus, scan_id, lease_answer
+                    )
+                    if not released and lease["status"] != "ended":
+                        report_lease("unconfirmed")
+            finally:
+                await self._disconnect(client, gateway.gateway_id)
             progress({"cleanup_status": self.health[gateway.gateway_id].get("cleanup_status")})
+
+    @staticmethod
+    async def _release(client, session, bus, scan_id, answer: asyncio.Future) -> bool:
+        """Ask the Gateway to end this scan's lease; True once it answered with the ending."""
+        try:
+            async with asyncio.timeout(_RELEASE_ANSWER_S):
+                result = client.execute_service(
+                    session.release_service, {"bus": bus, "scan_id": scan_id}
+                )
+                if inspect.isawaitable(result):
+                    await result
+                await asyncio.shield(answer)
+        except Exception:  # noqa: BLE001 - cleanup never replaces the scan's own outcome
+            return False
+        finally:
+            if not answer.done():
+                answer.cancel()
+        return True
 
     def _probe_result(self, request: ScanRequest, payload: dict, attempts: int) -> ProbeResult:
         outcome = payload["outcome"]
