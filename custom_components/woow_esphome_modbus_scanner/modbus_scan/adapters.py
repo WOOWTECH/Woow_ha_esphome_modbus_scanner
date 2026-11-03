@@ -15,6 +15,11 @@ BRIDGE_V2 = "v2"
 BRIDGES = (BRIDGE_V2, BRIDGE_V1)
 
 
+def physical_gateway_id(mac: str) -> str:
+    """The gateway id both bridge adapters give an enrolled MAC, e.g. ``esphome:aabbccddeeff``."""
+    return "esphome:" + mac.replace(":", "").lower()
+
+
 def gateway_bridge(gateway: dict[str, Any]) -> str:
     """Bridge protocol of one enrolled Gateway; entries from before v2 are legacy v1."""
     return gateway.get("bridge", BRIDGE_V1)

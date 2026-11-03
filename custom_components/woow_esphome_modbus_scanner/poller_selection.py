@@ -18,6 +18,16 @@ OPTION_KEY = "pausable_poller_selection"
 Checklists = dict[str, list[dict[str, Any]]]
 
 
+def without_gateways(options: dict[str, Any], gateway_ids) -> dict[str, Any]:
+    """Entry options with the saved checklists of these (removed) Gateways dropped."""
+    selection = {
+        gateway_id: checklists
+        for gateway_id, checklists in options.get(OPTION_KEY, {}).items()
+        if gateway_id not in set(gateway_ids)
+    }
+    return {**options, OPTION_KEY: selection} if OPTION_KEY in options else dict(options)
+
+
 class PollerSelectionStore:
     """Read and write saved checklists of the scanner's config entry."""
 

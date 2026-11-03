@@ -22,7 +22,14 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from .const import DOMAIN, NAME
-from .modbus_scan.adapters import BRIDGE_V2, BRIDGES, build_physical_provider, gateway_bridge
+from .modbus_scan.adapters import (
+    BRIDGE_V2,
+    BRIDGES,
+    build_physical_provider,
+    gateway_bridge,
+    physical_gateway_id,
+)
+from .poller_selection import without_gateways
 
 ESPHOME_DOMAIN = "esphome"
 _MAC = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}")
@@ -144,10 +151,12 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             return list(self._get_reconfigure_entry().data.get("gateways", []))
         return []
 
-    def _save(self, gateways):
+    def _save(self, gateways, *, options=None):
         if self.source == config_entries.SOURCE_RECONFIGURE:
             return self.async_update_reload_and_abort(
-                self._get_reconfigure_entry(), data_updates={"gateways": gateways}
+                self._get_reconfigure_entry(),
+                data_updates={"gateways": gateways},
+                **({"options": options} if options is not None else {}),
             )
         return self.async_create_entry(title=NAME, data={"gateways": gateways})
 
@@ -230,7 +239,11 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
         existing = self._existing()
         if user_input is not None:
             remove = set(user_input.get("gateways", []))
-            return self._save([g for g in existing if g["mac"] not in remove])
+            # A removed Gateway takes its saved Pausable Poller selection with it.
+            options = without_gateways(
+                self._get_reconfigure_entry().options, map(physical_gateway_id, remove)
+            )
+            return self._save([g for g in existing if g["mac"] not in remove], options=options)
         options = [(g["mac"], _label(g)) for g in existing]
         schema = vol.Schema({vol.Required("gateways"): _select(options, multiple=True)})
         return self.async_show_form(step_id="remove_gateway", data_schema=schema)
