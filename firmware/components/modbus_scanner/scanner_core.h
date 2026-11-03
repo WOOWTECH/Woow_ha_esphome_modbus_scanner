@@ -316,7 +316,10 @@ class Bus {
       return;
     const size_t count = static_cast<size_t>(this->request_.count);
     if (len != 2 + 2 * count || pdu[0] != static_cast<uint8_t>(this->request_.function_code) || pdu[1] != 2 * count) {
-      this->finish_("gateway_error", "\"error\":\"" + std::string(error::INVALID_RESPONSE) + "\"");
+      // A CRC-valid frame that does not answer this probe: overlapping replies from a
+      // duplicate ID, or a misbehaving slave. It is evidence about this address, not a
+      // Gateway fault, so the Scan records it and goes on.
+      this->finish_("possible_collision", "");
       return;
     }
     std::string values = "\"values\":[";

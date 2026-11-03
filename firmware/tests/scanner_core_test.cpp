@@ -329,7 +329,13 @@ static void test_terminal_outcomes(const Value &contract) {
          const uint8_t reply[] = {0x03, 0x04, 0x00, 0x01};
          b.on_response(reply, sizeof(reply));
        },
-       true, "gateway_error", "invalid_response"},
+       true, "possible_collision", nullptr},
+      {"reply with another function code",
+       [](core::Bus &b) {
+         const uint8_t reply[] = {0x04, 0x02, 0x00, 0x01};
+         b.on_response(reply, sizeof(reply));
+       },
+       true, "possible_collision", nullptr},
   };
   for (const Case &c : cases) {
     current_test = std::string("terminal: ") + c.name;

@@ -234,6 +234,8 @@ class FakeV2Gateway:
             return {**result, "outcome": "responded", "latency_ms": 18, "values": device}
         if isinstance(device, int):
             return {**result, "outcome": "modbus_exception", "latency_ms": 9, "exception": device}
+        if device == "collision":  # a CRC-valid reply that does not answer the probe
+            return {**result, "outcome": "possible_collision", "latency_ms": 11}
         return {**result, "outcome": "timeout", "latency_ms": data["timeout_ms"]}
 
 
@@ -536,6 +538,21 @@ async def test_firmware_rejection_fails_the_scan_with_its_reason(hass, gateway):
         "retryable": True,
     }
     assert "busy" in results["error"]
+
+
+async def test_a_mismatched_reply_is_recorded_and_the_scan_goes_on(hass, gateway):
+    gateway.devices = {("rs485", 8): [1], ("rs485", 9): "collision", ("rs485", 10): [3]}
+    call = await _setup(hass)
+    status = await _finished(hass, call, await _scan(hass, call, start=8, end=10))
+
+    assert status["status"] == "completed"
+    assert [probe["slave"] for probe in gateway.probes] == [8, 9, 10]
+    results = await call("get_scan_results", {"scan_id": status["scan_id"]})
+    assert results["outcome_counts"]["possible_collision"] == 1
+    assert results["outcome_counts"]["gateway_error"] == 0
+    [collision] = [row for row in results["responders"] if row["address"] == 9]
+    assert collision["outcome"] == "possible_collision"
+    assert "possible ID collision" in collision["detail"]
 
 
 async def test_more_than_one_bus_requires_bus_selection(hass, gateway):
