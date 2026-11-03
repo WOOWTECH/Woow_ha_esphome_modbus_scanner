@@ -20,6 +20,7 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
+from ..adapters import physical_gateway_id
 from ..limits import ProbeLimits, ScanTiming
 from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome
 from ..provider import GatewayProviderError
@@ -97,7 +98,7 @@ class ESPHomeGateway:
 
     @property
     def gateway_id(self):
-        return "esphome:" + self.mac.replace(":", "").lower()
+        return physical_gateway_id(self.mac)
 
 
 class ESPHomeGatewayProvider:

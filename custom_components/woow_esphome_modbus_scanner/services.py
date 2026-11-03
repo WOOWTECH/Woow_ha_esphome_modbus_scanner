@@ -37,7 +37,7 @@ from .const import (
 )
 from .device_profiles import DeviceProfileNotFoundError, DeviceProfileStore
 from .issues import report_gateway_issue
-from .modbus_scan.adapters import build_physical_provider
+from .modbus_scan.adapters import build_physical_provider, physical_gateway_id
 from .modbus_scan.coordinator import (
     GatewayBusyError,
     ModbusScanCoordinator,
@@ -346,7 +346,7 @@ def _validate_selected_device(call: ServiceCall) -> None:
     device = dr.async_get(call.hass).async_get(call.data["esphome_device_id"])
     if device is None or not any(
         kind == dr.CONNECTION_NETWORK_MAC
-        and "esphome:" + value.replace(":", "").lower() == call.data["gateway_id"]
+        and physical_gateway_id(value) == call.data["gateway_id"]
         for kind, value in device.connections
     ):
         raise ValueError("Selected ESPHome device does not match the configured gateway")

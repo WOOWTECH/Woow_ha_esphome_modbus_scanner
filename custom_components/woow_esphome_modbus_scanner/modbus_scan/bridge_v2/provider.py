@@ -28,6 +28,7 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
+from ..adapters import physical_gateway_id
 from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
@@ -146,7 +147,7 @@ class V2Gateway:
 
     @property
     def gateway_id(self) -> str:
-        return "esphome:" + self.mac.replace(":", "").lower()
+        return physical_gateway_id(self.mac)
 
     @property
     def display_name(self) -> str:

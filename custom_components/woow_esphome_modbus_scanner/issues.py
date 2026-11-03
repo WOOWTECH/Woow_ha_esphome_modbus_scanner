@@ -28,14 +28,14 @@ def sync_legacy_bridge_issues(hass, gateways) -> None:
     Issues of Gateways that are now bridge v2, or no longer enrolled, are removed.
     Delete this function together with ``modbus_scan/legacy_v1/``.
     """
-    from .modbus_scan.adapters import BRIDGE_V1, gateway_bridge
+    from .modbus_scan.adapters import BRIDGE_V1, gateway_bridge, physical_gateway_id
 
     wanted = {}
     for gateway in gateways:
         if gateway_bridge(gateway) != BRIDGE_V1:
             continue
         mac = gateway["mac"].upper()
-        gateway_id = "esphome:" + mac.replace(":", "").lower()
+        gateway_id = physical_gateway_id(mac)
         wanted[LEGACY_BRIDGE_PREFIX + _digest(gateway_id)] = {
             "name": gateway.get("name") or mac,
             "host": gateway["host"],
@@ -64,9 +64,11 @@ def report_gateway_issue(hass, gateway_id, code):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
     elif code in PERSISTENT:
         if code == "API_AUTH_FAILED":
+            from .modbus_scan.adapters import physical_gateway_id
+
             for entry in hass.config_entries.async_entries(DOMAIN):
                 if any(
-                    "esphome:" + g["mac"].replace(":", "").lower() == gateway_id
+                    physical_gateway_id(g["mac"]) == gateway_id
                     for g in entry.data.get("gateways", [])
                 ):
                     entry.async_start_reauth(hass)
