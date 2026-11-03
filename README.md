@@ -60,6 +60,9 @@ physical scan may disrupt normal polling even when all probes are read-only.
 
 `start_scan` therefore accepts only the literal JSON/YAML boolean
 `safety_confirmed: true`; truthy numbers and strings are rejected.
+A range of more than 32 IDs also needs `large_range_confirmed: true` (same
+exact-boolean rule); the sidebar shows the estimated duration, IDs x (timeout +
+delay), and asks for this second confirmation.
 
 **All-user policy:** the current eight services and sidebar are available to
 active authenticated HA users, without an admin/user role gate. Internal

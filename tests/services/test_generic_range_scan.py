@@ -5,14 +5,21 @@ The v2 Gateway is the fake from ``test_bridge_v2`` (built from the shared contra
 
 from homeassistant.exceptions import ServiceValidationError
 import pytest
-from test_bridge_v2 import (  # noqa: F401 - gateway is a fixture
-    GATEWAY_ID,
-    FakeClient,
-    _settle,
-    _setup,
-    gateway,
-)
+from test_bridge_v2 import GATEWAY_ID, FakeClient, FakeV2Gateway, _settle, _setup
 import voluptuous as vol
+
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
+    provider as v2_provider,
+)
+
+
+@pytest.fixture
+def gateway(monkeypatch):
+    node = FakeV2Gateway(devices={("rs485", 7): [1234, 65535], ("rs485", 9): 2})
+    FakeClient.gateway = node
+    FakeClient.instances = []
+    monkeypatch.setattr(v2_provider, "APIClient", FakeClient)
+    return node
 
 
 async def _start_scan(call, **fields):
