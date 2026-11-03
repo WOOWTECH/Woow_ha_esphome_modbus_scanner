@@ -625,6 +625,7 @@ async def test_scan_pauses_every_pausable_poller_and_releases_when_done(hass, po
     assert status["lease_status"] == "ended"
     assert status["lease_end_reason"] == "released"
     assert status["paused_pollers"] == POLLER_TABLE
+    assert status["lease_ended_after_address"] is None  # released by HA, not ended early
     results = await call("get_scan_results", {"scan_id": status["scan_id"]})
     assert (results["lease_status"], results["lease_end_reason"]) == ("ended", "released")
 
@@ -667,6 +668,10 @@ async def test_lease_ended_by_the_gateway_is_reported_with_its_reason(hass, poll
     assert status["status"] == "completed"  # the Scan goes on without pausing
     assert len(polled.probes) == 3
     assert (status["lease_status"], status["lease_end_reason"]) == ("ended", "hard_limit")
+    # Slave 8 finished under the lease; slave 9 onward ran with Normal Polling resumed.
+    assert status["lease_ended_after_address"] == 8
+    results = await call("get_scan_results", {"scan_id": status["scan_id"]})
+    assert results["lease_ended_after_address"] == 8
 
 
 async def test_disconnect_mid_scan_leaves_recovery_to_the_gateway(hass, polled):

@@ -50,6 +50,9 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# Lease endings the Gateway decides by itself, possibly before the Scan finishes.
+_EARLY_LEASE_END_REASONS = frozenset({"idle", "hard_limit", "superseded"})
+
 @dataclass(slots=True)
 class _ScanState:
     scan_id: str
@@ -79,6 +82,9 @@ class _ScanState:
     # Scan Lease as reported by the Gateway: none, active, ended or unconfirmed.
     lease_status: str = "none"
     lease_end_reason: str | None = None
+    # Last Slave ID finished when the Gateway ended the lease before the Scan did; later
+    # Probes ran with Normal Polling resumed.
+    lease_ended_after_address: int | None = None
     paused_pollers: list[dict[str, Any]] = field(default_factory=list)
     # Chosen pollers the Gateway's current table no longer has; they were not paused.
     removed_pollers: list[dict[str, Any]] = field(default_factory=list)
@@ -387,6 +393,7 @@ class ModbusScanCoordinator:
         return {
             "lease_status": state.lease_status,
             "lease_end_reason": state.lease_end_reason,
+            "lease_ended_after_address": state.lease_ended_after_address,
             "paused_pollers": [dict(poller) for poller in state.paused_pollers],
             "removed_pollers": [dict(poller) for poller in state.removed_pollers],
         }
@@ -487,6 +494,16 @@ class ModbusScanCoordinator:
                 "superseded",
             }:
                 state.lease_end_reason = update["lease_end_reason"]
+            if (
+                state.lease_status == "ended"
+                and state.lease_end_reason in _EARLY_LEASE_END_REASONS
+                and state.phase == ScanPhase.RUNNING
+                and state.lease_ended_after_address is None
+            ):
+                # Addresses run in order from start_id, so this is the last one finished.
+                state.lease_ended_after_address = (
+                    state.request.start_id + state.completed_addresses - 1
+                )
             if state.bus is None and isinstance(update.get("bus"), str):
                 state.bus = update["bus"]
             for key in ("paused_pollers", "removed_pollers"):

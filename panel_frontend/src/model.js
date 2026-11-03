@@ -84,6 +84,12 @@ export const V2_LIMITS = Object.freeze({
   slave_min: 1, slave_max: 247, register_count_max: 4, timeout_ms_min: 100, timeout_ms_max: 2000,
   probe_types: Object.freeze(["holding_register", "input_register"]),
 });
+/** Scan Lease timers of bridge v2 Gateways (the contract file's lease; a model test checks them). */
+export const V2_LEASE = Object.freeze({idle_ms: 5000, hard_limit_ms: 600000});
+/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a bridge v2 Gateway. */
+export function outlastsScanLease(estimateMs, gateway) {
+  return isBridgeV2(gateway) && Number.isFinite(estimateMs) && estimateMs > V2_LEASE.hard_limit_ms;
+}
 export const V2_DEFAULTS = Object.freeze({
   probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
   retries: 0, inter_request_delay_ms: 100, pause_normal_polling: true,
@@ -163,6 +169,8 @@ export function hasDecodedValues(results) {
 }
 const LEASE_STATES = ["active", "ended", "unconfirmed"];
 const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
+/** Endings the Gateway decides by itself, possibly while the Scan still runs. */
+const EARLY_END_REASONS = ["idle", "hard_limit", "superseded"];
 /**
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
  * `stale` names the paused devices whose entity values are frozen while the lease may hold.
@@ -176,11 +184,26 @@ const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) =>
 export function leaseNotice(status) {
   const state = status?.lease_status;
   if (!LEASE_STATES.includes(state)) return null;
+  const reason = state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null;
   return {
     state,
-    reason: state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null,
+    reason,
     stale: state === "ended" ? [] : pollerObjects(status.paused_pollers).map(pollerLabel),
+    endedAfter: leaseEndedAfter(status, reason),
   };
+}
+/**
+ * The last Slave ID finished under the Scan Lease when the Gateway ended it before the Scan
+ * did; later Probes ran with Normal Polling resumed. Null when the lease held to the end.
+ */
+function leaseEndedAfter(status, reason) {
+  const after = status?.lease_ended_after_address;
+  return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= 247 ? after : null;
+}
+/** Whether a Responder row was probed after the Scan Lease ended early (Normal Polling active). */
+export function probedWithoutLease(results, row) {
+  const after = leaseNotice(results)?.endedAfter;
+  return after !== null && after !== undefined && Number.isInteger(row?.address) && row.address > after;
 }
 /** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
 export function removedPollers(status) {

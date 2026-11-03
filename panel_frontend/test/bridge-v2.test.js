@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {
-  DEFAULTS, INTEGER_BOUNDS, V2_LIMITS, boundsFor, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
+  DEFAULTS, INTEGER_BOUNDS, V2_LEASE, V2_LIMITS, boundsFor, estimatedDurationMs, outlastsScanLease, probedWithoutLease, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
   selectGateway, startPayload, supportedGateway, testPayload, validateForm,
 } from "../src/model.js";
 
@@ -22,6 +22,20 @@ test("panel v2 limits are the contract's hard limits", () => {
     {slave: [hard.slave_min, hard.slave_max], count: hard.count_max,
       timeout: [hard.timeout_ms_min, hard.timeout_ms_max]},
   );
+});
+
+test("panel Scan Lease timers are the contract's", () => {
+  assert.deepEqual({...V2_LEASE}, {idle_ms: contract.lease.idle_ms, hard_limit_ms: contract.lease.hard_limit_ms});
+});
+
+test("a v2 range scan estimated past the lease hard limit is flagged", () => {
+  const form = {...selectGateway(DEFAULTS, V2_GATEWAY), start_id: 1, end_id: 247, timeout_ms: 2000, retries: 2};
+  const estimate = estimatedDurationMs(form, V2_GATEWAY);
+  assert.ok(estimate > contract.lease.hard_limit_ms);
+  assert.equal(outlastsScanLease(estimate, V2_GATEWAY), true);
+  assert.equal(outlastsScanLease(contract.lease.hard_limit_ms, V2_GATEWAY), false);
+  // Legacy and mock gateways hold no Scan Lease, so there is nothing to outlast.
+  assert.equal(outlastsScanLease(estimate, {provider: "mock", gateway_id: "mock:rs485-gateway"}), false);
 });
 
 test("the inter-request delay is capped by the contract for every gateway", () => {
@@ -84,16 +98,29 @@ const PAUSED = [{index: 0, name: "meter", address: 1}, {index: 1, name: "inverte
 
 test("an active Scan Lease warns that paused devices' entity values are stale", () => {
   const notice = leaseNotice({lease_status: "active", lease_end_reason: null, paused_pollers: PAUSED});
-  assert.deepEqual(notice, {state: "active", reason: null, stale: ["meter (1)", "inverter (2)"]});
+  assert.deepEqual(notice, {state: "active", reason: null, stale: ["meter (1)", "inverter (2)"], endedAfter: null});
 });
 
 test("lease endings report their reason and no stale warning", () => {
   for (const reason of contract.lease.end_reasons) {
     const notice = leaseNotice({lease_status: "ended", lease_end_reason: reason, paused_pollers: PAUSED});
-    assert.deepEqual(notice, {state: "ended", reason, stale: []});
+    assert.deepEqual(notice, {state: "ended", reason, stale: [], endedAfter: null});
   }
   assert.deepEqual(leaseNotice({lease_status: "unconfirmed", paused_pollers: PAUSED}),
-    {state: "unconfirmed", reason: null, stale: ["meter (1)", "inverter (2)"]});
+    {state: "unconfirmed", reason: null, stale: ["meter (1)", "inverter (2)"], endedAfter: null});
+});
+
+test("a lease the Gateway ended early marks the Responders probed after it", () => {
+  const results = {lease_status: "ended", lease_end_reason: "hard_limit", lease_ended_after_address: 120};
+  assert.equal(leaseNotice(results).endedAfter, 120);
+  assert.equal(probedWithoutLease(results, {address: 120}), false);
+  assert.equal(probedWithoutLease(results, {address: 121}), true);
+  // HA's own release never marks rows, and malformed addresses are ignored.
+  const released = {...results, lease_end_reason: "released"};
+  assert.equal(leaseNotice(released).endedAfter, null);
+  assert.equal(probedWithoutLease(released, {address: 200}), false);
+  assert.equal(leaseNotice({...results, lease_ended_after_address: "120"}).endedAfter, null);
+  assert.equal(probedWithoutLease({}, {address: 5}), false);
 });
 
 test("no lease, unknown states and hostile poller names render safely", () => {
