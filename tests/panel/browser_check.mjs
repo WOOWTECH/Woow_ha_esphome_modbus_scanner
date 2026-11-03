@@ -206,7 +206,7 @@ try {
 
   await page.evaluate(() => { mode='failure';panel._currentScanId=fixture.uuid;panel._status={scan_id:fixture.uuid,status:'running'}; });
   await panel.getByRole("button", {name:"Refresh status"}).click();
-  await panel.locator(".notice.failure").filter({hasText:/another scan owns/i}).waitFor();
+  await panel.locator(".notice.failure").filter({hasText:/another Scan is running on the same Bus/i}).waitFor();
   await capturePanel(page, "mocked-failed-long-evidence.png");
 
   const menu = panel.getByRole("button", {name:"Open Home Assistant menu"});
@@ -379,12 +379,20 @@ try {
   await profilePage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
   check(await profilePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.device_profile_id==='acme-meter'), 'start_scan omitted device_profile_id');
   await profiled.locator('#result-profile').filter({hasText:'Acme Meter 1.2.0 (acme-meter)'}).waitFor({timeout:5000});
+  // The result source names the Scan the rows belong to, not only its Gateway and Bus.
+  check(await profiled.locator('#result-scan').innerText()==='11111111-1111-4111-8111-111111111111', 'result source does not name its Scan');
   // Decoded values sit beside the raw values, which stay shown in decimal and hex.
   await profiled.getByRole('columnheader',{name:'Decoded value'}).waitFor({timeout:5000});
   const decodedRow=profiled.locator('tbody tr').filter({hasText:'784 (0x0310)'});
   check(await decodedRow.locator('td.decoded').innerText()==='Voltage = 78.4 V', 'decoded value or unit missing from the result table');
   check(await profiled.locator('tbody tr').filter({hasText:'Modbus exception 2'}).locator('td.decoded').innerText()==='—', 'row without decoded values must show a dash');
   await capturePanel(profilePage, 'mocked-device-profiles.png');
+  // A Scan Lease the Gateway ended early is explained, and rows probed after it are marked.
+  await profilePage.evaluate(async () => { window.savedResults=panel._results; panel._results={...panel._results,lease_status:'ended',lease_end_reason:'hard_limit',lease_ended_after_address:3}; await panel.updateComplete; });
+  check((await profiled.locator('#result-lease-ended-early').innerText()).includes('after Slave ID 3'), 'early lease end is not explained with the results');
+  check(await profiled.locator('tbody tr').filter({hasText:'Modbus exception 2'}).locator('.without-lease').count()===1, 'row probed after the lease ended is not marked');
+  check(await decodedRow.locator('.without-lease').count()===0, 'row probed under the lease is marked');
+  await profilePage.evaluate(async () => { panel._results=window.savedResults; await panel.updateComplete; });
   const download=profilePage.waitForEvent('download');
   await profiled.getByRole('button',{name:'Export Acme Meter'}).click();
   check((await download).suggestedFilename()==='acme-meter.json', 'exported Device Profile file name');

@@ -21,6 +21,9 @@ const en = {
   staleWarning: "Entity values of these paused devices are stale until the Scan ends:",
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x attempts x (timeout + gateway overhead) + delays).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
+  leaseLimitWarning: "This estimate is longer than the 10-minute Scan Lease limit. After 10 minutes the Gateway resumes Normal Polling, and the rest of the Scan shares the Bus with it. To keep Normal Polling paused for the full Scan, scan a smaller range or use a shorter timeout or fewer retries.",
+  leaseEndedEarly: (after) => `The Gateway ended the Scan Lease before the Scan finished. Probes after Slave ID ${after} ran while Normal Polling was active, so a timeout or collision there can come from Normal Polling traffic.`,
+  withoutLease: "Normal Polling active",
   registerBlock: "The register block must end at or before register 65535.",
   deviceProfile: "Device Profile", deviceProfileHelp: "Its defaults fill the form; its limits apply together with the gateway's limits.",
   deviceProfiles: "Device Profiles", builtin: "built-in",
@@ -31,7 +34,7 @@ const en = {
   profileFallback: "The saved Device Profile no longer exists; the Generic Device Profile is selected.",
   profileProbe: "The selected Device Profile does not allow this probe type.",
   profileRegister: (list) => `The selected Device Profile allows registers ${list} only.`,
-  resultProfile: "Device Profile",
+  resultProfile: "Device Profile", resultScan: "Scan",
   decodedValue: "Decoded value",
   decodedHelp: "Decoded values come from the selected Device Profile's field definitions; the raw values stay the evidence.",
   physicalRegisters: "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.",
@@ -54,7 +57,7 @@ notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physi
   statusTitle: "Status and progress", recent: "Recent scan ID (this browser only)", storage: "Preferences and IDs stay in localStorage. Tokens, hosts, frames, replies, and credentials are never stored.", phase: "Phase", noRecent: "No recent scan", noScanId: "No scan ID", progress: "Scan progress", addresses: "addresses", responders: "responders", terminalError: "Terminal error", refreshStatus: "Refresh status", refreshResults: "Refresh results",
   evidence: "Responder evidence", evidenceHelp: "Timeouts are counted but intentionally omitted. A response is not proof of a unique physical device.", tableLabel: "Sortable responder evidence table", noEvidence: "No responder evidence loaded.",
   columns: {address:"Address",outcome:"Outcome",latency_ms:"Latency ms",exception_code:"Exception",vendor:"Vendor",product:"Product",detail:"Detail"},
-  interpretation: "Interpretation and troubleshooting", ready: "Ready. Refresh gateways to verify service availability.", correcting: "Correct the highlighted fields.", started: "Scan started.", testStarted: "Address test started.", statusRefreshed: "Status refreshed.", resultsRefreshed: "Results refreshed.", cancelRequested: "Cancellation requested; the current transaction may finish first.", recentSelected: "Recent scan selected. Refresh status or results; server history is memory-only.", serviceUnavailable:"Home Assistant connection is unavailable. Reconnect and retry.", invalidResponse:"Home Assistant returned an empty or invalid service response.", startMissing:"The start response did not include a scan ID.",
+  interpretation: "Interpretation and troubleshooting", ready: "Ready. Refresh gateways to verify service availability.", correcting: "Correct the highlighted fields.", started: "Scan started.", testStarted: "Address test started.", statusRefreshed: "Status refreshed.", resultsRefreshed: "Results refreshed.", cancelRequested: "Cancellation requested; the current transaction may finish first.", recentSelected: "Recent scan selected. Refresh status or results; the server keeps the 20 most recent finished Scans across restarts.", serviceUnavailable:"Home Assistant connection is unavailable. Reconnect and retry.", invalidResponse:"Home Assistant returned an empty or invalid service response.", startMissing:"The start response did not include a scan ID.",
   noChosen: "Start a scan or choose a recent scan ID first.", noResultsId: "No scan ID is available for results.", noCancel: "No active scan to cancel.", unknownState: "Unknown or expired scan ID. Stale status and results were cleared; start a new scan or choose another recent ID.",
   gatewayCount: (n)=>`${n} gateway${n===1?"":"s"} available.`, noGateway: "No gateway is available. Reload the integration and inspect Home Assistant logs.", finished: (status)=>`Scan ${status}; results loaded automatically.`, pollingStopped: (error)=>`Status polling stopped: ${error} Use Refresh status to retry.`, terminalLoadFailed: (error)=>`Terminal results failed to load: ${error}`,
   invalidInteger: (a,b)=>`Enter a whole number from ${a} to ${b}.`, orderError: "End ID must be at least Start ID.", safetyError: "Confirm the best-effort scan warning before starting.", gatewayError: "Select an available gateway.",
@@ -72,7 +75,7 @@ notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physi
     gateway_disconnect:"Address 1 identifies as WOOWTECH, address 3 responds, other earlier addresses time out, then the gateway disconnects at max(start + 3, 4). Expected terminal state: failed with partial evidence.",
   },
   help: {
-    identified:"Valid device-identification evidence, not guaranteed uniqueness.", responded:"A generic valid response proves activity at that moment only.", modbus_exception:"A CRC-valid exception is responder evidence; check function and register support.", timeout:"Could mean offline, wrong serial settings, unsupported probe, wiring, latency, or congestion—never proven absence.", possible_collision:"Inconsistent framing may indicate duplicate IDs, noise, termination, or bias problems.", gateway_error:"Refresh gateways, inspect integration logs, then retry. A busy error means another scan owns this provider/gateway pair.", unknown:"Server history is memory-only and bounded to recent terminal scans. Reload/restart can invalidate browser-stored IDs.", network:"Reconnect Home Assistant, verify the config entry is loaded, and use manual refresh. Polling never overlaps and stops after disconnection."
+    identified:"Valid device-identification evidence, not guaranteed uniqueness.", responded:"A generic valid response proves activity at that moment only.", modbus_exception:"A CRC-valid exception is responder evidence; check function and register support.", timeout:"Could mean offline, wrong serial settings, unsupported probe, wiring, latency, or congestion—never proven absence.", possible_collision:"Inconsistent framing may indicate duplicate IDs, noise, termination, or bias problems.", gateway_error:"Refresh gateways, inspect integration logs, then retry. A busy error means another Scan is running on the same Bus of this Gateway; wait for it or choose another Bus.", unknown:"The server keeps only the 20 most recent finished Scans, also across restarts. An older or removed Scan ID stored in this browser is no longer known.", network:"Reconnect Home Assistant, verify the config entry is loaded, and use manual refresh. Polling never overlaps and stops after disconnection."
   }, unknownHeading:"Unknown scan ID", networkHeading:"Network/service errors", dash:"—"
 };
 
@@ -98,6 +101,9 @@ const zh = {
   staleWarning:"下列暫停中設備的實體數值在掃描結束前為過期資料：",
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 × 嘗試次數 ×（逾時 + Gateway 額外時間）+ 間隔）。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
+  leaseLimitWarning:"預估時間超過 Scan Lease 的 10 分鐘上限。10 分鐘後 Gateway 會恢復一般輪詢，掃描的其餘部分會與一般輪詢共用匯流排。若要在整個掃描期間保持一般輪詢暫停，請縮小範圍，或縮短逾時、減少重試次數。",
+  leaseEndedEarly:(after)=>`Gateway 在掃描結束前就結束了 Scan Lease。站號 ${after} 之後的探測是在一般輪詢進行中執行的，因此那些位址的逾時或衝突可能來自一般輪詢的流量。`,
+  withoutLease:"一般輪詢進行中",
   registerBlock:"暫存器區塊不可超過 65535。",
   deviceProfile:"設備規格（Device Profile）",deviceProfileHelp:"其預設值會帶入表單；其限制與閘道限制同時生效。",
   deviceProfiles:"設備規格（Device Profile）",builtin:"內建",
@@ -108,7 +114,7 @@ const zh = {
   profileFallback:"儲存的設備規格已不存在，已改選通用設備規格。",
   profileProbe:"所選設備規格不允許此探測類型。",
   profileRegister:(list)=>`所選設備規格只允許暫存器 ${list}。`,
-  resultProfile:"設備規格",
+  resultProfile:"設備規格",resultScan:"掃描",
   decodedValue:"解讀值",
   decodedHelp:"解讀值依所選設備規格的欄位定義換算；原始值仍是證據。",
   physicalRegisters:"請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。",
@@ -122,11 +128,11 @@ const zh = {
   advanced:"進階唯讀探測設定",probe:"探測類型",deviceIdentification:"裝置識別（選用的 Modbus 能力）",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應；暫存器讀取會回傳固定的原始值而非裝置識別。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",
-  ready:"準備就緒。請重新整理閘道以確認服務可用。",correcting:"請修正標示的欄位。",started:"掃描已開始。",testStarted:"位址測試已開始。",statusRefreshed:"狀態已重新整理。",resultsRefreshed:"結果已重新整理。",cancelRequested:"已要求取消；目前交易可能會先完成。",recentSelected:"已選擇最近掃描。請重新整理狀態或結果；伺服器歷程僅存於記憶體。",serviceUnavailable:"Home Assistant 連線無法使用。請重新連線後再試。",invalidResponse:"Home Assistant 回傳空白或無效的服務回應。",startMissing:"開始回應未包含掃描 ID。",noChosen:"請先開始掃描或選擇最近的掃描 ID。",noResultsId:"沒有可用於結果的掃描 ID。",noCancel:"沒有可取消的進行中掃描。",unknownState:"掃描 ID 未知或已過期。已清除舊狀態與結果；請開始新掃描或選擇其他最近 ID。",gatewayCount:(n)=>`有 ${n} 個閘道可用。`,noGateway:"沒有可用閘道。請重新載入整合並檢查 Home Assistant 記錄。",finished:(status)=>`掃描已${status === "completed" ? "完成" : "終止"}；已自動載入結果。`,pollingStopped:(error)=>`狀態輪詢已停止：${error} 請用「重新整理狀態」重試。`,terminalLoadFailed:(error)=>`無法載入終止結果：${error}`,
+  ready:"準備就緒。請重新整理閘道以確認服務可用。",correcting:"請修正標示的欄位。",started:"掃描已開始。",testStarted:"位址測試已開始。",statusRefreshed:"狀態已重新整理。",resultsRefreshed:"結果已重新整理。",cancelRequested:"已要求取消；目前交易可能會先完成。",recentSelected:"已選擇最近掃描。請重新整理狀態或結果；伺服器會保留最近 20 次已結束的掃描，重新啟動後仍保留。",serviceUnavailable:"Home Assistant 連線無法使用。請重新連線後再試。",invalidResponse:"Home Assistant 回傳空白或無效的服務回應。",startMissing:"開始回應未包含掃描 ID。",noChosen:"請先開始掃描或選擇最近的掃描 ID。",noResultsId:"沒有可用於結果的掃描 ID。",noCancel:"沒有可取消的進行中掃描。",unknownState:"掃描 ID 未知或已過期。已清除舊狀態與結果；請開始新掃描或選擇其他最近 ID。",gatewayCount:(n)=>`有 ${n} 個閘道可用。`,noGateway:"沒有可用閘道。請重新載入整合並檢查 Home Assistant 記錄。",finished:(status)=>`掃描已${status === "completed" ? "完成" : "終止"}；已自動載入結果。`,pollingStopped:(error)=>`狀態輪詢已停止：${error} 請用「重新整理狀態」重試。`,terminalLoadFailed:(error)=>`無法載入終止結果：${error}`,
   invalidInteger:(a,b)=>`請輸入 ${a} 到 ${b} 的整數。`,orderError:"結束 ID 必須大於或等於起始 ID。",safetyError:"開始前請確認盡力而為掃描警告。",gatewayError:"請選擇可用閘道。",sort:(label,direction)=>`依${label}排序；${direction}。`,ascending:"目前升冪，啟用後改為降冪",descending:"目前降冪，啟用後改為升冪",unsorted:"尚未排序，啟用後使用升冪",selected:"已選取",
   statuses:{idle:"閒置",running:"執行中",completed:"已完成",cancelled:"已取消",failed:"失敗",unknown:"未知"},outcomes:{identified:"已識別",responded:"有回應",modbus_exception:"Modbus 例外",timeout:"逾時",possible_collision:"可能衝突",gateway_error:"閘道錯誤"},details:{"Valid Modbus response without identity details":"有效的 Modbus 回應，但沒有識別詳細資料","Valid device-identification response":"有效的裝置識別回應","CRC-valid Modbus exception; a responder exists but rejected the probe":"CRC 有效的 Modbus 例外；有回應者，但拒絕此探測","Inconsistent CRC/framing; duplicate IDs or bus noise are possible":"CRC／訊框不一致；可能是 ID 重複或匯流排雜訊"},profileNames:{found_default:"預設找到裝置",all_offline:"全部離線",partial_timeout:"部分逾時",modbus_exception:"Modbus 例外",possible_collision:"可能衝突",gateway_disconnect:"閘道中斷"},
   profiles:{found_default:"測試範圍 1–12：位址 1 識別為 WOOWTECH WT-RS485-01；3 有回應；5 回傳例外碼 2；12 識別為 Acme Controls ACM-12；其餘逾時。預期終止狀態：完成。",all_offline:"所選範圍的每個位址都逾時，且不保留任何回應者資料列。逾時絕不證明裝置不存在。預期終止狀態：完成。",partial_timeout:"固定資料：2、11、42 有回應；7、21 識別為 Mock Industries MI-007／MI-021；其餘所選位址逾時。預期終止狀態：完成。",modbus_exception:"固定資料：位址 4、17 回傳例外碼 2；位址 9 回傳例外碼 3；其餘逾時。預期終止狀態：完成。",possible_collision:"固定資料：位址 7 因 CRC／訊框不一致回報「可能衝突」；其餘所選位址逾時。預期終止狀態：完成，但不保證唯一性。",gateway_disconnect:"位址 1 識別為 WOOWTECH、位址 3 有回應、前面的其他位址逾時，接著閘道於 max(起始 + 3, 4) 中斷。預期終止狀態：失敗，並保留部分證據。"},
-  help:{identified:"有效的裝置識別證據，但不保證唯一性。",responded:"一般有效回應只證明該時刻有活動。",modbus_exception:"CRC 有效的例外也是回應者證據；請檢查功能碼與暫存器支援。",timeout:"可能是離線、序列設定錯誤、不支援探測、配線、延遲或壅塞，絕不代表已證明不存在。",possible_collision:"訊框不一致可能表示 ID 重複、雜訊、終端電阻或偏壓問題。",gateway_error:"重新整理閘道、檢查整合記錄後再試。忙碌錯誤表示另一掃描占用同一提供者／閘道。",unknown:"伺服器歷程只存於記憶體，並僅保留有限的最近終止掃描。重新載入或重啟會使瀏覽器儲存的 ID 失效。",network:"重新連線 Home Assistant、確認設定項目已載入，再手動重新整理。輪詢不會重疊，且中斷連線後會停止。"},unknownHeading:"未知掃描 ID",networkHeading:"網路／服務錯誤"
+  help:{identified:"有效的裝置識別證據，但不保證唯一性。",responded:"一般有效回應只證明該時刻有活動。",modbus_exception:"CRC 有效的例外也是回應者證據；請檢查功能碼與暫存器支援。",timeout:"可能是離線、序列設定錯誤、不支援探測、配線、延遲或壅塞，絕不代表已證明不存在。",possible_collision:"訊框不一致可能表示 ID 重複、雜訊、終端電阻或偏壓問題。",gateway_error:"重新整理閘道、檢查整合記錄後再試。忙碌錯誤表示此閘道的同一條匯流排上已有另一個掃描在執行；請等待它結束或改選其他匯流排。",unknown:"伺服器只保留最近 20 次已結束的掃描，重新啟動後仍保留。此瀏覽器儲存的較舊或已移除的掃描 ID 將不再可用。",network:"重新連線 Home Assistant、確認設定項目已載入，再手動重新整理。輪詢不會重疊，且中斷連線後會停止。"},unknownHeading:"未知掃描 ID",networkHeading:"網路／服務錯誤"
 };
 
 export function languageFor(hass) {
