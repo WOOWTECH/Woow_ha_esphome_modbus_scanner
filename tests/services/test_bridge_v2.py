@@ -392,6 +392,7 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "allowed_registers": None,
         "timeout_ms_min": 100,
         "timeout_ms_max": 2000,
+        "inter_request_delay_ms_max": 3000,
         "pause_normal_polling_required": False,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 300,
@@ -569,6 +570,8 @@ async def test_more_than_one_bus_requires_bus_selection(hass, gateway):
         ({"register_count": 5}, "Bridge v2 requires register_count<=4"),
         ({"timeout_ms": 99}, "Bridge v2 requires timeout_ms 100–2000"),
         ({"probe_type": "device_identification"}, "Bridge v2 requires probe_type"),
+        # A Scan's own gap between Probes must never let the Gateway end its Scan Lease.
+        ({"inter_request_delay_ms": 3001}, "Bridge v2 requires inter_request_delay_ms<=3000"),
     ],
 )
 async def test_service_layer_enforces_v2_limits_without_bus_traffic(

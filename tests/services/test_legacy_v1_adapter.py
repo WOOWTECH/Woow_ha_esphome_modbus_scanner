@@ -125,6 +125,7 @@ async def test_legacy_gateway_reports_its_limits_in_list_gateways(hass):
         "allowed_registers": IN_D17_REGISTERS,
         "timeout_ms_min": 700,
         "timeout_ms_max": 700,
+        "inter_request_delay_ms_max": 5000,
         "pause_normal_polling_required": True,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 2700,
@@ -154,6 +155,19 @@ async def test_legacy_probe_uses_reported_defaults_and_keeps_result_format(hass)
             "attempts": 1,
         }
     ]
+
+
+async def test_legacy_gateway_keeps_its_frozen_inter_request_delay_cap(hass):
+    """A Legacy Gateway has no Scan Lease, so the bridge v2 3000 ms cap does not apply."""
+    call = await _setup(hass)
+    started = await call(
+        "test_address",
+        {"provider": "esphome", "gateway_id": GATEWAY_ID, "address": 1,
+         "inter_request_delay_ms": 5000},
+    )
+    await asyncio.gather(*hass.data[DOMAIN][DATA_COORDINATOR]._tasks.values())
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["status"] == "completed"
 
 
 @pytest.mark.parametrize(

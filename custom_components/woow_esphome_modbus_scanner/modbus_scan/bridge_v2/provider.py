@@ -50,6 +50,7 @@ from .contract import (
     INFO_SENSOR,
     INFO_SERIAL_FIELDS,
     LEASE_END_REASONS,
+    LEASE_INTER_REQUEST_DELAY_MAX_MS,
     LEASE_SCHEMA_VERSION,
     LEASE_SENSOR,
     LEASE_STATES,
@@ -83,6 +84,7 @@ LIMITS = ProbeLimits(
     register_count_max=HARD_LIMITS["count_max"],
     timeout_ms_min=HARD_LIMITS["timeout_ms_min"],
     timeout_ms_max=HARD_LIMITS["timeout_ms_max"],
+    inter_request_delay_ms_max=LEASE_INTER_REQUEST_DELAY_MAX_MS,
     defaults={
         "probe_type": ProbeType.HOLDING_REGISTER,
         "register_address": 0,

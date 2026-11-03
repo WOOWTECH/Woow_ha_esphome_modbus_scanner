@@ -38,16 +38,19 @@ test("a v2 range scan estimated past the lease hard limit is flagged", () => {
   assert.equal(outlastsScanLease(estimate, {provider: "mock", gateway_id: "mock:rs485-gateway"}), false);
 });
 
-test("the inter-request delay is capped by the contract for every gateway", () => {
+test("the contract caps the inter-request delay of bridge v2 Gateways only", () => {
   const cap = contract.lease.inter_request_delay_max_ms;
-  assert.equal(INTEGER_BOUNDS.inter_request_delay_ms[1], cap);
+  assert.equal(V2_LIMITS.inter_request_delay_ms_max, cap);
   const v2 = selectGateway(DEFAULTS, V2_GATEWAY);
   assert.deepEqual(boundsFor(v2).inter_request_delay_ms, [0, cap]);
-  const v1 = {...DEFAULTS, provider: "esphome", bridge: "v1", gateway_id: "esphome:aabbccddeeff"};
-  assert.deepEqual(boundsFor(v1).inter_request_delay_ms, [0, cap]);
   assert.ok(validateForm({...v2, inter_request_delay_ms: cap + 1}, true).inter_request_delay_ms);
-  assert.equal(sanitizePreferences({form: {inter_request_delay_ms: cap + 1}}).form.inter_request_delay_ms,
-    DEFAULTS.inter_request_delay_ms);
+  const stored = {form: {provider: "esphome", bridge: "v2", inter_request_delay_ms: cap + 1}};
+  assert.equal(sanitizePreferences(stored).form.inter_request_delay_ms, DEFAULTS.inter_request_delay_ms);
+  // A Legacy Gateway has no Scan Lease and keeps its frozen 5000 ms.
+  const v1 = {...DEFAULTS, provider: "esphome", bridge: "v1", gateway_id: "esphome:aabbccddeeff"};
+  assert.deepEqual(boundsFor(v1).inter_request_delay_ms, [0, 5000]);
+  assert.equal(validateForm({...v1, inter_request_delay_ms: cap + 1}, true).inter_request_delay_ms, undefined);
+  assert.equal(INTEGER_BOUNDS.inter_request_delay_ms[1], 5000);
 });
 
 test("selecting a v2 gateway gives generic FC03 defaults and pauses every Pausable Poller", () => {

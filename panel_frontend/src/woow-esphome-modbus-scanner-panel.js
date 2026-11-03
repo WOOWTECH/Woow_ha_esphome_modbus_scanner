@@ -6,7 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, outlastsScanLease, probedWithoutLease, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
-  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus, INTEGER_BOUNDS,
+  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus, INTEGER_BOUNDS, isLegacyGatewayForm,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -422,7 +422,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   }
   _field(name, label, min, max, help) {
     [min, max] = boundsFor(this._form, this._profile)[name] || [min, max];
-    const fixed = this._form.provider === "esphome" && this._form.bridge !== "v2" && (name === "register_count" || name === "timeout_ms");
+    const fixed = isLegacyGatewayForm(this._form) && (name === "register_count" || name === "timeout_ms");
     const invalid = Boolean(this._errors[name]);
     return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
   }
@@ -452,7 +452,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const selectedScenario = this._form.mock_scenario;
     const physical = this._form.provider === "esphome";
     // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
-    const v1 = physical && this._form.bridge !== "v2";
+    const v1 = isLegacyGatewayForm(this._form);
     // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
     const lease = leaseNotice(this._status);
     const resultsEndedAfter = leaseNotice(this._results)?.endedAfter ?? null;

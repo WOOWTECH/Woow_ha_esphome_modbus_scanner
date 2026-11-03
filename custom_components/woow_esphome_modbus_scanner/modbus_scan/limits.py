@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .models import (
+    MAX_INTER_REQUEST_DELAY_MS,
     MAX_REGISTER_ADDRESS,
     MAX_REGISTER_COUNT,
     MAX_SLAVE_ID,
@@ -64,6 +65,7 @@ class ProbeLimits:
     allowed_registers: tuple[int, ...] | None = None
     timeout_ms_min: int = MIN_TIMEOUT_MS
     timeout_ms_max: int = MAX_TIMEOUT_MS
+    inter_request_delay_ms_max: int = MAX_INTER_REQUEST_DELAY_MS
     pause_normal_polling_required: bool = False
     pause_normal_polling_supported: bool = True
     # Values the service layer fills in for omitted probe fields.
@@ -102,6 +104,10 @@ class ProbeLimits:
             raise ValueError(
                 f"{self.label} requires timeout_ms {self.timeout_ms_min}–{self.timeout_ms_max}"
             )
+        if request.inter_request_delay_ms > self.inter_request_delay_ms_max:
+            raise ValueError(
+                f"{self.label} requires inter_request_delay_ms<={self.inter_request_delay_ms_max}"
+            )
         if self.pause_normal_polling_required and not request.pause_normal_polling:
             raise ValueError(f"{self.label} requires pause_normal_polling=true")
         if not self.pause_normal_polling_supported and request.pause_normal_polling:
@@ -121,6 +127,7 @@ class ProbeLimits:
             ),
             "timeout_ms_min": self.timeout_ms_min,
             "timeout_ms_max": self.timeout_ms_max,
+            "inter_request_delay_ms_max": self.inter_request_delay_ms_max,
             "pause_normal_polling_required": self.pause_normal_polling_required,
             "pause_normal_polling_supported": self.pause_normal_polling_supported,
             # The panel's duration estimate uses the same formula as the service's.

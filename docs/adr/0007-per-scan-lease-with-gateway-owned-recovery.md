@@ -18,8 +18,9 @@ terminal callback), at a **10 min hard limit** from its start, or when a probe
 with a different `scan_id` supersedes it. On every ending path the Gateway
 resumes the paused pollers itself. A lease that has ended never restarts for
 that `scan_id`. So that a Scan's own gaps never reach the idle time, HA caps
-the inter-request delay at 3000 ms (the contract's
-`lease.inter_request_delay_max_ms`), leaving the rest of the 5 s for API round
+the inter-request delay of a bridge v2 Scan at 3000 ms (the contract's
+`lease.inter_request_delay_max_ms`, applied through the bridge v2 probe limits;
+Legacy Gateways have no lease and keep their frozen 5000 ms), leaving the rest of the 5 s for API round
 trips.
 
 HA reports the lease in Scan status and results as `lease_status`

@@ -132,11 +132,11 @@ def test_panel_bridge_v2_defaults_are_the_v2_adapters_defaults():
 
 
 def test_inter_request_delay_cap_leaves_the_lease_idle_time_for_round_trips():
-    """The contract states the cap; HA validates against it, below the Gateway's idle limit."""
-    from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
-        MAX_INTER_REQUEST_DELAY_MS,
+    """The contract states the cap; bridge v2 limits enforce it, below the Gateway's idle limit."""
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2.provider import (
+        LIMITS,
     )
 
     lease = contract.CONTRACT["lease"]
-    assert lease["inter_request_delay_max_ms"] == MAX_INTER_REQUEST_DELAY_MS == 3000
+    assert lease["inter_request_delay_max_ms"] == LIMITS.inter_request_delay_ms_max == 3000
     assert lease["idle_ms"] - lease["inter_request_delay_max_ms"] >= 2000

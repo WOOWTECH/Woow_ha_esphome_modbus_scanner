@@ -15,9 +15,10 @@ MAX_REGISTER_COUNT = 125
 MIN_TIMEOUT_MS = 10
 MAX_TIMEOUT_MS = 10_000
 MAX_RETRIES = 5
-# The bridge v2 contract's lease.inter_request_delay_max_ms: well below the Gateway's 5 s Scan
-# Lease idle limit, so a Scan's own gap between Probes never ends its lease.
-MAX_INTER_REQUEST_DELAY_MS = 3_000
+# The widest inter-request delay any Gateway accepts. A Gateway may cap it lower through its
+# ProbeLimits: a bridge v2 Gateway uses the contract's lease.inter_request_delay_max_ms (3 s, below
+# the 5 s Scan Lease idle limit); a Legacy Gateway keeps its frozen 5 s.
+MAX_INTER_REQUEST_DELAY_MS = 5_000
 # A range Scan over more IDs than this needs large_range_confirmed besides safety_confirmed.
 LARGE_RANGE_THRESHOLD = 32
 # A Bus name: what a Gateway reports and what a Scan targets (bridge v2 identifier charset).

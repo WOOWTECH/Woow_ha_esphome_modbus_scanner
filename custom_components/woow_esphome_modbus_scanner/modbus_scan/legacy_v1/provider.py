@@ -36,6 +36,7 @@ LIMITS = ProbeLimits(
     allowed_registers=tuple(PROFILE["allowed_registers"]),
     timeout_ms_min=PROFILE["limits"]["timeout_ms"],
     timeout_ms_max=PROFILE["limits"]["timeout_ms"],
+    inter_request_delay_ms_max=PROFILE["limits"]["inter_request_delay_max_ms"],
     pause_normal_polling_required=PROFILE["limits"]["polling_pause_required"],
     defaults={
         key: PROFILE["defaults"][key]

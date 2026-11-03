@@ -151,9 +151,9 @@ def _broken(**changes):
         (_broken(defaults__count=True), "defaults.count", "integer from 1 to 4"),
         (_broken(defaults__timeout_ms=99), "defaults.timeout_ms", "integer from 100 to 2000"),
         (_broken(defaults__retries=6), "defaults.retries", "integer from 0 to 5"),
-        # Above the cap that keeps a Scan's own gaps inside the Gateway's lease idle time.
-        (_broken(defaults__inter_request_delay_ms=3001), "defaults.inter_request_delay_ms",
-         "integer from 0 to 3000"),
+        # Above the widest delay any Gateway accepts (a Legacy Gateway's 5000 ms).
+        (_broken(defaults__inter_request_delay_ms=5001), "defaults.inter_request_delay_ms",
+         "integer from 0 to 5000"),
         (_broken(defaults__slave_end=248), "defaults.slave_end", "integer from 1 to 247"),
         (_broken(defaults__slave_start=9), "defaults.slave_end", "at least slave_start"),
         (_broken(defaults__slave_end=...), "defaults", "given together"),

@@ -44,6 +44,8 @@ LEASE_SENSOR: str = CONTRACT["text_sensors"]["lease"]["name"]
 LEASE_SCHEMA_VERSION: int = CONTRACT["lease"]["schema_version"]
 LEASE_STATES: tuple[str, ...] = tuple(CONTRACT["lease"]["states"])
 LEASE_END_REASONS: tuple[str, ...] = tuple(CONTRACT["lease"]["end_reasons"])
+# The longest wait HA keeps between Probes of one Scan, so the Scan never ends its own lease.
+LEASE_INTER_REQUEST_DELAY_MAX_MS: int = CONTRACT["lease"]["inter_request_delay_max_ms"]
 
 _ID = CONTRACT["identifiers"]["request_id"]
 REQUEST_ID_PATTERN = re.compile(f"[{_ID['charset']}]{{{_ID['min_length']},{_ID['max_length']}}}")

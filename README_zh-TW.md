@@ -213,8 +213,8 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 - 從 Scan 的第一個 Probe 開始；選定的輪詢元件停止，hub 中這些站號排隊的封包會被清除；
 - Scan 完成、取消或失敗時，HA 釋放 lease；
 - 若 HA 或連線消失，Gateway 在 **5 秒**沒有 Probe 後自行結束 lease，且無論如何在
-  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）。位址間隔上限為 3000 ms，
-  所以 Scan 自己的間隔不會達到閒置時間；
+  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）。bridge v2 的位址間隔上限為
+  3000 ms，所以 Scan 自己的間隔不會達到閒置時間；
 - 每一種結束方式，Gateway 都會恢復輪詢元件。
 
 需要預先考量兩點：清除暫停元件的佇列，也會丟掉它待送的寫入（Scan 期間請勿調整
@@ -262,7 +262,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | `probe_type` | `holding_register` | `holding_register`（FC03）或 `input_register`（FC04）；`device_identification` 僅限模擬 |
 | `register_address`、`register_count` | 0、1 | bridge v2 數量 1–4；區塊結尾不得超過 65535 |
 | `timeout_ms` | 1000 | bridge v2 為 100–2000，在 Gateway 上逐個 Probe 套用 |
-| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間） |
+| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；bridge v2 位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間），Legacy Gateway 為 0–5000 ms |
 | `pause_normal_polling` | `true` | `false` 表示掃描時不暫停任何元件 |
 | `pause_pollers` | 已儲存的選擇 | 僅用於本次 Scan 的 Pausable Poller 索引 |
 | `mock_scenario` | `found_default` | 僅限模擬 provider |

@@ -74,7 +74,7 @@ export const LARGE_RANGE_THRESHOLD = 32;
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
-  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 3000],
+  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
 export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
@@ -82,6 +82,8 @@ const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 /** Hard limits of bridge v2 Gateways (the contract file's hard_limits; a model test checks them). */
 export const V2_LIMITS = Object.freeze({
   slave_min: 1, slave_max: 247, register_count_max: 4, timeout_ms_min: 100, timeout_ms_max: 2000,
+  // The contract's lease.inter_request_delay_max_ms: below the lease idle time, so a Scan's own gaps never end it.
+  inter_request_delay_ms_max: 3000,
   probe_types: Object.freeze(["holding_register", "input_register"]),
 });
 /** Scan Lease timers of bridge v2 Gateways (the contract file's lease; a model test checks them). */
@@ -97,7 +99,10 @@ export const V2_DEFAULTS = Object.freeze({
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
-const isV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
+/** Whether a form (or stored preferences) targets a bridge v2 Gateway. */
+export const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
+/** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
+export const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
 /** The gateway's bounds intersected with the selected Device Profile's limits. */
 export function boundsFor(form, profile = GENERIC_PROFILE) {
   const gateway = gatewayBoundsFor(form);
@@ -110,10 +115,11 @@ export function boundsFor(form, profile = GENERIC_PROFILE) {
     timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
 }
 function gatewayBoundsFor(form) {
-  if (isV2Form(form)) {
+  if (isBridgeV2Form(form)) {
     const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
     return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
-      register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
+      register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max],
+      inter_request_delay_ms: [0, V2_LIMITS.inter_request_delay_ms_max]};
   }
   const l = PHYSICAL_PROFILE.limits;
   return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,Math.min(l.inter_request_delay_max_ms,INTEGER_BOUNDS.inter_request_delay_ms[1])]} : INTEGER_BOUNDS;
@@ -262,7 +268,7 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
   }
-  if (isV2Form(form)) {
+  if (isBridgeV2Form(form)) {
     const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
     if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
@@ -363,7 +369,7 @@ export function sanitizePreferences(value) {
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;
-  if (source.provider === "esphome" && source.bridge === "v2") {
+  if (isBridgeV2Form(source)) {
     form.provider = "esphome";
     form.bridge = "v2";
     form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
@@ -371,6 +377,7 @@ export function sanitizePreferences(value) {
     if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
     if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
+    if (form.inter_request_delay_ms > V2_LIMITS.inter_request_delay_ms_max) form.inter_request_delay_ms = V2_DEFAULTS.inter_request_delay_ms;
     // A v2 Scan pauses the Pausable Pollers saved in HA for its Bus (set_pausable_pollers).
     form.pause_normal_polling = true;
   } else if (source.provider === "esphome") {
