@@ -135,6 +135,7 @@
     "schema_version": 1,
     "encoding": "Compact JSON published on the lease text sensor when a Scan Lease begins, when it ends, and in answer to every release action for a known bus.",
     "idle_ms": 5000,
+    "inter_request_delay_max_ms": 3000,
     "hard_limit_ms": 600000,
     "rules": [
       "A Scan Lease begins on the first accepted probe of a scan_id whose pause_pollers is non-empty; that probe's selection is used for the whole lease.",
@@ -142,7 +143,8 @@
       "Every accepted probe of the same scan_id renews the lease. The idle timer runs only while no probe of the lease is in flight and starts at the last probe's terminal callback.",
       "The Gateway ends the lease by itself after idle_ms without a probe or hard_limit_ms after it began, and resumes the paused pollers on every ending path.",
       "A probe with a different scan_id ends an active lease (superseded) before it is handled.",
-      "Once a lease for a scan_id has ended it never restarts; later probes of that scan_id run without pausing."
+      "Once a lease for a scan_id has ended it never restarts; later probes of that scan_id run without pausing.",
+      "HA never waits more than inter_request_delay_max_ms between a terminal result and the next probe of the same scan, leaving the rest of idle_ms for API round trips, so a Scan's own gaps never end its lease."
     ],
     "fields": {
       "v": "int, lease schema_version",

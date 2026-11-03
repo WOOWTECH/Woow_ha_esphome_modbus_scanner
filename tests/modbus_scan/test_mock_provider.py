@@ -87,7 +87,7 @@ async def test_single_address_has_no_inter_request_delay():
     request = ScanRequest.mock(
         start_id=3,
         end_id=3,
-        inter_request_delay_ms=5_000,
+        inter_request_delay_ms=3_000,
     )
     sleep = AsyncMock()
 

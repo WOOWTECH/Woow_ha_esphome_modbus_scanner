@@ -15,7 +15,9 @@ MAX_REGISTER_COUNT = 125
 MIN_TIMEOUT_MS = 10
 MAX_TIMEOUT_MS = 10_000
 MAX_RETRIES = 5
-MAX_INTER_REQUEST_DELAY_MS = 5_000
+# The bridge v2 contract's lease.inter_request_delay_max_ms: well below the Gateway's 5 s Scan
+# Lease idle limit, so a Scan's own gap between Probes never ends its lease.
+MAX_INTER_REQUEST_DELAY_MS = 3_000
 # A range Scan over more IDs than this needs large_range_confirmed besides safety_confirmed.
 LARGE_RANGE_THRESHOLD = 32
 # A Bus name: what a Gateway reports and what a Scan targets (bridge v2 identifier charset).
@@ -212,7 +214,9 @@ class ScanRequest:
         if not 0 <= self.retries <= MAX_RETRIES:
             raise ValueError("retries must be between 0 and 5")
         if not 0 <= self.inter_request_delay_ms <= MAX_INTER_REQUEST_DELAY_MS:
-            raise ValueError("inter_request_delay_ms must be between 0 and 5000")
+            raise ValueError(
+                f"inter_request_delay_ms must be between 0 and {MAX_INTER_REQUEST_DELAY_MS}"
+            )
         if type(self.pause_normal_polling) is not bool:
             raise ValueError("pause_normal_polling must be a boolean")
         if self.pause_pollers is not None and (

@@ -74,7 +74,7 @@ export const LARGE_RANGE_THRESHOLD = 32;
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
-  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
+  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 3000],
 });
 export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
@@ -110,7 +110,7 @@ function gatewayBoundsFor(form) {
       register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
   }
   const l = PHYSICAL_PROFILE.limits;
-  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,Math.min(l.inter_request_delay_max_ms,INTEGER_BOUNDS.inter_request_delay_ms[1])]} : INTEGER_BOUNDS;
 }
 /** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
 export function selectDeviceProfile(form, profile) {

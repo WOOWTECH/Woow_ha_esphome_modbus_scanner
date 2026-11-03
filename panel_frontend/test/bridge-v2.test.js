@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {
-  DEFAULTS, V2_LIMITS, boundsFor, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
+  DEFAULTS, INTEGER_BOUNDS, V2_LIMITS, boundsFor, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
   selectGateway, startPayload, supportedGateway, testPayload, validateForm,
 } from "../src/model.js";
 
@@ -22,6 +22,18 @@ test("panel v2 limits are the contract's hard limits", () => {
     {slave: [hard.slave_min, hard.slave_max], count: hard.count_max,
       timeout: [hard.timeout_ms_min, hard.timeout_ms_max]},
   );
+});
+
+test("the inter-request delay is capped by the contract for every gateway", () => {
+  const cap = contract.lease.inter_request_delay_max_ms;
+  assert.equal(INTEGER_BOUNDS.inter_request_delay_ms[1], cap);
+  const v2 = selectGateway(DEFAULTS, V2_GATEWAY);
+  assert.deepEqual(boundsFor(v2).inter_request_delay_ms, [0, cap]);
+  const v1 = {...DEFAULTS, provider: "esphome", bridge: "v1", gateway_id: "esphome:aabbccddeeff"};
+  assert.deepEqual(boundsFor(v1).inter_request_delay_ms, [0, cap]);
+  assert.ok(validateForm({...v2, inter_request_delay_ms: cap + 1}, true).inter_request_delay_ms);
+  assert.equal(sanitizePreferences({form: {inter_request_delay_ms: cap + 1}}).form.inter_request_delay_ms,
+    DEFAULTS.inter_request_delay_ms);
 });
 
 test("selecting a v2 gateway gives generic FC03 defaults and pauses every Pausable Poller", () => {

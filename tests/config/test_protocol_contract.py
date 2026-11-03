@@ -79,3 +79,14 @@ def test_integration_panel_and_firmware_share_one_version():
         Loader=_EsphomeLoader,
     )
     assert example["esphome"]["project"]["version"] == VERSION
+
+
+def test_inter_request_delay_cap_leaves_the_lease_idle_time_for_round_trips():
+    """The contract states the cap; HA validates against it, below the Gateway's idle limit."""
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
+        MAX_INTER_REQUEST_DELAY_MS,
+    )
+
+    lease = contract.CONTRACT["lease"]
+    assert lease["inter_request_delay_max_ms"] == MAX_INTER_REQUEST_DELAY_MS == 3000
+    assert lease["idle_ms"] - lease["inter_request_delay_max_ms"] >= 2000

@@ -6,7 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
-  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus,
+  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus, INTEGER_BOUNDS,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -483,7 +483,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.profileNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.profiles[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
             <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? t.physicalHelp : physical ? t.v2Help : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
+            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? html`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : nothing}</div>
