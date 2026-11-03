@@ -73,7 +73,15 @@ const en = {
   physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
   physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
   v2Help: "Bridge v2: FC03 or FC04, any register, 1–4 registers, 100–2000 ms timeout.",
-  v2Pause: "Every Pausable Poller on this Bus is paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, 5 s without a probe or after 10 minutes.",
+  v2Pause: "The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, 5 s without a probe or after 10 minutes.",
+  pollersTitle: "Pausable Pollers", pollersBus: (bus) => `Bus ${bus}: pause during a Scan`,
+  pollersHelp: "Checked pollers stop polling for the Scan. Unchecked devices keep reporting, and their traffic interleaves with the probes, so the Scan is slower. Saved in Home Assistant for this Bus.",
+  pollersNone: "No poller is paused: probes interleave with Normal Polling.",
+  pollersEmpty: "This Bus has no Pausable Pollers.",
+  pollersUnknown: "Check the gateway to list its Pausable Pollers.",
+  pollersAll: "Pause all", pollersClear: "Pause none", pollersSaved: "Pausable Poller selection saved.",
+  pollersRemoved: "No longer in the firmware, removed from the selection:",
+  scanRemoved: "Chosen pollers the firmware no longer has were not paused:",
   lease: "Scan Lease",
   leaseStates: {active: "Active: Normal Polling paused", ended: "Ended: Normal Polling resumed", unconfirmed: "Ending not confirmed: the Gateway resumes Normal Polling by itself within 5 s"},
   leaseReasons: {released: "released by Home Assistant", idle: "ended by the Gateway after 5 s without a probe", hard_limit: "ended by the Gateway at the 10-minute limit", superseded: "replaced by a newer Scan"},
@@ -128,7 +136,15 @@ const zh = {
   physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
   physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
   v2Help:"橋接 v2：FC03 或 FC04、任意暫存器、數量 1–4、逾時 100–2000 毫秒。",
-  v2Pause:"掃描期間會暫停此匯流排上所有可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、5 秒無探測或 10 分鐘後，閘道會自行恢復輪詢。",
+  v2Pause:"掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、5 秒無探測或 10 分鐘後，閘道會自行恢復輪詢。",
+  pollersTitle:"可暫停輪詢元件",pollersBus:(bus)=>`匯流排 ${bus}：掃描時暫停`,
+  pollersHelp:"勾選的元件在掃描期間停止輪詢。未勾選的設備持續回報，其流量會與探測交錯，掃描較慢。此選擇保存在 Home Assistant，依匯流排分別記住。",
+  pollersNone:"未暫停任何元件：探測會與一般輪詢交錯。",
+  pollersEmpty:"此匯流排沒有可暫停輪詢元件。",
+  pollersUnknown:"請先檢查閘道以列出可暫停輪詢元件。",
+  pollersAll:"全部暫停",pollersClear:"全部不暫停",pollersSaved:"已保存可暫停輪詢元件選擇。",
+  pollersRemoved:"韌體已不存在，已從選擇中移除：",
+  scanRemoved:"所選元件韌體已不存在，未被暫停：",
   lease:"掃描租約",
   leaseStates:{active:"進行中：一般輪詢已暫停",ended:"已結束：一般輪詢已恢復",unconfirmed:"未確認結束：閘道會在 5 秒內自行恢復一般輪詢"},
   leaseReasons:{released:"由 Home Assistant 釋放",idle:"閘道於 5 秒無探測後結束",hard_limit:"閘道於 10 分鐘上限時結束",superseded:"已由較新的掃描取代"},
@@ -214,7 +230,7 @@ const PHYSICAL_PROFILE = freeze({
 const DOMAIN = "woow_esphome_modbus_scanner";
 const SERVICES = Object.freeze([
   "check_gateway", "get_history",
-  "list_gateways",
+  "list_gateways", "set_pausable_pollers",
   "start_scan",
   "get_scan_status",
   "get_scan_results",
@@ -288,19 +304,42 @@ const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
  * `stale` names the paused devices whose entity values are frozen while the lease may hold.
  */
+/** "name (slave address)" of a Pausable Poller from untrusted response data. */
+function pollerLabel(poller) {
+  const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
+  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
+}
+const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) => poller && typeof poller === "object") : [];
 function leaseNotice(status) {
   const state = status?.lease_status;
   if (!LEASE_STATES.includes(state)) return null;
-  const pollers = Array.isArray(status.paused_pollers) ? status.paused_pollers : [];
-  const label = (poller) => {
-    const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
-    return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
-  };
   return {
     state,
     reason: state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null,
-    stale: state === "ended" ? [] : pollers.filter((poller) => poller && typeof poller === "object").map(label),
+    stale: state === "ended" ? [] : pollerObjects(status.paused_pollers).map(pollerLabel),
   };
+}
+/** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
+function removedPollers(status) {
+  return pollerObjects(status?.removed_pollers).map(pollerLabel);
+}
+/**
+ * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
+ * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ */
+function pollerChecklists(gateway) {
+  if (!isBridgeV2(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  return Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows)).map(([bus, rows]) => ({
+    bus,
+    pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
+      .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
+    removed: pollerObjects(gateway.removed_pollers?.[bus]).map(pollerLabel),
+  }));
+}
+/** set_pausable_pollers data after checking (paused=true) or unchecking one poller, or "all". */
+function selectionPayload(gatewayId, bus, pollers, index, paused) {
+  const chosen = pollers.filter((poller) => index === "all" ? paused : poller.index === index ? paused : poller.paused);
+  return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
 /** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
@@ -423,7 +462,7 @@ function sanitizePreferences(value) {
     if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
     if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
     if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
-    // A v2 Scan pauses every Pausable Poller on its Bus; per-poller choice is a later release.
+    // A v2 Scan pauses the Pausable Pollers saved in HA for its Bus (set_pausable_pollers).
     form.pause_normal_polling = true;
   } else if (source.provider === "esphome") {
     form.provider = "esphome";
@@ -594,9 +633,32 @@ class WoowEsphomeModbusScannerPanel extends i {
     return this._action("check", async () => {
       const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
       if (generation !== this._operationGeneration || !this.isConnected) return;
-      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health} : g);
+      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers} : g);
       this._message = this._text.healthChecked;
     });
+  }
+  async _savePollers(bus, pollers, index, paused) {
+    if (this._status?.status === "running") return;
+    const gatewayId = this._form.gateway_id;
+    const generation = this._operationGeneration;
+    return this._action("pollers", async () => {
+      const result = await this._call("set_pausable_pollers", selectionPayload(gatewayId, bus, pollers, index, paused));
+      if (generation !== this._operationGeneration || !this.isConnected) return;
+      // Keep removals reported by the last check visible; the saved checklist is the answer's.
+      this._gateways = this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, poller_selection:result.poller_selection} : g);
+      this._message = this._text.pollersSaved;
+    });
+  }
+  _pollersCard(gateway, disabled) {
+    const t = this._text;
+    const checklists = pollerChecklists(gateway);
+    if (!checklists.length) return b`<p>${t.pollersUnknown}</p>`;
+    return checklists.map(({bus, pollers, removed}) => b`<fieldset class="pollers"><legend>${t.pollersBus(bus)}</legend>
+      ${pollers.length ? pollers.map((poller) => b`<div class="field check"><label><input type="checkbox" data-poller=${poller.index} .checked=${poller.paused} ?disabled=${disabled} @change=${(event) => this._savePollers(bus, pollers, poller.index, event.target.checked)}>${poller.label}</label></div>`) : b`<p>${t.pollersEmpty}</p>`}
+      ${pollers.length ? b`<div class="actions"><button class="secondary" ?disabled=${disabled} @click=${() => this._savePollers(bus, pollers, "all", true)}>${t.pollersAll}</button><button class="secondary" ?disabled=${disabled} @click=${() => this._savePollers(bus, pollers, "all", false)}>${t.pollersClear}</button></div>` : A}
+      ${pollers.length && !pollers.some((poller) => poller.paused) ? b`<p class="notice" role="status">${t.pollersNone}</p>` : A}
+      ${removed.length ? b`<p class="notice failure" role="status">${t.pollersRemoved} ${removed.join(", ")}</p>` : A}
+      <small>${t.pollersHelp}</small></fieldset>`);
   }
   async _loadHistory() {
     const generation = this._operationGeneration;
@@ -825,6 +887,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           ${physical ? b`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? b`<p class="notice failure" role="status">${t.firmwareFault}</p>` : A}${!compatible ? b`<p class="notice failure">${t.unsupportedProfile}</p>` : A}${!canOperate ? b`<p class="notice">${t.readOnly}</p>` : A}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : A}
+          ${isBridgeV2(gateway) && gatewayAvailable ? b`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : A}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
             <div class="field"><label for="profile">${t.profile}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((profile) => b`<option value=${profile} .selected=${profile === selectedScenario}>${t.profileNames[profile]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.profileHelp}</small></div>
@@ -845,7 +908,7 @@ class WoowEsphomeModbusScannerPanel extends i {
           <section class="card" aria-labelledby="status-title"><h2 id="status-title">${t.statusTitle}</h2><div class="notice ${phase === "failed" ? "failure" : ""}" role="status" aria-live="polite">${this._message || (phase === "idle" ? t.ready : `${t.statuses[phase] || phase}…`)}</div>
             <div class="field"><label for="recent">${t.recent}</label><select id="recent" @change=${this._selectRecent}><option value="">${this._chosenId() || t.noRecent}</option>${historyIds.map((id) => { const saved = this._savedHistory.find((s) => s.scan_id === id); return b`<option value=${id}>${saved ? `${saved.provider} · ${t.statuses[saved.status] || saved.status} · ` : ""}${id}</option>`; })}</select><small>${t.storage}</small></div>
             <div class="actions"><button class="secondary" @click=${this._loadHistory} ?disabled=${Boolean(this._busy) || running}>${t.history}</button></div><small>${t.historyHelp}</small>
-            ${this._status ? b`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? b`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? b`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : A}` : A}${this._status.error_info ? b`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : A}${this._status.progress_is_checkpoint ? b`<p class="notice failure">${t.checkpoint}</p>` : A}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? b`<p class="notice failure" role="status">${t.attention}</p>` : A}` : A}
+            ${this._status ? b`<p>${t.operation}: ${t.operationStates[this._status.operation_phase] || this._status.operation_phase || t.dash} · ${t.attempt}: ${this._status.attempt || 0}<br>${t.elapsed}: ${Math.round((this._status.elapsed_ms || 0)/1000)}s · ${t.budget}: ${Math.ceil((this._status.execution_budget_ms || 0)/1000)}s</p><p>${t.recovery}: ${t.recoveryStates[this._status.recovery_status] || t.recoveryStates.unknown} ${this._status.recovery_error_code || ""}<br>${t.cleanup}: ${this._status.cleanup_status || t.unchecked}</p>${lease ? b`<p>${t.lease}: ${t.leaseStates[lease.state]}${lease.reason ? ` (${t.leaseReasons[lease.reason]})` : ""}</p>${lease.stale.length ? b`<p class="notice" role="status">${t.staleWarning} ${lease.stale.join(", ")}</p>` : A}` : A}${removedPollers(this._status).length ? b`<p class="notice failure" role="status">${t.scanRemoved} ${removedPollers(this._status).join(", ")}</p>` : A}${this._status.error_info ? b`<p>${t.errorCode}: <code>${this._status.error_info.code}</code></p>` : A}${this._status.progress_is_checkpoint ? b`<p class="notice failure">${t.checkpoint}</p>` : A}${TERMINAL.has(phase) && this._status.provider === "esphome" && !v2Status && this._status.recovery_status !== "verified" ? b`<p class="notice failure" role="status">${t.attention}</p>` : A}` : A}
             <p><strong>${t.phase}:</strong> ${t.statuses[phase] || phase} ${this._status?.current_address ? b`· ${t.columns.address} ${this._status.current_address}` : A}<br><code>${this._chosenId() || t.noScanId}</code></p>
             <div class="progress" role="progressbar" aria-label=${t.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progress}><span style="width:${Math.min(100, Math.max(0, progress))}%"></span></div><small>${this._status?.completed_addresses || 0} / ${this._status?.total_addresses || 0} ${t.addresses} · ${progress}% · ${this._status?.responder_count || 0} ${t.responders}</small>
             ${this._status?.events?.length ? b`<section aria-label=${t.timeline}><strong>${t.timeline}</strong><ol>${this._status.events.slice(-8).map((event) => b`<li>${Math.round(event.elapsed_ms/1000)}s · ${t.operationStates[event.phase] || t.statuses[event.phase] || t.dash}</li>`)}</ol></section>` : A}

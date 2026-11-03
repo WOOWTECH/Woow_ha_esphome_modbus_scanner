@@ -283,6 +283,40 @@ try {
   check(await rangePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.large_range_confirmed===true), 'start_scan omitted large_range_confirmed');
   await rangePage.close();
 
+  // A bridge v2 Gateway lists its Pausable Pollers, all checked by default; each change is saved in HA.
+  const pollerPage=await browser.newPage({viewport:{width:800,height:1200}}); await pollerPage.goto(base);
+  const polled=pollerPage.locator('woow-esphome-modbus-scanner-panel'); await polled.getByText('1 gateway available.').waitFor();
+  await pollerPage.evaluate(async () => {
+    const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee01',name:'Bench v2',simulated:false,can_operate:true,
+      capabilities:['bridge_v2','holding_register','input_register','multi_register'],
+      poller_selection:{rs485:[{index:0,name:'meter',address:1,paused:true},{index:1,name:'inverter',address:2,paused:true}]},
+      removed_pollers:{rs485:[{index:2,name:'chiller',address:5}]}};
+    window.saved=[];
+    const original=panel.hass.callService;
+    panel.hass={...panel.hass,callService:async(domain,service,data,...rest)=>{
+      if(service!=='set_pausable_pollers') return original(domain,service,data,...rest);
+      window.saved.push(data);
+      return {response:{gateway_id:data.gateway_id,bus:data.bus,poller_selection:{rs485:gateway.poller_selection.rs485.map((p)=>({...p,paused:data.pause_pollers.includes(p.index)}))},removed_pollers:{rs485:[]}}};
+    }};
+    panel._gateways=[...panel._gateways,gateway]; await panel.updateComplete;
+    panel._selectGateway(gateway.gateway_id); await panel.updateComplete;
+  });
+  await polled.getByText('Bus rs485: pause during a Scan').waitFor();
+  check(await polled.getByLabel('meter (1)').isChecked() && await polled.getByLabel('inverter (2)').isChecked(), 'Pausable Pollers not all checked by default');
+  await polled.getByText(/No longer in the firmware.*chiller \(5\)/).waitFor();
+  await polled.getByLabel('inverter (2)').uncheck();
+  await pollerPage.waitForFunction(() => saved.length===1);
+  check(await pollerPage.evaluate(() => JSON.stringify(saved[0])===JSON.stringify({gateway_id:'esphome:aabbccddee01',bus:'rs485',pause_pollers:[0]})), 'unchecking a poller saved the wrong selection');
+  await polled.getByText('Pausable Poller selection saved.').waitFor();
+  check(!(await polled.getByLabel('inverter (2)').isChecked()) && await polled.getByLabel('meter (1)').isChecked(), 'saved selection not shown');
+  await polled.getByRole('button',{name:'Pause none'}).click();
+  await polled.getByText('No poller is paused: probes interleave with Normal Polling.').waitFor();
+  check(await pollerPage.evaluate(() => saved.length===2&&saved[1].pause_pollers.length===0), 'pause none did not save an empty selection');
+  check(await polled.getByText(/No longer in the firmware/).count()===1, 'removal notice lost after saving');
+  await pollerPage.evaluate(async () => {panel._status={scan_id:fixture.uuid,status:'completed',phase:'completed',provider:'esphome',lease_status:'none',removed_pollers:[{index:7,name:null,address:null}]}; await panel.updateComplete;});
+  await polled.getByText(/firmware no longer has were not paused: #7/).waitFor();
+  await pollerPage.close();
+
   await page.evaluate(() => { mode='hold'; polls=0; calls.length=0; panel._form={...panel._form,safety_confirmed:true}; panel._start(false); });
   await page.waitForTimeout(1200); await page.evaluate(() => panel.remove());
   const before = await page.evaluate(() => calls.filter((call)=>call.service==='get_scan_status').length);

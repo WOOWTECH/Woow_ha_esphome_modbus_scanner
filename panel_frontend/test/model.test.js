@@ -6,7 +6,7 @@ import {
 } from "../src/model.js";
 
 test("defines the exact public services", () => {
-  assert.deepEqual(SERVICES, ["check_gateway", "get_history", "list_gateways", "start_scan", "get_scan_status", "get_scan_results", "cancel_scan", "test_address"]);
+  assert.deepEqual(SERVICES, ["check_gateway", "get_history", "list_gateways", "set_pausable_pollers", "start_scan", "get_scan_status", "get_scan_results", "cancel_scan", "test_address"]);
 });
 
 test("normalizes Home Assistant wrapped and direct service responses", () => {

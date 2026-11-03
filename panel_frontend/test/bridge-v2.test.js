@@ -59,7 +59,7 @@ test("v2 preferences survive a reload and are clamped to v2 limits", () => {
     pause_normal_polling: false}});
   assert.equal(clamped.form.register_count, 1);
   assert.equal(clamped.form.timeout_ms, 1000);
-  assert.equal(clamped.form.pause_normal_polling, true);  // this release always pauses all
+  assert.equal(clamped.form.pause_normal_polling, true);  // which pollers is saved in HA
 });
 
 test("raw register values are shown in decimal and hex", () => {
