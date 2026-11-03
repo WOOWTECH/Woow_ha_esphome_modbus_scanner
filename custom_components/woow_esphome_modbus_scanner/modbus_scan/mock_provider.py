@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from .limits import ProbeLimits
 from .models import (
     GatewayInfo,
     MockScenario,
     ProbeResult,
+    ProbeType,
     ScanOutcome,
     ScanRequest,
 )
@@ -76,7 +78,10 @@ class MockGatewayProvider:
                 raise GatewayProviderError(
                     "Simulated gateway disconnected", address=address
                 )
-            emit(self._result_for(request.mock_scenario, address))
+            result = self._result_for(request.mock_scenario, address)
+            if request.probe_type in _REGISTER_PROBES:
+                result = _register_read(request, result)
+            emit(result)
 
     @staticmethod
     def _result_for(scenario: str, address: int) -> ProbeResult:
@@ -125,6 +130,37 @@ class MockGatewayProvider:
         if address == 3:
             return _responded(address)
         return _timeout(address)
+
+
+_REGISTER_PROBES = {ProbeType.HOLDING_REGISTER: 3, ProbeType.INPUT_REGISTER: 4}
+
+
+def _register_read(request: ScanRequest, result: ProbeResult) -> ProbeResult:
+    """A register read returns raw register evidence and never a device identity."""
+    evidence = {
+        "register_address": request.register_address,
+        "attempts": 1,
+        "identity": None,
+    }
+    if result.outcome not in (ScanOutcome.IDENTIFIED, ScanOutcome.RESPONDED):
+        return replace(result, **evidence)
+    # Deterministic values: high byte = slave ID, low byte = register offset.
+    values = tuple(
+        (result.address << 8 | (request.register_address + offset) & 0xFF) & 0xFFFF
+        for offset in range(request.register_count)
+    )
+    label = (
+        f"FC{_REGISTER_PROBES[request.probe_type]:02d} register "
+        f"0x{request.register_address:04X} x{request.register_count}"
+    )
+    return replace(
+        result,
+        **evidence,
+        outcome=ScanOutcome.RESPONDED,
+        detail=f"{label} = {list(values)}",
+        raw_value=values[0],
+        raw_values=values,
+    )
 
 
 def _timeout(address: int) -> ProbeResult:

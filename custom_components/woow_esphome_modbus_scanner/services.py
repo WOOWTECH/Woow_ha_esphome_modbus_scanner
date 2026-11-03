@@ -38,6 +38,7 @@ from .modbus_scan.coordinator import (
 )
 from .modbus_scan.mock_provider import MOCK_GATEWAY_ID, MockGatewayProvider
 from .modbus_scan.models import (
+    LARGE_RANGE_THRESHOLD,
     MAX_INTER_REQUEST_DELAY_MS,
     MAX_REGISTER_ADDRESS,
     MAX_REGISTER_COUNT,
@@ -147,6 +148,7 @@ _START_SCAN_SCHEMA = vol.Schema(
         vol.Required("end_id"): vol.All(_exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)),
         **_PROBE_FIELDS,
         vol.Required("safety_confirmed"): _exact_true,
+        vol.Optional("large_range_confirmed"): _exact_true,
     }
 )
 _SCAN_ID_SCHEMA = vol.Schema({vol.Required("scan_id"): _canonical_uuid})
@@ -267,9 +269,20 @@ def _validate_selected_device(call: ServiceCall) -> None:
         raise ValueError("Selected ESPHome device does not match the configured gateway")
 
 
+def _require_large_range_confirmation(data) -> None:
+    """A long Scan must be confirmed explicitly, not only by safety_confirmed."""
+    count = data["end_id"] - data["start_id"] + 1
+    if count > LARGE_RANGE_THRESHOLD and data.get("large_range_confirmed") is not True:
+        raise ValueError(
+            f"Scanning {count} IDs (more than {LARGE_RANGE_THRESHOLD}) requires "
+            "large_range_confirmed=true"
+        )
+
+
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     await _authorize_physical(call, owner, call.data["provider"])
     try:
+        _require_large_range_confirmation(call.data)
         _validate_selected_device(call)
         coordinator = _coordinator(call.hass, owner)
         request = _scan_request(

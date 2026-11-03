@@ -59,6 +59,7 @@ async def test_setup_registers_only_public_services_and_unload_cleans_tasks(hass
             "end_id": 100,
             "inter_request_delay_ms": 100,
             "safety_confirmed": True,
+            "large_range_confirmed": True,
         },
         blocking=True,
         return_response=True,
@@ -204,7 +205,13 @@ async def test_core_stop_cancels_work_and_flushes_terminal_history(hass):
     started = await hass.services.async_call(
         DOMAIN,
         "start_scan",
-        {"start_id": 1, "end_id": 100, "inter_request_delay_ms": 1000, "safety_confirmed": True},
+        {
+            "start_id": 1,
+            "end_id": 100,
+            "inter_request_delay_ms": 1000,
+            "safety_confirmed": True,
+            "large_range_confirmed": True,
+        },
         blocking=True,
         return_response=True,
     )

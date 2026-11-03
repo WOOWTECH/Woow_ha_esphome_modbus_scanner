@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .models import (
+    MAX_REGISTER_ADDRESS,
     MAX_REGISTER_COUNT,
     MAX_SLAVE_ID,
     MAX_TIMEOUT_MS,
@@ -44,6 +45,10 @@ class ProbeLimits:
             raise ValueError(f"{self.label} requires probe_type in: {allowed}")
         if request.register_count > self.register_count_max:
             raise ValueError(f"{self.label} requires register_count<={self.register_count_max}")
+        if request.register_address + request.register_count - 1 > MAX_REGISTER_ADDRESS:
+            raise ValueError(
+                f"The register block must end at or before register {MAX_REGISTER_ADDRESS}"
+            )
         if (
             self.allowed_registers is not None
             and request.register_address not in self.allowed_registers

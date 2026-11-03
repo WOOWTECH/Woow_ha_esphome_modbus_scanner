@@ -150,6 +150,7 @@ def main() -> None:
             "end_id": 100,
             "inter_request_delay_ms": 250,
             "safety_confirmed": True,
+            "large_range_confirmed": True,
         },
     )
     call("cancel_scan", {"scan_id": slow["scan_id"]})
