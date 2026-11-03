@@ -100,12 +100,28 @@ jobs:
           } > secrets.yaml
       - run: esphome config generic-modbus-scanner.yaml
         working-directory: firmware/examples
+      - name: Multi-hub example (one Gateway, two Buses)
+        run: esphome config multi-bus-modbus-scanner.yaml
+        working-directory: firmware/examples
       - uses: actions/cache@v4
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}
       - run: esphome compile generic-modbus-scanner.yaml
         working-directory: firmware/examples
+      - name: Compile the multi-hub example (codegen discovery per Bus)
+        working-directory: firmware/examples
+        run: |
+          esphome compile multi-bus-modbus-scanner.yaml
+          main=.esphome/build/multi-bus-modbus-scanner/src/main.cpp
+          # Each Bus gets its own Pausable Poller table and its hub's serial parameters.
+          grep -F 'ModbusScannerBus("line_a", 1000)' "$main"
+          grep -F 'ModbusScannerBus("line_b", 500)' "$main"
+          grep -F 'set_serial(9600, "NONE", 1)' "$main"
+          grep -F 'set_serial(19200, "EVEN", 1)' "$main"
+          grep -F 'add_poller("meter", 0x01, meter)' "$main"
+          grep -F 'add_poller("inverter_2", 0x02, inverter_2)' "$main"
+          test "$(grep -c 'add_bus(' "$main")" -eq 2
       - name: ESPHome older than 2026.9.0 is refused with a clear message
         working-directory: firmware/examples
         run: |

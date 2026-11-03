@@ -434,6 +434,64 @@ static void test_info_lists_buses_per_contract(const Value &contract) {
   CHECK(port_b.queued.size() == 1);
 }
 
+static void test_info_reports_each_bus_serial_parameters(const Value &contract) {
+  current_test = "info serial";
+  FakeClock clock;
+  FakeSink sink;
+  FakePort port_a, port_b;
+  core::Bus a{"rs485_a", port_a, 2000}, b{"rs485_b", port_b, 2000};
+  b.set_serial(19200, "EVEN", 2);
+  core::Bridge bridge{clock, sink};
+  bridge.add_bus(&a);
+  bridge.add_bus(&b);
+  Value info = mini_json::parse(bridge.info_json());
+  // A bus whose UART is unknown has no serial object; the field is optional.
+  CHECK(!info["buses"][0].has("serial"));
+  const Value &serial = info["buses"][1]["serial"];
+  CHECK(keys_of(serial) == keys_of(contract["info"]["serial_fields"]));
+  CHECK(serial["baud_rate"].integer() == 19200);
+  CHECK(serial["parity"].str() == "EVEN");
+  CHECK(serial["stop_bits"].integer() == 2);
+  bool parity_known = false;
+  for (const auto &parity : contract["info"]["serial_parities"].array)
+    parity_known = parity_known || parity.str() == serial["parity"].str();
+  CHECK(parity_known);
+  std::set<std::string> bus_keys = keys_of(contract["info"]["bus_fields"]);
+  for (const auto &key : keys_of(contract["info"]["optional_bus_fields"]))
+    bus_keys.insert(key);
+  CHECK(keys_of(info["buses"][1]) == bus_keys);
+}
+
+static void test_two_buses_have_a_probe_in_flight_at_the_same_time(const Value &contract) {
+  current_test = "buses in parallel";
+  FakeClock clock;
+  FakeSink sink;
+  FakePort port_a, port_b;
+  core::Bus a{"rs485_a", port_a, 2000}, b{"rs485_b", port_b, 2000};
+  core::Bridge bridge{clock, sink};
+  bridge.add_bus(&a);
+  bridge.add_bus(&b);
+  core::ProbeRequest ra = base_request(contract), rb = base_request(contract);
+  ra.bus = "rs485_a";
+  rb.bus = "rs485_b";
+  rb.request_id = "rb1";
+  bridge.probe(ra);
+  bridge.probe(rb);
+  CHECK(a.busy() && b.busy());
+  CHECK(port_a.queued.size() == 1 && port_b.queued.size() == 1);
+  CHECK(sink.results.empty());
+  // A second probe on a busy Bus is refused; the other Bus is unaffected.
+  ra.request_id = "ra2";
+  bridge.probe(ra);
+  CHECK(mini_json::parse(sink.results.back())["error"].str() == "busy");
+  CHECK(mini_json::parse(sink.results.back())["bus"].str() == "rs485_a");
+  CHECK(b.busy());
+  b.on_sent();
+  b.on_no_response();
+  CHECK(mini_json::parse(sink.results.back())["id"].str() == "rb1");
+  CHECK(a.busy() && !b.busy());
+}
+
 static void test_first_probe_of_a_scan_pauses_selected_pollers_before_queueing(const Value &contract) {
   current_test = "lease begins";
   LeaseRig rig;
@@ -635,6 +693,8 @@ int main(int argc, char **argv) {
   test_stray_callbacks_are_ignored(contract);
   test_unknown_bus_name_is_echoed_safely(contract);
   test_info_lists_buses_per_contract(contract);
+  test_info_reports_each_bus_serial_parameters(contract);
+  test_two_buses_have_a_probe_in_flight_at_the_same_time(contract);
   test_first_probe_of_a_scan_pauses_selected_pollers_before_queueing(contract);
   test_each_probe_renews_the_lease_and_in_flight_probes_never_expire_it(contract);
   test_client_gone_mid_scan_gateway_resumes_polling_after_idle(contract);
