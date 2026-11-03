@@ -51,7 +51,7 @@ ADR 0001–0003 說明 provider／coordinator 分離、單一設定項目生命�
 
 - `start_scan` 只接受字面布林值 `safety_confirmed: true`；字串與數字都會被拒絕。
 - 超過 32 個站號的 Scan（Large Range）另需 `large_range_confirmed: true`。
-  側邊欄會先顯示預估時間（站號數 ×（逾時 + 間隔））再要求確認。
+  側邊欄會先顯示預估時間（站號數 × 嘗試次數 ×（逾時 + Gateway 每次額外時間）+ 間隔，與 Scan 的 `estimated_worst_case_ms` 相同）再要求確認。
 - 暫停的輪詢元件在 Scan 期間，其 HA 實體值會過時。請見
   [Pausable Poller 與 Scan Lease](#pausable-poller-與-scan-lease)。
 
@@ -140,6 +140,8 @@ HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。
 - **從 ESPHome 裝置新增 Gateway**（建議）：列出 HA ESPHome 整合中已知 MAC 的節點，
   沿用其主機、連接埠與 API 金鑰，並透過 API 驗證 MAC 與 bridge v2 簽章，不送出任何
   Modbus 封包。失敗時會指出原因：缺少掃描元件、bridge 不符、身分不符、認證或連線。
+  之後每次連線都會重新讀取該 ESPHome 項目的主機、連接埠與金鑰，所以 IP 變更或金鑰
+  更換後不需重新加入。
 - **手動新增 Gateway**（進階）：輸入主機、MAC 與 API 金鑰，檢查相同。可選 bridge v2，
   或尚未重刷節點用的 legacy bridge v1。
 - **目前只用模擬 Gateway。**
@@ -210,7 +212,8 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 - 從 Scan 的第一個 Probe 開始；選定的輪詢元件停止，hub 中這些站號排隊的封包會被清除；
 - Scan 完成、取消或失敗時，HA 釋放 lease；
 - 若 HA 或連線消失，Gateway 在 **5 秒**沒有 Probe 後自行結束 lease，且無論如何在
-  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）；
+  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）。位址間隔上限為 3000 ms，
+  所以 Scan 自己的間隔不會達到閒置時間；
 - 每一種結束方式，Gateway 都會恢復輪詢元件。
 
 需要預先考量兩點：清除暫停元件的佇列，也會丟掉它待送的寫入（Scan 期間請勿調整
@@ -258,7 +261,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | `probe_type` | `holding_register` | `holding_register`（FC03）或 `input_register`（FC04）；`device_identification` 僅限模擬 |
 | `register_address`、`register_count` | 0、1 | bridge v2 數量 1–4；區塊結尾不得超過 65535 |
 | `timeout_ms` | 1000 | bridge v2 為 100–2000，在 Gateway 上逐個 Probe 套用 |
-| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；位址間隔 0–5000 ms |
+| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間） |
 | `pause_normal_polling` | `true` | `false` 表示掃描時不暫停任何元件 |
 | `pause_pollers` | 已儲存的選擇 | 僅用於本次 Scan 的 Pausable Poller 索引 |
 | `mock_scenario` | `found_default` | 僅限模擬 provider |

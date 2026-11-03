@@ -341,7 +341,7 @@ class Bus {
       this->finish_("gateway_error", "\"error\":\"" + std::string(error::NOT_SENT) + "\"");
   }
 
-  // Called by the Bridge only, after validation.
+  // Called by the Gateway only, after validation.
   void attach(Clock *clock, ResultSink *sink) {
     this->clock_ = clock;
     this->sink_ = sink;
@@ -481,11 +481,11 @@ class Bus {
   uint32_t sent_at_{0};
 };
 
-// ---- Node-wide bridge: the probe action and the info/result sensors, routing by bus ----
+// ---- Gateway: the probe/release actions and the info/result/lease sensors, routing by bus ----
 
-class Bridge {
+class Gateway {
  public:
-  Bridge(Clock &clock, ResultSink &sink) : clock_(clock), sink_(sink) {}
+  Gateway(Clock &clock, ResultSink &sink) : clock_(clock), sink_(sink) {}
 
   void add_bus(Bus *bus) {
     bus->attach(&this->clock_, &this->sink_);

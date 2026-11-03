@@ -8,8 +8,9 @@ a result only counts when it echoes the request id of the Probe just sent.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 import inspect
 import json
@@ -27,7 +28,7 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
-from ..limits import ProbeLimits
+from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
     GatewayInfo,
@@ -92,6 +93,17 @@ LIMITS = ProbeLimits(
         # A Scan pauses every Pausable Poller on its Bus under one Scan Lease.
         "pause_normal_polling": True,
     },
+    timing=ScanTiming(
+        # The probe action and its result's way back over the API; the Gateway applies the
+        # timeout itself and needs no drain or quiet periods (the lease holds the pollers).
+        attempt_overhead_ms=300,
+        # Connect 15 s, device info 10 s, entity list 10 s, bridge info 5 s.
+        setup_ms=40_000,
+        # The probe action call (5 s) plus the result margin over the timeout (5 s).
+        attempt_budget_ms=10_000,
+        # Lease release answer (1 s) and disconnect (up to 3 s).
+        cleanup_ms=4_000,
+    ),
 )
 
 
@@ -126,6 +138,9 @@ class V2Gateway:
     name: str | None = None
     port: int = 6053
     noise_psk: str | None = field(default=None, repr=False)
+    # The HA ESPHome config entry this Gateway was enrolled from; its current host, port and
+    # key win over the copy above, which stays as the fallback.
+    esphome_entry_id: str | None = None
 
     @property
     def gateway_id(self) -> str:
@@ -134,6 +149,10 @@ class V2Gateway:
     @property
     def display_name(self) -> str:
         return self.name or "ESPHome Modbus " + self.mac.replace(":", "")[-6:].upper()
+
+
+# Current {host, port, noise_psk} of an ESPHome config entry, or None when it is gone.
+EndpointResolver = Callable[[str], dict[str, Any] | None]
 
 
 @dataclass(slots=True)
@@ -149,7 +168,7 @@ class _Session:
     buses: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _int(value: Any) -> bool:
+def _is_int(value: Any) -> bool:
     return type(value) is int
 
 
@@ -158,11 +177,11 @@ def _valid_poller_table(pollers: Any) -> bool:
     return isinstance(pollers, list) and all(
         isinstance(poller, dict)
         and all(key in poller for key in INFO_POLLER_FIELDS)
-        and _int(poller["index"])
+        and _is_int(poller["index"])
         and poller["index"] == position
         and isinstance(poller["name"], str)
-        and _int(poller["address"])
-        and 0 <= poller["address"] <= 247
+        and _is_int(poller["address"])
+        and 0 <= poller["address"] <= HARD_LIMITS["slave_max"]
         for position, poller in enumerate(pollers)
     )
 
@@ -172,11 +191,11 @@ def _valid_serial(serial: Any) -> bool:
     return (
         isinstance(serial, dict)
         and all(key in serial for key in INFO_SERIAL_FIELDS)
-        and _int(serial["baud_rate"])
+        and _is_int(serial["baud_rate"])
         and serial["baud_rate"] >= 1
         and serial["parity"] in SERIAL_PARITIES
         and serial["stop_bits"] in (1, 2)
-        and _int(serial["stop_bits"])
+        and _is_int(serial["stop_bits"])
     )
 
 
@@ -268,7 +287,7 @@ def _check_result(payload: Any, expected: dict[str, Any]) -> dict[str, Any]:
     for key, value in expected.items():
         if payload[key] != value or type(payload[key]) is not type(value):
             raise ValueError
-    if not _int(payload["latency_ms"]) or not 0 <= payload["latency_ms"] <= 60_000:
+    if not _is_int(payload["latency_ms"]) or not 0 <= payload["latency_ms"] <= 60_000:
         raise ValueError
     outcome = payload["outcome"]
     if any(key not in payload for key in RESULT_OUTCOME_FIELDS[outcome]):
@@ -278,11 +297,11 @@ def _check_result(payload: Any, expected: dict[str, Any]) -> dict[str, Any]:
         if (
             not isinstance(values, list)
             or len(values) != expected["count"]
-            or not all(_int(v) and 0 <= v <= 65535 for v in values)
+            or not all(_is_int(v) and 0 <= v <= 65535 for v in values)
         ):
             raise ValueError
     elif outcome == "modbus_exception":
-        if not _int(payload["exception"]) or not 1 <= payload["exception"] <= 255:
+        if not _is_int(payload["exception"]) or not 1 <= payload["exception"] <= 255:
             raise ValueError
     elif outcome == "gateway_error" and payload["error"] not in ERROR_CODES:
         raise ValueError
@@ -295,9 +314,10 @@ class V2GatewayProvider:
     provider_id = "esphome"
     supports_progress = True
 
-    def __init__(self, gateways, *, client_factory=None):
+    def __init__(self, gateways, *, client_factory=None, endpoint: EndpointResolver | None = None):
         self.gateways = {g.gateway_id: g for g in gateways}
         self.client_factory = client_factory
+        self._resolve_endpoint = endpoint
         # Held by a check; a Scan waits for it, a check refuses while any Scan runs.
         self._locks = {key: asyncio.Lock() for key in self.gateways}
         self._scans = dict.fromkeys(self.gateways, 0)
@@ -330,7 +350,23 @@ class V2GatewayProvider:
             for g in self.gateways.values()
         ]
 
+    def _endpoint(self, gateway: V2Gateway) -> V2Gateway:
+        """The Gateway with its linked ESPHome entry's current host, port and key, if any."""
+        if self._resolve_endpoint is None or gateway.esphome_entry_id is None:
+            return gateway
+        current = self._resolve_endpoint(gateway.esphome_entry_id)
+        if not current or not current.get("host"):
+            return gateway  # the entry is gone: keep the copy taken at Enrollment
+        return replace(
+            gateway,
+            host=current["host"],
+            port=current.get("port") or 6053,
+            noise_psk=current.get("noise_psk") or None,
+        )
+
     def _client(self, gateway: V2Gateway):
+        gateway = self._endpoint(gateway)
+        self.health[gateway.gateway_id]["encrypted"] = bool(gateway.noise_psk)
         options = {"noise_psk": gateway.noise_psk} if gateway.noise_psk else {}
         factory = self.client_factory or APIClient
         try:
@@ -418,7 +454,7 @@ class V2GatewayProvider:
             }
             if any(len(found) != 1 for found in (*actions.values(), *sensors.values())):
                 raise GatewayProviderError(
-                    "The modbus_scanner component (bridge v2) is not installed on this node",
+                    "The modbus_scanner component (bridge v2) is not installed on this Gateway",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
                     reason="scanner_missing",
@@ -699,7 +735,7 @@ class V2GatewayProvider:
                     lease_answer = asyncio.get_running_loop().create_future()
                     released = False
                     if not disconnected:
-                        # The answer comes on the node-wide lease sensor: keep it out of
+                        # The answer comes on the Gateway's one lease sensor: keep it out of
                         # another Bus's batch like a probe result.
                         async with self._probe_slots[gateway.gateway_id]:
                             released = await self._release(

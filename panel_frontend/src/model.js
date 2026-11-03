@@ -74,7 +74,7 @@ export const LARGE_RANGE_THRESHOLD = 32;
 export const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
-  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
+  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 3000],
 });
 export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
@@ -110,7 +110,7 @@ function gatewayBoundsFor(form) {
       register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
   }
   const l = PHYSICAL_PROFILE.limits;
-  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,Math.min(l.inter_request_delay_max_ms,INTEGER_BOUNDS.inter_request_delay_ms[1])]} : INTEGER_BOUNDS;
 }
 /** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
 export function selectDeviceProfile(form, profile) {
@@ -206,11 +206,17 @@ export function selectionPayload(gatewayId, bus, pollers, index, paused) {
   return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
-/** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
-export function estimatedDurationMs(form) {
-  const fields = [form.start_id, form.end_id, form.timeout_ms, form.inter_request_delay_ms];
+/**
+ * Estimated range-scan duration, the service's estimated_worst_case_ms formula: IDs x attempts x
+ * (timeout + the gateway's reported per-attempt overhead) + (IDs - 1) x delay; null for an invalid range.
+ */
+export function estimatedDurationMs(form, gateway = null) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.retries, form.inter_request_delay_ms];
   if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
-  return (Number(form.end_id) - Number(form.start_id) + 1) * (Number(form.timeout_ms) + Number(form.inter_request_delay_ms));
+  const reported = gateway?.limits?.attempt_overhead_ms;
+  const overhead = Number.isInteger(reported) && reported >= 0 ? reported : 0;
+  const ids = Number(form.end_id) - Number(form.start_id) + 1;
+  return ids * (Number(form.retries) + 1) * (Number(form.timeout_ms) + overhead) + (ids - 1) * Number(form.inter_request_delay_ms);
 }
 export function needsLargeRangeConfirmation(form) {
   return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;

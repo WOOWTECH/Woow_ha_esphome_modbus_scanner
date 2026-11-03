@@ -388,7 +388,33 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "timeout_ms_max": 2000,
         "pause_normal_polling_required": False,
         "pause_normal_polling_supported": True,
+        "attempt_overhead_ms": 300,
     }
+
+
+async def test_v2_scan_estimate_and_budget_are_sized_for_bridge_v2(hass, gateway):
+    """Not the v1 firmware's per-address drain and recovery: v2 has a Gateway-held lease."""
+    call = await _setup(hass)
+    started = await call(
+        "start_scan",
+        {
+            "provider": "esphome",
+            "gateway_id": GATEWAY_ID,
+            "start_id": 1,
+            "end_id": 3,
+            "timeout_ms": 200,
+            "retries": 1,
+            "inter_request_delay_ms": 50,
+            "safety_confirmed": True,
+        },
+    )
+    await _settle(hass)
+    # 3 IDs x 2 attempts x (200 ms + 300 ms API round trip) + 2 gaps x 50 ms. The panel's
+    # range-scan model test uses the same worked example.
+    assert started["estimated_worst_case_ms"] == 3100
+    # 40 s connect and discovery + 6 attempts x (200 ms + 10 s action and result waits)
+    # + 100 ms of gaps + 4 s lease release and disconnect.
+    assert started["execution_budget_ms"] == 105_300
 
 
 async def test_timeouts_are_counted_but_exceptions_are_listed(hass, gateway):

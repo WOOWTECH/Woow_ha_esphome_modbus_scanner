@@ -272,8 +272,8 @@ try {
   await ranged.locator('#end_id').fill('32'); await ranged.locator('#safety').check();
   check(await ranged.locator('#large-range').count()===0, 'large-range confirmation shown for 32 IDs');
   await ranged.locator('#end_id').fill('100');
-  // 100 IDs x (500 ms timeout + 100 ms delay) = 60 s
-  await ranged.getByText(/scans 100 IDs and can take about 60\.0 s/).waitFor();
+  // The service's estimate: 100 IDs x 2 attempts (1 retry) x 500 ms timeout + 99 x 100 ms delay = 109.9 s
+  await ranged.getByText(/scans 100 IDs and can take about 109\.9 s/).waitFor();
   await rangePage.evaluate(() => { calls.length=0; });
   await ranged.getByRole('button',{name:'Start scan'}).click();
   await ranged.getByText('This range has more than 32 IDs. Confirm the estimated duration before starting.').waitFor();

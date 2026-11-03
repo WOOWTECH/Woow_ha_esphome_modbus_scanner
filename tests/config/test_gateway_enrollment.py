@@ -246,6 +246,26 @@ async def test_a_gateway_can_be_removed_without_touching_the_others(hass, node):
     assert entry.data["gateways"] == LEGACY[1:]
 
 
+async def test_removing_a_gateway_forgets_its_saved_pausable_poller_selection(hass, node):
+    entry = scanner_entry(hass, LEGACY)
+    selection = {
+        "esphome:aabbcc000001": {"rs485": [{"index": 0, "name": "meter", "paused": False}]},
+        "esphome:aabbcc000002": {"rs485": [{"index": 0, "name": "pump", "paused": True}]},
+    }
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "pausable_poller_selection": selection}
+    )
+
+    menu = await start_reconfigure(hass, entry)
+    form = await step(hass, menu, {"next_step_id": "remove_gateway"})
+    await step(hass, form, {"gateways": ["AA:BB:CC:00:00:01"]})
+
+    assert entry.options == {
+        "kept": True,
+        "pausable_poller_selection": {"esphome:aabbcc000002": selection["esphome:aabbcc000002"]},
+    }
+
+
 async def test_manual_mode_enrolls_a_node_outside_the_esphome_integration(hass, node):
     form = await step(hass, await start_user(hass), {"next_step_id": "manual"})
     created = await step(

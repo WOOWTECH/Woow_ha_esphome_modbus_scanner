@@ -87,7 +87,7 @@ const en = {
   leaseStates: {active: "Active: Normal Polling paused", ended: "Ended: Normal Polling resumed", unconfirmed: "Ending not confirmed: the Gateway resumes Normal Polling by itself within 5 s"},
   leaseReasons: {released: "released by Home Assistant", idle: "ended by the Gateway after 5 s without a probe", hard_limit: "ended by the Gateway at the 10-minute limit", superseded: "replaced by a newer Scan"},
   staleWarning: "Entity values of these paused devices are stale until the Scan ends:",
-  largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x (timeout + delay)).`,
+  largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x attempts x (timeout + gateway overhead) + delays).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
   registerBlock: "The register block must end at or before register 65535.",
   deviceProfile: "Device Profile", deviceProfileHelp: "Its defaults fill the form; its limits apply together with the gateway's limits.",
@@ -164,7 +164,7 @@ const zh = {
   leaseStates:{active:"進行中：一般輪詢已暫停",ended:"已結束：一般輪詢已恢復",unconfirmed:"未確認結束：閘道會在 5 秒內自行恢復一般輪詢"},
   leaseReasons:{released:"由 Home Assistant 釋放",idle:"閘道於 5 秒無探測後結束",hard_limit:"閘道於 10 分鐘上限時結束",superseded:"已由較新的掃描取代"},
   staleWarning:"下列暫停中設備的實體數值在掃描結束前為過期資料：",
-  largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 ×（逾時 + 間隔））。`,
+  largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 × 嘗試次數 ×（逾時 + Gateway 額外時間）+ 間隔）。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
   registerBlock:"暫存器區塊不可超過 65535。",
   deviceProfile:"設備規格（Device Profile）",deviceProfileHelp:"其預設值會帶入表單；其限制與閘道限制同時生效。",
@@ -306,7 +306,7 @@ const LARGE_RANGE_THRESHOLD = 32;
 const INTEGER_BOUNDS = Object.freeze({
   start_id: [1, 247], end_id: [1, 247], address: [1, 247],
   register_address: [0, 65535], register_count: [1, 125],
-  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
+  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 3000],
 });
 const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
 const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
@@ -342,7 +342,7 @@ function gatewayBoundsFor(form) {
       register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]};
   }
   const l = PHYSICAL_PROFILE.limits;
-  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,l.inter_request_delay_max_ms]} : INTEGER_BOUNDS;
+  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,Math.min(l.inter_request_delay_max_ms,INTEGER_BOUNDS.inter_request_delay_ms[1])]} : INTEGER_BOUNDS;
 }
 /** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
 function selectDeviceProfile(form, profile) {
@@ -438,11 +438,17 @@ function selectionPayload(gatewayId, bus, pollers, index, paused) {
   return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
 }
 const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
-/** Estimated range-scan duration: ID count x (timeout + inter-request delay); null for an invalid range. */
-function estimatedDurationMs(form) {
-  const fields = [form.start_id, form.end_id, form.timeout_ms, form.inter_request_delay_ms];
+/**
+ * Estimated range-scan duration, the service's estimated_worst_case_ms formula: IDs x attempts x
+ * (timeout + the gateway's reported per-attempt overhead) + (IDs - 1) x delay; null for an invalid range.
+ */
+function estimatedDurationMs(form, gateway = null) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.retries, form.inter_request_delay_ms];
   if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
-  return (Number(form.end_id) - Number(form.start_id) + 1) * (Number(form.timeout_ms) + Number(form.inter_request_delay_ms));
+  const reported = gateway?.limits?.attempt_overhead_ms;
+  const overhead = Number.isInteger(reported) && reported >= 0 ? reported : 0;
+  const ids = Number(form.end_id) - Number(form.start_id) + 1;
+  return ids * (Number(form.retries) + 1) * (Number(form.timeout_ms) + overhead) + (ids - 1) * Number(form.inter_request_delay_ms);
 }
 function needsLargeRangeConfirmation(form) {
   return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;
@@ -1028,7 +1034,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     const t = this._text;
     const invalid = Boolean(this._errors.large_range_confirmed);
     const count = Number(this._form.end_id) - Number(this._form.start_id) + 1;
-    const estimate = estimatedDurationMs(this._form);
+    const estimate = estimatedDurationMs(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id));
     const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
     return b`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : A}>${t.largeRange(count, seconds)}</label>${invalid ? b`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : A}</div>`;
   }
@@ -1081,7 +1087,7 @@ class WoowEsphomeModbusScannerPanel extends i {
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.profileNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.profiles[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
             <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="device_identification" ?disabled=${physical}>${t.deviceIdentification}</option><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? t.physicalHelp : physical ? t.v2Help : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, 5000, t.delayHelp)}
+            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? b`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : A}</div>

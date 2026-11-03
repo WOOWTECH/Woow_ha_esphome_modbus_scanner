@@ -58,7 +58,8 @@ FC23) and enforces its own hard limits: slave 1–247, FC03/FC04, 1–4 register
   and numbers are rejected.
 - A Scan of more than 32 slave IDs (a Large Range) also requires
   `large_range_confirmed: true`. The sidebar shows the estimated duration,
-  IDs × (timeout + delay), before asking.
+  IDs × attempts × (timeout + the Gateway's per-attempt overhead) + delays, the
+  same figure as the Scan's `estimated_worst_case_ms`, before asking.
 - Pausing pollers makes their Home Assistant entities stale for the duration of
   the Scan. See [Pausable Pollers and the Scan Lease](#pausable-pollers-and-the-scan-lease).
 
@@ -155,7 +156,9 @@ is a single entry; the set-up menu offers:
   HA's ESPHome integration with a known MAC, reuses their host, port and API key,
   and verifies the MAC and the bridge v2 signature over the API without sending
   a Modbus frame. Failures name the cause: scanner component missing, bridge
-  mismatch, identity mismatch, authentication or connection.
+  mismatch, identity mismatch, authentication or connection. Every later
+  connection reads the host, port and key from that ESPHome entry again, so a new
+  IP address or a rotated key there needs no re-enrolment.
 - **Add a gateway manually** (advanced): host, MAC and API key, with the same
   checks. Choose bridge v2, or legacy bridge v1 for a node not yet reflashed.
 - **Mock gateway only for now.**
@@ -237,7 +240,8 @@ The pause is a Scan Lease held by the Gateway, not by Home Assistant:
 - HA releases it when the Scan completes, is cancelled or fails;
 - if HA or the connection disappears, the Gateway ends it by itself after
   **5 s** without a Probe, and in every case after **10 minutes** (later Probes
-  of a longer Scan run without pausing);
+  of a longer Scan run without pausing). The inter-request delay is capped at
+  3000 ms so a Scan's own gaps never reach the idle time;
 - on every ending path the Gateway resumes the pollers.
 
 Two consequences to plan for: clearing a paused poller's queue also drops any
@@ -290,7 +294,7 @@ retry and no pause):
 | `probe_type` | `holding_register` | `holding_register` (FC03) or `input_register` (FC04); `device_identification` is mock-only |
 | `register_address`, `register_count` | 0, 1 | Count 1–4 on bridge v2; the block must end at or before 65535 |
 | `timeout_ms` | 1000 | 100–2000 on bridge v2, applied per Probe on the Gateway |
-| `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–5000 ms between addresses |
+| `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–3000 ms between addresses (kept below the 5 s lease idle time) |
 | `pause_normal_polling` | `true` | `false` scans without pausing anything |
 | `pause_pollers` | saved selection | Pausable Poller indices for this Scan only |
 | `mock_scenario` | `found_default` | Mock provider only |

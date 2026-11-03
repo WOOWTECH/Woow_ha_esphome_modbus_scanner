@@ -13,6 +13,7 @@ from uuid import uuid4
 from homeassistant.core import HomeAssistant
 
 from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
+from .limits import ScanTiming
 from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
 from .pollers import choose
 from .provider import GatewayProvider, GatewayProviderError
@@ -57,6 +58,8 @@ class _ScanState:
     bus: str | None = None
     profile: DeviceProfile = GENERIC_DEVICE_PROFILE
     device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
+    # How long Scans take on this Gateway (its provider adapter's ScanTiming).
+    timing: ScanTiming = field(default_factory=ScanTiming)
     phase: ScanPhase = ScanPhase.RUNNING
     started_at: str = field(default_factory=_utc_now)
     finished_at: str | None = None
@@ -123,10 +126,12 @@ class ModbusScanCoordinator:
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a bridge v2 Gateway, revalidated if known."""
-        if self._selection_store is None or "bridge_v2" not in gateway.capabilities:
+        if self._selection_store is None or not gateway.is_bridge_v2:
             return {}
         tables = (gateway.health or {}).get("pausable_pollers")
-        selection, removed = self._selection_store.report(gateway.gateway_id, tables, prune=prune)
+        selection, removed = self._selection_store.revalidate(
+            gateway.gateway_id, tables, prune=prune
+        )
         return {"poller_selection": selection, "removed_pollers": removed}
 
     def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
@@ -147,11 +152,11 @@ class ModbusScanCoordinator:
         if (
             gateway is None
             or self._selection_store is None
-            or "bridge_v2" not in gateway.capabilities
+            or not gateway.is_bridge_v2
         ):
             raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
         tables = (gateway.health or {}).get("pausable_pollers")
-        selection, _removed = self._selection_store.report(gateway_id, tables, prune=False)
+        selection, _removed = self._selection_store.revalidate(gateway_id, tables, prune=False)
         if bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
@@ -218,7 +223,7 @@ class ModbusScanCoordinator:
                     f"Gateway {request.gateway_id} has no Bus {request.bus}; "
                     f"its Buses are {', '.join(names)}"
                 )
-            if not names and "bridge_v2" not in gateway.capabilities:
+            if not names and not gateway.is_bridge_v2:
                 raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
             return request
         if len(names) == 1:
@@ -249,7 +254,7 @@ class ModbusScanCoordinator:
         if gateway.limits is not None:
             gateway.limits.validate(request)
         profile.limits.validate(request)
-        if request.pause_pollers is not None and "bridge_v2" not in gateway.capabilities:
+        if request.pause_pollers is not None and not gateway.is_bridge_v2:
             raise ValueError("pause_pollers needs a bridge v2 Gateway with Pausable Pollers")
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):
@@ -262,6 +267,7 @@ class ModbusScanCoordinator:
             bus=request.bus,
             profile=profile,
             device_profile=profile.summary(),
+            timing=gateway.limits.timing if gateway.limits is not None else ScanTiming(),
         )
         self._scans[scan_id] = state
         self._active[request.gateway_key] = scan_id
@@ -315,8 +321,8 @@ class ModbusScanCoordinator:
             "outcome_counts": self._serialized_counts(state),
             "started_at": state.started_at,
             "finished_at": state.finished_at,
-            "estimated_worst_case_ms": state.request.estimated_worst_case_ms,
-            "execution_budget_ms": state.request.execution_budget_ms,
+            "estimated_worst_case_ms": state.timing.estimated_worst_case_ms(state.request),
+            "execution_budget_ms": state.timing.execution_budget_ms(state.request),
             "elapsed_ms": int((monotonic() - state.started_clock) * 1000)
             if state.phase == ScanPhase.RUNNING
             else state.elapsed_ms,
@@ -518,7 +524,7 @@ class ModbusScanCoordinator:
             kwargs = {"progress": progress} if getattr(provider, "supports_progress", False) else {}
             cleanup_reserve_ms = 3000 if state.request.provider == "esphome" else 0
             async with asyncio.timeout(
-                (state.request.execution_budget_ms - cleanup_reserve_ms) / 1000
+                (state.timing.execution_budget_ms(state.request) - cleanup_reserve_ms) / 1000
             ):
                 await provider.run_scan(
                     state.request, emit, lambda: state.cancellation_requested, **kwargs

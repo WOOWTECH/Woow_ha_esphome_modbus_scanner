@@ -10,7 +10,7 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
 
 On a node with several hubs, add one entry per hub (each is one Bus, optionally named with
 ``bus:``; see firmware/examples/multi-bus-modbus-scanner.yaml). The info entry of each Bus
-reports its hub UART's baud rate, parity and stop bits. The node-wide probe/release actions
+reports its hub UART's baud rate, parity and stop bits. The Gateway's probe/release actions
 and the info/result/lease text sensors are created once, by the first entry. Their names are
 fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
@@ -50,14 +50,14 @@ LEASE_SENSOR_NAME = "Modbus Scanner v2 Lease"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
 CONF_BUS = "bus"
-CONF_BRIDGE_ID = "bridge_id"
+CONF_GATEWAY_ID = "gateway_id"
 CONF_INFO_SENSOR = "info_sensor"
 CONF_RESULT_SENSOR = "result_sensor"
 CONF_LEASE_SENSOR = "lease_sensor"
-_BRIDGE_KEY = "modbus_scanner_bridge"
+_GATEWAY_KEY = "modbus_scanner_gateway"
 
 modbus_scanner_ns = cg.esphome_ns.namespace("modbus_scanner")
-ModbusScannerBridge = modbus_scanner_ns.class_("ModbusScannerBridge", cg.Component)
+ModbusScannerGateway = modbus_scanner_ns.class_("ModbusScannerGateway", cg.Component)
 ModbusScannerBus = modbus_scanner_ns.class_("ModbusScannerBus", modbus.ModbusClientDevice)
 
 
@@ -86,7 +86,7 @@ def _sensor(name):
     )
 
 
-_NODE_SENSORS = {
+_GATEWAY_SENSORS = {
     CONF_INFO_SENSOR: INFO_SENSOR_NAME,
     CONF_RESULT_SENSOR: RESULT_SENSOR_NAME,
     CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
@@ -94,8 +94,8 @@ _NODE_SENSORS = {
 _SENSORS_CLAIMED_KEY = "modbus_scanner_sensors_claimed"
 
 
-def _node_sensors_on_first_entry(config):
-    """The node-wide text sensors belong to the first entry only.
+def _gateway_sensors_on_first_entry(config):
+    """The Gateway's text sensors belong to the first entry only.
 
     Their names are fixed by the contract and entity names are unique per node, so a
     second hub's entry must not declare them again. Runs before the schema, once per entry,
@@ -106,27 +106,28 @@ def _node_sensors_on_first_entry(config):
     config = dict(config)
     first = not CORE.data.get(_SENSORS_CLAIMED_KEY)
     CORE.data[_SENSORS_CLAIMED_KEY] = True
-    for key, name in _NODE_SENSORS.items():
+    for key, name in _GATEWAY_SENSORS.items():
         if first:
             config.setdefault(key, {CONF_NAME: name})
         elif key in config:
             raise cv.Invalid(
-                f"{key} is node-wide; set it on the first modbus_scanner entry only",
+                f"{key} is shared by every Bus of the Gateway; "
+                "set it on the first modbus_scanner entry only",
                 path=[key],
             )
     return config
 
 
 CONFIG_SCHEMA = cv.All(
-    _node_sensors_on_first_entry,
+    _gateway_sensors_on_first_entry,
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ModbusScannerBus),
-            # Only the first entry's bridge is created; it serves every Bus on the node.
-            cv.GenerateID(CONF_BRIDGE_ID): cv.declare_id(ModbusScannerBridge),
+            # Only the first entry's Gateway object is created; it serves every Bus.
+            cv.GenerateID(CONF_GATEWAY_ID): cv.declare_id(ModbusScannerGateway),
             cv.GenerateID(modbus.CONF_MODBUS_ID): cv.use_id(modbus.ModbusClient),
             cv.Optional(CONF_BUS): _bus_name,
-            **{cv.Optional(key): _sensor(name) for key, name in _NODE_SENSORS.items()},
+            **{cv.Optional(key): _sensor(name) for key, name in _GATEWAY_SENSORS.items()},
         }
     ),
     cv.require_esphome_version(*MIN_ESPHOME_VERSION),
@@ -218,29 +219,29 @@ def _poller_address(config) -> int:
     return address if isinstance(address, int) and 1 <= address <= 247 else 0
 
 
-async def _bridge(config):
-    if _BRIDGE_KEY in CORE.data:
-        return CORE.data[_BRIDGE_KEY]
-    # The entry that carries the node-wide sensors (the first one in YAML).
+async def _gateway(config):
+    if _GATEWAY_KEY in CORE.data:
+        return CORE.data[_GATEWAY_KEY]
+    # The entry that carries the Gateway's sensors (the first one in YAML).
     config = next(c for c in CORE.config["modbus_scanner"] if CONF_INFO_SENSOR in c)
-    bridge = cg.new_Pvariable(config[CONF_BRIDGE_ID])
-    await cg.register_component(bridge, {})
+    gateway = cg.new_Pvariable(config[CONF_GATEWAY_ID])
+    await cg.register_component(gateway, {})
     info = await text_sensor.new_text_sensor(config[CONF_INFO_SENSOR])
-    cg.add(bridge.set_info_sensor(info))
+    cg.add(gateway.set_info_sensor(info))
     result = await text_sensor.new_text_sensor(config[CONF_RESULT_SENSOR])
-    cg.add(bridge.set_result_sensor(result))
+    cg.add(gateway.set_result_sensor(result))
     lease = await text_sensor.new_text_sensor(config[CONF_LEASE_SENSOR])
-    cg.add(bridge.set_lease_sensor(lease))
+    cg.add(gateway.set_lease_sensor(lease))
     # The component registers its own API action, so the user does not need
     # `api: custom_services: true` in YAML.
     cg.add_define("USE_API_USER_DEFINED_ACTIONS")
     cg.add_define("USE_API_CUSTOM_SERVICES")
-    CORE.data[_BRIDGE_KEY] = bridge
-    return bridge
+    CORE.data[_GATEWAY_KEY] = gateway
+    return gateway
 
 
 async def to_code(config):
-    bridge = await _bridge(config)
+    gateway = await _gateway(config)
     name = config.get(CONF_BUS) or _default_bus_name(config)
     hub = await cg.get_variable(config[modbus.CONF_MODBUS_ID])
     var = cg.new_Pvariable(
@@ -253,4 +254,4 @@ async def to_code(config):
         component = await cg.get_variable(poller[CONF_ID])
         name = str(poller.get(CONF_NAME) or poller[CONF_ID])
         cg.add(var.add_poller(name, _poller_address(poller), component))
-    cg.add(bridge.add_bus(var))
+    cg.add(gateway.add_bus(var))

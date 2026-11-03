@@ -70,12 +70,12 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
   std::vector<std::unique_ptr<PollingComponentPoller>> pollers_;
 };
 
-/// Node-wide singleton: registers the v2 probe and release actions, owns the info/result/lease
+/// The Gateway, one per node: registers the v2 probe and release actions, owns the info/result/lease
 /// text sensors and runs each Bus's lease recovery from loop().
-class ModbusScannerBridge : public Component,
-                            public api::CustomAPIDevice,
-                            public modbus_scanner_core::Clock,
-                            public modbus_scanner_core::ResultSink {
+class ModbusScannerGateway : public Component,
+                             public api::CustomAPIDevice,
+                             public modbus_scanner_core::Clock,
+                             public modbus_scanner_core::ResultSink {
  public:
   void setup() override;
   void loop() override;
@@ -95,7 +95,7 @@ class ModbusScannerBridge : public Component,
   void on_release(std::string bus, std::string scan_id);
 
  protected:
-  modbus_scanner_core::Bridge core_{*this, *this};
+  modbus_scanner_core::Gateway core_{*this, *this};
   text_sensor::TextSensor *info_sensor_{nullptr};
   text_sensor::TextSensor *result_sensor_{nullptr};
   text_sensor::TextSensor *lease_sensor_{nullptr};

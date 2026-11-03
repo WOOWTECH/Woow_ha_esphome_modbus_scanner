@@ -89,8 +89,8 @@ struct Rig {
   FakeSink sink;
   FakePort port;
   core::Bus bus{"bus0", port, kYamlSendWait};
-  core::Bridge bridge{clock, sink};
-  Rig() { bridge.add_bus(&bus); }
+  core::Gateway gateway{clock, sink};
+  Rig() { gateway.add_bus(&bus); }
   Value last() const { return mini_json::parse(sink.results.back()); }
 };
 
@@ -150,7 +150,7 @@ struct LeaseRig : Rig {
     r.scan_id = scan_id;
     r.pause_pollers = pollers;
     r.slave = slave;
-    bridge.probe(r);
+    gateway.probe(r);
   }
   /// Complete the in-flight probe as a timeout after `elapsed_ms` on the wire.
   void time_out(uint32_t elapsed_ms) {
@@ -160,7 +160,7 @@ struct LeaseRig : Rig {
   }
   void advance(uint32_t ms) {
     clock.now += ms;
-    bridge.loop();
+    gateway.loop();
   }
 };
 
@@ -251,7 +251,7 @@ static void test_request_cases_from_contract(const Value &contract) {
   for (const auto &item : contract["request_cases"].array) {
     current_test = "request case: " + item["name"].str();
     Rig rig;
-    rig.bridge.probe(request_from(contract["base_request"], item["request"]));
+    rig.gateway.probe(request_from(contract["base_request"], item["request"]));
     const std::string &expect = item["expect"].str();
     if (expect == "accepted") {
       CHECK(rig.port.queued.size() == 1);
@@ -283,7 +283,7 @@ static void test_accepted_probe_reads_registers_with_its_own_timeout(const Value
   r.reg = 0x1234;
   r.count = 2;
   r.timeout_ms = 300;
-  rig.bridge.probe(r);
+  rig.gateway.probe(r);
   CHECK(rig.port.queued.size() == 1);
   CHECK(rig.port.queued[0].slave == 17);
   CHECK((rig.port.queued[0].pdu == std::vector<uint8_t>{0x04, 0x12, 0x34, 0x00, 0x02}));
@@ -334,7 +334,7 @@ static void test_terminal_outcomes(const Value &contract) {
   for (const Case &c : cases) {
     current_test = std::string("terminal: ") + c.name;
     Rig rig;
-    rig.bridge.probe(base_request(contract));
+    rig.gateway.probe(base_request(contract));
     if (c.sent)
       rig.bus.on_sent();
     rig.clock.now += 1000;
@@ -359,10 +359,10 @@ static void test_terminal_outcomes(const Value &contract) {
 static void test_one_probe_in_flight_per_bus(const Value &contract) {
   current_test = "single in-flight";
   Rig rig;
-  rig.bridge.probe(base_request(contract));
+  rig.gateway.probe(base_request(contract));
   core::ProbeRequest second = base_request(contract);
   second.request_id = "r2";
-  rig.bridge.probe(second);
+  rig.gateway.probe(second);
   CHECK(rig.port.queued.size() == 1);
   CHECK(rig.sink.results.size() == 1);
   CHECK(rig.last()["id"].str() == "r2");
@@ -371,7 +371,7 @@ static void test_one_probe_in_flight_per_bus(const Value &contract) {
   rig.bus.on_sent();
   rig.bus.on_no_response();
   second.request_id = "r3";
-  rig.bridge.probe(second);
+  rig.gateway.probe(second);
   CHECK(rig.port.queued.size() == 2);
 }
 
@@ -379,7 +379,7 @@ static void test_hub_refusal_is_reported_and_frees_the_bus(const Value &contract
   current_test = "queue rejected";
   Rig rig;
   rig.port.accept = false;
-  rig.bridge.probe(base_request(contract));
+  rig.gateway.probe(base_request(contract));
   CHECK(rig.sink.results.size() == 1);
   CHECK(rig.last()["error"].str() == "queue_rejected");
   CHECK(!rig.bus.busy());
@@ -402,7 +402,7 @@ static void test_unknown_bus_name_is_echoed_safely(const Value &contract) {
   Rig rig;
   core::ProbeRequest r = base_request(contract);
   r.bus = "x\"},{\"outcome\":\"responded\n";
-  rig.bridge.probe(r);
+  rig.gateway.probe(r);
   Value result = rig.last();
   CHECK(result["bus"].str() == r.bus);
   CHECK(result["error"].str() == "unknown_bus");
@@ -414,10 +414,10 @@ static void test_info_lists_buses_per_contract(const Value &contract) {
   FakeSink sink;
   FakePort port_a, port_b;
   core::Bus a{"rs485_a", port_a, 2000}, b{"rs485_b", port_b, 2000};
-  core::Bridge bridge{clock, sink};
-  bridge.add_bus(&a);
-  bridge.add_bus(&b);
-  Value info = mini_json::parse(bridge.info_json());
+  core::Gateway gateway{clock, sink};
+  gateway.add_bus(&a);
+  gateway.add_bus(&b);
+  Value info = mini_json::parse(gateway.info_json());
   CHECK(keys_of(info) == keys_of(contract["info"]["fields"]));
   CHECK(info["v"].integer() == contract["info"]["schema_version"].integer());
   CHECK(info["bridge"].integer() == contract["bridge_version"].integer());
@@ -429,7 +429,7 @@ static void test_info_lists_buses_per_contract(const Value &contract) {
   // Each bus routes its own probes.
   core::ProbeRequest r = base_request(contract);
   r.bus = "rs485_b";
-  bridge.probe(r);
+  gateway.probe(r);
   CHECK(port_a.queued.empty());
   CHECK(port_b.queued.size() == 1);
 }
@@ -441,10 +441,10 @@ static void test_info_reports_each_bus_serial_parameters(const Value &contract) 
   FakePort port_a, port_b;
   core::Bus a{"rs485_a", port_a, 2000}, b{"rs485_b", port_b, 2000};
   b.set_serial(19200, "EVEN", 2);
-  core::Bridge bridge{clock, sink};
-  bridge.add_bus(&a);
-  bridge.add_bus(&b);
-  Value info = mini_json::parse(bridge.info_json());
+  core::Gateway gateway{clock, sink};
+  gateway.add_bus(&a);
+  gateway.add_bus(&b);
+  Value info = mini_json::parse(gateway.info_json());
   // A bus whose UART is unknown has no serial object; the field is optional.
   CHECK(!info["buses"][0].has("serial"));
   const Value &serial = info["buses"][1]["serial"];
@@ -468,21 +468,21 @@ static void test_two_buses_have_a_probe_in_flight_at_the_same_time(const Value &
   FakeSink sink;
   FakePort port_a, port_b;
   core::Bus a{"rs485_a", port_a, 2000}, b{"rs485_b", port_b, 2000};
-  core::Bridge bridge{clock, sink};
-  bridge.add_bus(&a);
-  bridge.add_bus(&b);
+  core::Gateway gateway{clock, sink};
+  gateway.add_bus(&a);
+  gateway.add_bus(&b);
   core::ProbeRequest ra = base_request(contract), rb = base_request(contract);
   ra.bus = "rs485_a";
   rb.bus = "rs485_b";
   rb.request_id = "rb1";
-  bridge.probe(ra);
-  bridge.probe(rb);
+  gateway.probe(ra);
+  gateway.probe(rb);
   CHECK(a.busy() && b.busy());
   CHECK(port_a.queued.size() == 1 && port_b.queued.size() == 1);
   CHECK(sink.results.empty());
   // A second probe on a busy Bus is refused; the other Bus is unaffected.
   ra.request_id = "ra2";
-  bridge.probe(ra);
+  gateway.probe(ra);
   CHECK(mini_json::parse(sink.results.back())["error"].str() == "busy");
   CHECK(mini_json::parse(sink.results.back())["bus"].str() == "rs485_a");
   CHECK(b.busy());
@@ -586,7 +586,7 @@ static void test_release_resumes_at_once_and_always_answers(const Value &contrac
   rig.probe(contract, "r1", "scanA", "0,2");
   rig.time_out(100);
   rig.events.clear();
-  rig.bridge.release("bus0", "scanA");
+  rig.gateway.release("bus0", "scanA");
   CHECK((rig.events == std::vector<std::string>{"resume:meter", "resume:meter_b"}));
   Value lease = rig.last_lease();
   check_lease_shape(contract, lease);
@@ -595,13 +595,13 @@ static void test_release_resumes_at_once_and_always_answers(const Value &contrac
 
   // Releasing again (for example after a lost answer) repeats the ending, without resuming twice.
   rig.events.clear();
-  rig.bridge.release("bus0", "scanA");
+  rig.gateway.release("bus0", "scanA");
   CHECK(rig.events.empty());
   CHECK(rig.sink.leases.size() == 3);
   CHECK(rig.last_lease()["reason"].str() == "released");
 
   // A scan that never paused anything is answered with state none.
-  rig.bridge.release("bus0", "scanB");
+  rig.gateway.release("bus0", "scanB");
   lease = rig.last_lease();
   check_lease_shape(contract, lease);
   CHECK(lease["scan"].str() == "scanB");
@@ -609,8 +609,8 @@ static void test_release_resumes_at_once_and_always_answers(const Value &contrac
   CHECK(lease["pollers"].array.empty());
 
   // Unknown bus or uncorrelatable scan id: nothing to answer.
-  rig.bridge.release("bus9", "scanA");
-  rig.bridge.release("bus0", "bad id");
+  rig.gateway.release("bus9", "scanA");
+  rig.gateway.release("bus0", "bad id");
   CHECK(rig.sink.leases.size() == 4);
 }
 
@@ -619,7 +619,7 @@ static void test_release_while_the_last_probe_is_in_flight(const Value &contract
   LeaseRig rig;
   rig.probe(contract, "r1", "scanA", "0");
   rig.bus.on_sent();
-  rig.bridge.release("bus0", "scanA");
+  rig.gateway.release("bus0", "scanA");
   CHECK(!rig.meter.paused);
   rig.bus.on_no_response();  // the probe still ends normally
   CHECK(rig.sink.results.size() == 1);
@@ -665,7 +665,7 @@ static void test_no_selection_and_rejected_probes_never_pause(const Value &contr
 static void test_info_lists_the_pausable_poller_table(const Value &contract) {
   current_test = "info poller table";
   LeaseRig rig;
-  Value info = mini_json::parse(rig.bridge.info_json());
+  Value info = mini_json::parse(rig.gateway.info_json());
   const Value &pollers = info["buses"][0]["pollers"];
   CHECK(pollers.array.size() == 3);
   for (const auto &poller : pollers.array)

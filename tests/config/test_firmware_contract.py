@@ -47,5 +47,5 @@ def test_multi_bus_example_has_one_scanner_per_hub():
     scanners = config["modbus_scanner"]
     assert [entry["modbus_id"] for entry in scanners] == hubs == ["hub_a", "hub_b"]
     assert [entry["bus"] for entry in scanners] == ["line_a", "line_b"]
-    # The node-wide sensors are declared by the component, never per hub in YAML.
+    # The Gateway's sensors are declared by the component, never per hub in YAML.
     assert all(set(entry) == {"modbus_id", "bus"} for entry in scanners)

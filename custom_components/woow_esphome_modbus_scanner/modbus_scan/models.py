@@ -15,7 +15,9 @@ MAX_REGISTER_COUNT = 125
 MIN_TIMEOUT_MS = 10
 MAX_TIMEOUT_MS = 10_000
 MAX_RETRIES = 5
-MAX_INTER_REQUEST_DELAY_MS = 5_000
+# The bridge v2 contract's lease.inter_request_delay_max_ms: well below the Gateway's 5 s Scan
+# Lease idle limit, so a Scan's own gap between Probes never ends its lease.
+MAX_INTER_REQUEST_DELAY_MS = 3_000
 # A range Scan over more IDs than this needs large_range_confirmed besides safety_confirmed.
 LARGE_RANGE_THRESHOLD = 32
 # A Bus name: what a Gateway reports and what a Scan targets (bridge v2 identifier charset).
@@ -75,6 +77,11 @@ class GatewayInfo:
     limits: Any = None  # ProbeLimits reported by the provider adapter
     # The Gateway's Buses as {"bus", "serial"} rows; empty while the provider does not know.
     buses: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def is_bridge_v2(self) -> bool:
+        """Whether the Gateway speaks Bridge Protocol v2 (Buses, Pausable Pollers, Scan Lease)."""
+        return "bridge_v2" in self.capabilities
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""
@@ -152,27 +159,6 @@ class ScanRequest:
         """
         return self.provider, self.gateway_id, self.bus
 
-    @property
-    def estimated_worst_case_ms(self) -> int:
-        """Conservative request duration estimate without pre-enqueuing work."""
-        # Physical bridge includes normal-transaction drain and pre/post quiet.
-        overhead = 2700 if self.provider == "esphome" else 0
-        per_address = (self.timeout_ms + overhead) * (self.retries + 1)
-        delays = max(0, self.address_count - 1) * self.inter_request_delay_ms
-        return self.address_count * per_address + delays
-
-    @property
-    def execution_budget_ms(self) -> int:
-        """Operation ceiling includes connect/discovery, API waits, recovery and cleanup."""
-        if self.provider == "esphome":
-            return (
-                35000
-                + self.address_count * (self.retries + 1) * 11000
-                + max(0, self.address_count - 1) * self.inter_request_delay_ms
-                + 33000
-            )
-        return self.estimated_worst_case_ms + 10000
-
     def validate(self, *, require_safety: bool = True) -> None:
         """Validate all transport-independent safety bounds."""
         if not isinstance(self.provider, str) or not self.provider:
@@ -212,7 +198,9 @@ class ScanRequest:
         if not 0 <= self.retries <= MAX_RETRIES:
             raise ValueError("retries must be between 0 and 5")
         if not 0 <= self.inter_request_delay_ms <= MAX_INTER_REQUEST_DELAY_MS:
-            raise ValueError("inter_request_delay_ms must be between 0 and 5000")
+            raise ValueError(
+                f"inter_request_delay_ms must be between 0 and {MAX_INTER_REQUEST_DELAY_MS}"
+            )
         if type(self.pause_normal_polling) is not bool:
             raise ValueError("pause_normal_polling must be a boolean")
         if self.pause_pollers is not None and (

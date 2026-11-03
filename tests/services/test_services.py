@@ -149,6 +149,15 @@ async def test_numeric_schema_rejects_floats_and_booleans(hass, field, value):
         await _start(hass, **{field: value})
 
 
+async def test_inter_request_delay_is_capped_below_the_scan_lease_idle_time(hass):
+    """A Scan's own gap between Probes must never let the Gateway end its Scan Lease."""
+    async_register_services(hass)
+    with pytest.raises(vol.Invalid):
+        await _start(hass, inter_request_delay_ms=3001)
+    started = await _start(hass, start_id=1, end_id=1, inter_request_delay_ms=3000)
+    assert (await _wait_for_terminal(hass, started["scan_id"]))["status"] == "completed"
+
+
 async def test_numeric_schema_accepts_exact_integer_strings(hass):
     async_register_services(hass)
     started = await _start(
