@@ -91,6 +91,10 @@
     "gateway_action_required": {
       "title": "Scanner gateway requires attention",
       "description": "Gateway error: {code}. Check the configured MAC, API encryption key and versioned bridge firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual device maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
+    },
+    "legacy_bridge": {
+      "title": "Gateway {name} uses the deprecated legacy bridge v1",
+      "description": "Gateway {name} ({host}, {mac}) still runs the legacy bridge v1 firmware. It keeps working with the legacy limits for now (slave IDs 1-32, FC03, one allowlisted register, 700 ms), but legacy support will be removed in a future release. Add the vendor-neutral modbus_scanner component to the node's ESPHome YAML and reflash it, then open this integration's Reconfigure and choose \"Add or refresh a gateway from an ESPHome device\" (or the manual option with bridge v2) for this node. This issue disappears once the gateway is enrolled as bridge v2. The former vendor register map is available as an example Device Profile (examples/device_profiles/guanjie-ind17.json) that you can import in the sidebar."
     }
   }
 }

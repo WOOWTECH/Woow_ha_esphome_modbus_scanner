@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "guanjie-ind17",
+  "name": "Guanjie IN-D17 dehumidifier (example)",
+  "vendor": "Guanjie",
+  "model": "IN-D17",
+  "version": "1",
+  "function_codes": [3],
+  "defaults": {
+    "slave_start": 1,
+    "slave_end": 3,
+    "function_code": 3,
+    "register": 25089,
+    "count": 1,
+    "timeout_ms": 700,
+    "inter_request_delay_ms": 250,
+    "retries": 0
+  },
+  "allowed_registers": [25089, 25090, 25091, 25093, 25094, 24837, 24833, 24834, 24835, 24836, 24838, 24849, 24850],
+  "fields": [
+    {"register": 25089, "name": "Power (0 off, 1 on)", "data_type": "u16"},
+    {"register": 25090, "name": "Fan speed (1-3)", "data_type": "u16"},
+    {"register": 25091, "name": "Target humidity (0 = continuous)", "unit": "%", "data_type": "u16"},
+    {"register": 25093, "name": "Dehumidify mode (1 dry, 0 fan only)", "data_type": "u16"},
+    {"register": 25094, "name": "Air cleaning (0 off, 1 on)", "data_type": "u16"},
+    {"register": 24837, "name": "Status and fault flags (bitmask)", "data_type": "u16"},
+    {"register": 24833, "name": "Temperature 1 (raw: low byte degC, high byte tenths)", "data_type": "u16"},
+    {"register": 24834, "name": "Humidity 1 (raw)", "data_type": "u16"},
+    {"register": 24835, "name": "Temperature 2 (raw)", "data_type": "u16"},
+    {"register": 24836, "name": "Humidity 2 (raw)", "data_type": "u16"},
+    {"register": 24838, "name": "Pipe temperature (raw)", "data_type": "u16"},
+    {"register": 24849, "name": "Fan running hours", "unit": "h", "data_type": "u16"},
+    {"register": 24850, "name": "Filter threshold hours", "unit": "h", "data_type": "u16"}
+  ]
+}
