@@ -98,6 +98,12 @@ start_scan:
       selector:
         select:
           options: [found_default, all_offline, partial_timeout, modbus_exception, possible_collision, gateway_disconnect]
+    device_profile_id: &device_profile
+      name: Device Profile
+      description: Id from list_device_profiles (default generic). Its defaults fill omitted fields, and its limits are enforced together with the gateway's own limits.
+      default: generic
+      selector:
+        text:
     safety_confirmed:
       name: Confirm scan safety
       description: I understand reads temporarily pause polling, are best-effort, and prove neither absence nor Slave-ID uniqueness.
@@ -150,3 +156,31 @@ test_address:
     inter_request_delay_ms: *delay
     pause_normal_polling: *pause
     mock_scenario: *mock_scenario
+    device_profile_id: *device_profile
+list_device_profiles:
+  name: List Device Profiles
+  description: The built-in Generic Device Profile and every imported Device Profile, with their defaults, register allowlists, field definitions and limits.
+import_device_profile:
+  name: Import Device Profile
+  description: Validate a Device Profile JSON document and store it in Home Assistant storage (included in HA backups). An existing profile with the same id is replaced. Invalid documents are rejected with field-level errors.
+  fields:
+    profile:
+      name: Device Profile document
+      description: The Device Profile as a JSON object or JSON text (schema_version 1).
+      required: true
+      selector:
+        object:
+export_device_profile:
+  name: Export Device Profile
+  description: Return the importable JSON document of one Device Profile.
+  fields:
+    profile_id: &profile_id
+      name: Device Profile id
+      required: true
+      selector:
+        text:
+delete_device_profile:
+  name: Delete Device Profile
+  description: Delete an imported Device Profile. The built-in Generic Device Profile cannot be deleted, and a profile used by a running Scan is refused until that Scan ends. Finished Scan results keep the profile label they were recorded with.
+  fields:
+    profile_id: *profile_id
