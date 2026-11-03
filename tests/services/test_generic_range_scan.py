@@ -51,3 +51,34 @@ async def test_range_of_32_ids_needs_only_safety_confirmation(hass, gateway):
     await _settle(hass)
     status = await call("get_scan_status", {"scan_id": started["scan_id"]})
     assert (status["status"], status["total_addresses"], status["error"]) == ("completed", 32, None)
+
+
+@pytest.mark.parametrize(
+    ("changes", "error"),
+    [
+        ({"register_address": 65534, "register_count": 3}, ServiceValidationError),
+        ({"register_count": 5}, ServiceValidationError),
+        ({"timeout_ms": 2001}, ServiceValidationError),
+        ({"probe_type": "device_identification"}, ServiceValidationError),
+        ({"retries": 6}, vol.Invalid),
+        ({"start_id": 0}, vol.Invalid),
+        ({"end_id": 248}, vol.Invalid),
+    ],
+)
+async def test_generic_limits_are_enforced_before_any_bus_traffic(hass, gateway, changes, error):
+    call = await _setup(hass)
+    with pytest.raises(error):
+        await _start_scan(call, **{"start_id": 1, "end_id": 10, **changes})
+    assert FakeClient.instances == []
+
+
+async def test_highest_register_block_ending_at_65535_is_accepted(hass, gateway):
+    call = await _setup(hass)
+    started = await _start_scan(
+        call, start_id=1, end_id=1, register_address=65532, register_count=4
+    )
+    await _settle(hass)
+    [probe] = gateway.probes
+    assert (probe["register"], probe["count"]) == (65532, 4)
+    status = await call("get_scan_status", {"scan_id": started["scan_id"]})
+    assert status["status"] == "completed"
