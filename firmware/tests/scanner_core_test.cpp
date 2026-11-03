@@ -37,7 +37,30 @@ struct FakeClock : core::Clock {
 
 struct FakeSink : core::ResultSink {
   std::vector<std::string> results;
+  std::vector<std::string> leases;
   void publish_result(const std::string &json) override { results.push_back(json); }
+  void publish_lease(const std::string &json) override { leases.push_back(json); }
+};
+
+// Bus-side happenings in order: "pause:<name>", "resume:<name>", "clear:<addr>", "queue:<slave>".
+static std::vector<std::string> *event_log = nullptr;
+static void log_event(const std::string &event) {
+  if (event_log)
+    event_log->push_back(event);
+}
+
+struct FakePoller : core::Poller {
+  std::string name;
+  bool paused{false};
+  explicit FakePoller(std::string n) : name(std::move(n)) {}
+  void pause() override {
+    paused = true;
+    log_event("pause:" + name);
+  }
+  void resume() override {
+    paused = false;
+    log_event("resume:" + name);
+  }
 };
 
 struct FakePort : core::BusPort {
@@ -52,9 +75,11 @@ struct FakePort : core::BusPort {
     if (!accept)
       return false;
     queued.push_back({slave, std::vector<uint8_t>(pdu, pdu + len)});
+    log_event("queue:" + std::to_string(slave));
     return true;
   }
   void set_send_wait_ms(uint16_t ms) override { send_wait_history.push_back(ms); }
+  void clear_queue_for_address(uint8_t address) override { log_event("clear:" + std::to_string(address)); }
 };
 
 static constexpr uint16_t kYamlSendWait = 700;
@@ -106,6 +131,59 @@ static std::set<std::string> keys_of(const Value &object) {
   return keys;
 }
 
+/// A Bus with three Pausable Pollers: meter @1, inverter @2 and a second view of meter @1.
+struct LeaseRig : Rig {
+  std::vector<std::string> events;
+  FakePoller meter{"meter"}, inverter{"inverter"}, meter_b{"meter_b"};
+  LeaseRig() {
+    event_log = &events;
+    bus.add_poller("meter", 1, &meter);
+    bus.add_poller("inverter", 2, &inverter);
+    bus.add_poller("meter_b", 1, &meter_b);
+  }
+  ~LeaseRig() { event_log = nullptr; }
+  Value last_lease() const { return mini_json::parse(sink.leases.back()); }
+  void probe(const Value &contract, const char *request_id, const char *scan_id, const char *pollers,
+             int32_t slave = 7) {
+    core::ProbeRequest r = base_request(contract);
+    r.request_id = request_id;
+    r.scan_id = scan_id;
+    r.pause_pollers = pollers;
+    r.slave = slave;
+    bridge.probe(r);
+  }
+  /// Complete the in-flight probe as a timeout after `elapsed_ms` on the wire.
+  void time_out(uint32_t elapsed_ms) {
+    bus.on_sent();
+    clock.now += elapsed_ms;
+    bus.on_no_response();
+  }
+  void advance(uint32_t ms) {
+    clock.now += ms;
+    bridge.loop();
+  }
+};
+
+static uint32_t kIdleMs(const Value &contract) {
+  return static_cast<uint32_t>(contract["lease"]["idle_ms"].integer());
+}
+
+static std::vector<int64_t> ints(const Value &array) {
+  std::vector<int64_t> out;
+  for (const auto &item : array.array)
+    out.push_back(item.integer());
+  return out;
+}
+
+// A lease message carries exactly the contract's fields plus the fields of its state.
+static void check_lease_shape(const Value &contract, const Value &lease) {
+  std::set<std::string> expected = keys_of(contract["lease"]["fields"]);
+  for (const auto &key : keys_of(contract["lease"]["state_fields"][lease["state"].str()]))
+    expected.insert(key);
+  CHECK(keys_of(lease) == expected);
+  CHECK(lease["v"].integer() == contract["lease"]["schema_version"].integer());
+}
+
 // The result carries exactly the contract's common fields plus the fields of its outcome.
 static void check_result_shape(const Value &contract, const Value &result) {
   std::set<std::string> expected = keys_of(contract["result"]["common_fields"]);
@@ -126,6 +204,22 @@ static void test_core_constants_match_contract(const Value &contract) {
   }
   CHECK(contract["text_sensors"]["info"]["name"].str() == core::kInfoSensorName);
   CHECK(contract["text_sensors"]["result"]["name"].str() == core::kResultSensorName);
+  CHECK(contract["text_sensors"]["lease"]["name"].str() == core::kLeaseSensorName);
+  const Value &release = contract["actions"]["release"];
+  CHECK(release["name"].str() == core::kReleaseAction);
+  CHECK(release["args"].array.size() == core::kReleaseArgs.size());
+  for (size_t i = 0; i < core::kReleaseArgs.size() && i < release["args"].array.size(); i++) {
+    CHECK(release["args"][i]["name"].str() == core::kReleaseArgs[i].name);
+    CHECK(release["args"][i]["type"].str() == core::kReleaseArgs[i].type);
+  }
+  const Value &lease = contract["lease"];
+  CHECK(lease["schema_version"].integer() == core::kLeaseSchemaVersion);
+  CHECK(lease["idle_ms"].integer() == core::kLeaseIdleMs);
+  CHECK(lease["hard_limit_ms"].integer() == core::kLeaseHardLimitMs);
+  std::set<std::string> reasons, core_reasons(core::kLeaseEndReasons.begin(), core::kLeaseEndReasons.end());
+  for (const auto &reason : lease["end_reasons"].array)
+    reasons.insert(reason.str());
+  CHECK(reasons == core_reasons);
   CHECK(contract["bridge_version"].integer() == core::kBridgeVersion);
   CHECK(contract["result"]["schema_version"].integer() == core::kResultSchemaVersion);
   CHECK(contract["info"]["schema_version"].integer() == core::kInfoSchemaVersion);
@@ -340,6 +434,194 @@ static void test_info_lists_buses_per_contract(const Value &contract) {
   CHECK(port_b.queued.size() == 1);
 }
 
+static void test_first_probe_of_a_scan_pauses_selected_pollers_before_queueing(const Value &contract) {
+  current_test = "lease begins";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "0,1");
+  CHECK(rig.meter.paused);
+  CHECK(rig.inverter.paused);
+  CHECK(!rig.meter_b.paused);
+  // Stopped, and their queued frames dropped, before the probe frame enters the hub queue, so
+  // clearing can never drop the scanner's own probe.
+  CHECK((rig.events == std::vector<std::string>{"pause:meter", "pause:inverter", "clear:1", "clear:2", "queue:7"}));
+  CHECK(rig.sink.leases.size() == 1);
+  Value lease = rig.last_lease();
+  check_lease_shape(contract, lease);
+  CHECK(lease["bus"].str() == "bus0");
+  CHECK(lease["scan"].str() == "scanA");
+  CHECK(lease["state"].str() == "active");
+  CHECK((ints(lease["pollers"]) == std::vector<int64_t>{0, 1}));
+}
+
+static void test_each_probe_renews_the_lease_and_in_flight_probes_never_expire_it(const Value &contract) {
+  current_test = "lease renews";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "0,1,2", 1);
+  rig.time_out(2000);
+  rig.advance(4000);
+  rig.probe(contract, "r2", "scanA", "0,1,2", 2);
+  // A later probe of the same scan neither pauses again, clears again nor republishes.
+  CHECK((rig.events == std::vector<std::string>{"pause:meter", "pause:inverter", "pause:meter_b", "clear:1",
+                                                "clear:2", "queue:1", "queue:2"}));
+  CHECK(rig.sink.leases.size() == 1);
+  // A probe on the wire holds the lease however long the hub waits for it.
+  rig.bus.on_sent();
+  rig.advance(9000);
+  CHECK(rig.bus.lease_active());
+  rig.bus.on_no_response();
+  rig.advance(kIdleMs(contract) - 1);
+  CHECK(rig.bus.lease_active());
+  CHECK(rig.meter.paused && rig.inverter.paused && rig.meter_b.paused);
+}
+
+static void test_client_gone_mid_scan_gateway_resumes_polling_after_idle(const Value &contract) {
+  current_test = "lease idle expiry (HA disconnected)";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "1,2");
+  rig.time_out(300);
+  // HA disconnects here: no more probes and no release ever arrive.
+  rig.advance(kIdleMs(contract) - 1);
+  CHECK(rig.inverter.paused && rig.meter_b.paused);
+  CHECK(rig.sink.leases.size() == 1);
+  rig.advance(1);
+  CHECK(!rig.inverter.paused && !rig.meter_b.paused);
+  CHECK(!rig.bus.lease_active());
+  CHECK(rig.sink.leases.size() == 2);
+  Value lease = rig.last_lease();
+  check_lease_shape(contract, lease);
+  CHECK(lease["state"].str() == "ended");
+  CHECK(lease["reason"].str() == "idle");
+  CHECK((ints(lease["pollers"]) == std::vector<int64_t>{1, 2}));
+  rig.advance(60000);
+  CHECK(rig.sink.leases.size() == 2);  // ends exactly once
+}
+
+static void test_hard_limit_ends_a_lease_that_keeps_being_renewed(const Value &contract) {
+  current_test = "lease hard limit";
+  LeaseRig rig;
+  const uint32_t hard = static_cast<uint32_t>(contract["lease"]["hard_limit_ms"].integer());
+  rig.probe(contract, "r0", "scanA", "0");
+  rig.time_out(500);
+  uint32_t elapsed = 500;
+  for (int i = 1; elapsed + 1000 < hard; i++) {
+    rig.advance(500);
+    std::string id = "r" + std::to_string(i);
+    rig.probe(contract, id.c_str(), "scanA", "0");
+    rig.time_out(500);
+    elapsed += 1000;
+  }
+  CHECK(rig.meter.paused);
+  rig.advance(hard - elapsed);
+  CHECK(!rig.meter.paused);
+  CHECK(rig.last_lease()["reason"].str() == "hard_limit");
+  // The same scan never pauses again, but its probes still run.
+  const size_t queued = rig.port.queued.size();
+  rig.probe(contract, "late", "scanA", "0");
+  CHECK(rig.port.queued.size() == queued + 1);
+  CHECK(!rig.meter.paused);
+  CHECK(rig.sink.leases.size() == 2);
+}
+
+static void test_release_resumes_at_once_and_always_answers(const Value &contract) {
+  current_test = "lease release";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "0,2");
+  rig.time_out(100);
+  rig.events.clear();
+  rig.bridge.release("bus0", "scanA");
+  CHECK((rig.events == std::vector<std::string>{"resume:meter", "resume:meter_b"}));
+  Value lease = rig.last_lease();
+  check_lease_shape(contract, lease);
+  CHECK(lease["state"].str() == "ended");
+  CHECK(lease["reason"].str() == "released");
+
+  // Releasing again (for example after a lost answer) repeats the ending, without resuming twice.
+  rig.events.clear();
+  rig.bridge.release("bus0", "scanA");
+  CHECK(rig.events.empty());
+  CHECK(rig.sink.leases.size() == 3);
+  CHECK(rig.last_lease()["reason"].str() == "released");
+
+  // A scan that never paused anything is answered with state none.
+  rig.bridge.release("bus0", "scanB");
+  lease = rig.last_lease();
+  check_lease_shape(contract, lease);
+  CHECK(lease["scan"].str() == "scanB");
+  CHECK(lease["state"].str() == "none");
+  CHECK(lease["pollers"].array.empty());
+
+  // Unknown bus or uncorrelatable scan id: nothing to answer.
+  rig.bridge.release("bus9", "scanA");
+  rig.bridge.release("bus0", "bad id");
+  CHECK(rig.sink.leases.size() == 4);
+}
+
+static void test_release_while_the_last_probe_is_in_flight(const Value &contract) {
+  current_test = "lease release in flight";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "0");
+  rig.bus.on_sent();
+  rig.bridge.release("bus0", "scanA");
+  CHECK(!rig.meter.paused);
+  rig.bus.on_no_response();  // the probe still ends normally
+  CHECK(rig.sink.results.size() == 1);
+  rig.advance(kIdleMs(contract) * 2);
+  CHECK(rig.sink.leases.size() == 2);
+}
+
+static void test_a_new_scan_supersedes_an_active_lease(const Value &contract) {
+  current_test = "lease superseded";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "0");
+  rig.time_out(100);
+  rig.events.clear();
+  rig.probe(contract, "r2", "scanB", "1");
+  CHECK((rig.events == std::vector<std::string>{"resume:meter", "pause:inverter", "clear:2", "queue:7"}));
+  CHECK(rig.sink.leases.size() == 3);
+  Value ended = mini_json::parse(rig.sink.leases[1]);
+  CHECK(ended["scan"].str() == "scanA");
+  CHECK(ended["reason"].str() == "superseded");
+  CHECK(rig.last_lease()["scan"].str() == "scanB");
+  CHECK(rig.last_lease()["state"].str() == "active");
+}
+
+static void test_no_selection_and_rejected_probes_never_pause(const Value &contract) {
+  current_test = "lease not started";
+  LeaseRig rig;
+  rig.probe(contract, "r1", "scanA", "");
+  CHECK(rig.port.queued.size() == 1);
+  CHECK(!rig.meter.paused && !rig.inverter.paused);
+  CHECK(rig.sink.leases.empty());
+  // Busy (one probe in flight) and invalid requests are refused before any pausing.
+  rig.probe(contract, "r2", "scanB", "0");
+  CHECK(rig.last()["error"].str() == "busy");
+  rig.time_out(100);
+  rig.probe(contract, "r3", "scanB", "0,3");
+  CHECK(rig.last()["error"].str() == "invalid_poller");
+  rig.probe(contract, "r4", "scanB", "0", 0);
+  CHECK(rig.last()["error"].str() == "invalid_slave");
+  CHECK(!rig.meter.paused);
+  CHECK(rig.sink.leases.empty());
+}
+
+static void test_info_lists_the_pausable_poller_table(const Value &contract) {
+  current_test = "info poller table";
+  LeaseRig rig;
+  Value info = mini_json::parse(rig.bridge.info_json());
+  const Value &pollers = info["buses"][0]["pollers"];
+  CHECK(pollers.array.size() == 3);
+  for (const auto &poller : pollers.array)
+    CHECK(keys_of(poller) == keys_of(contract["info"]["poller_fields"]));
+  CHECK(pollers[1]["index"].integer() == 1);
+  CHECK(pollers[1]["name"].str() == "inverter");
+  CHECK(pollers[1]["address"].integer() == 2);
+  CHECK(pollers[2]["name"].str() == "meter_b");
+  CHECK(pollers[2]["address"].integer() == 1);
+  // Indices from the table are exactly what the probe accepts.
+  rig.probe(contract, "r1", "scanA", "0,1,2");
+  CHECK(rig.sink.results.empty());
+}
+
 int main(int argc, char **argv) {
   const char *path =
       argc > 1 ? argv[1] : "custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json";
@@ -353,6 +635,15 @@ int main(int argc, char **argv) {
   test_stray_callbacks_are_ignored(contract);
   test_unknown_bus_name_is_echoed_safely(contract);
   test_info_lists_buses_per_contract(contract);
+  test_first_probe_of_a_scan_pauses_selected_pollers_before_queueing(contract);
+  test_each_probe_renews_the_lease_and_in_flight_probes_never_expire_it(contract);
+  test_client_gone_mid_scan_gateway_resumes_polling_after_idle(contract);
+  test_hard_limit_ends_a_lease_that_keeps_being_renewed(contract);
+  test_release_resumes_at_once_and_always_answers(contract);
+  test_release_while_the_last_probe_is_in_flight(contract);
+  test_a_new_scan_supersedes_an_active_lease(contract);
+  test_no_selection_and_rejected_probes_never_pause(contract);
+  test_info_lists_the_pausable_poller_table(contract);
   if (failures) {
     std::fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;
