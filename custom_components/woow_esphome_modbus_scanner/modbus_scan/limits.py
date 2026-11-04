@@ -44,8 +44,7 @@ class ScanTiming:
 
     def estimated_worst_case_ms(self, request: ScanRequest) -> int:
         """Conservative request duration estimate without pre-enqueuing work."""
-        delays = max(0, request.address_count - 1) * request.inter_request_delay_ms
-        return request.attempt_count * self.attempt_ms(request) + delays
+        return request.attempt_count * self.attempt_ms(request) + request.total_delay_ms
 
     def execution_budget_ms(self, request: ScanRequest) -> int:
         """Operation ceiling: connect/discovery, every attempt's waits, delays and cleanup."""
@@ -53,8 +52,7 @@ class ScanTiming:
         per_attempt = self.attempt_budget_ms
         if not self.attempt_budget_includes_timeout:
             per_attempt += request.timeout_ms
-        delays = max(0, request.address_count - 1) * request.inter_request_delay_ms
-        return self.setup_ms + attempts * per_attempt + delays + self.cleanup_ms
+        return self.setup_ms + attempts * per_attempt + request.total_delay_ms + self.cleanup_ms
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +76,17 @@ class ProbeLimits:
     # Values the service layer fills in for omitted probe fields.
     defaults: dict[str, Any] = field(default_factory=dict, compare=False)
     timing: ScanTiming = field(default_factory=ScanTiming, compare=False)
+
+    @property
+    def example_register(self) -> int | None:
+        """The allowlist's example register: the default register if allowed, else the smallest.
+
+        The panel's register hint uses the same rule.
+        """
+        if not self.allowed_registers:
+            return None
+        preferred = self.defaults.get("register_address")
+        return preferred if preferred in self.allowed_registers else min(self.allowed_registers)
 
     def validate(self, request: ScanRequest) -> None:
         """Reject any request outside these limits with an actionable message."""
@@ -103,8 +112,7 @@ class ProbeLimits:
                 raise ValueError(
                     f"{self.label} cannot read register {outside} (0x{outside:04X}): it is "
                     f"not in the read allowlist; every register of the block must be "
-                    f"allowed; example: "
-                    f"{self.allowed_registers[0]} (0x{self.allowed_registers[0]:04X})"
+                    f"allowed; example: {self.example_register} (0x{self.example_register:04X})"
                 )
         if not self.timeout_ms_min <= request.timeout_ms <= self.timeout_ms_max:
             if self.timeout_ms_min == self.timeout_ms_max:

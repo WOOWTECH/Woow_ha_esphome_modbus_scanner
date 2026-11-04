@@ -235,6 +235,16 @@ async def test_service_rejects_requests_outside_legacy_limits_without_bus_traffi
     assert FakeLegacyClient.instances == []
 
 
+async def test_allowlist_rejection_gives_the_frozen_default_register_as_example(hass):
+    """The example is the frozen v1 default register (ADR 0004), as in the panel's hint."""
+    call = await _setup(hass)
+    with pytest.raises(ServiceValidationError, match=r"example: 25089 \(0x6201\)$"):
+        await call(
+            "test_address",
+            {"provider": "esphome", "gateway_id": GATEWAY_ID, "address": 1, "register_address": 0},
+        )
+
+
 PROBE = {"provider": "esphome", "gateway_id": GATEWAY_ID}
 
 

@@ -376,6 +376,18 @@ async def test_service_layer_enforces_the_selected_profile(hass, changes, messag
         )
 
 
+async def test_allowlist_rejection_gives_the_smallest_register_without_a_default(hass):
+    """Without a default register the example is the smallest allowed one, as in the panel."""
+    call = await _setup(hass)
+    unordered = {**METER, "id": "unordered", "allowed_registers": [32, 19, 18, 17, 16],
+                 "defaults": {k: v for k, v in METER["defaults"].items() if k != "register"}}
+    await call("import_device_profile", {"profile": unordered})
+    with pytest.raises(ServiceValidationError, match=r"example: 16 \(0x0010\)$"):
+        await call(
+            "test_address", {"device_profile_id": "unordered", "address": 3, "register_address": 20}
+        )
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [

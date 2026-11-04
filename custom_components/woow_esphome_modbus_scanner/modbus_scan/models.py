@@ -194,6 +194,11 @@ class ScanRequest:
         return self.address_count * (self.retries + 1)
 
     @property
+    def total_delay_ms(self) -> int:
+        """Inter-request delay this Scan waits in all: one between each pair of addresses."""
+        return max(0, self.address_count - 1) * self.inter_request_delay_ms
+
+    @property
     def gateway_key(self) -> tuple[str, str, str | None]:
         """Concurrency key used by the coordinator: one Scan at a time per Bus.
 
