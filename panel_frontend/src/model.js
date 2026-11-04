@@ -18,9 +18,10 @@ export const MOCK_SCENARIOS = Object.freeze([
   "possible_collision", "gateway_disconnect",
 ]);
 export const OUTCOMES = Object.freeze([
-  "identified", "responded", "modbus_exception", "timeout",
-  "possible_collision", "gateway_error",
+  "responded", "modbus_exception", "timeout", "possible_collision", "gateway_error",
 ]);
+// Only Scan history stored by 0.4.x (FC43 device identification) holds these rows.
+const HISTORY_ONLY_OUTCOMES = Object.freeze(["identified"]);
 export const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
 export const DEFAULTS = Object.freeze({
   provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
@@ -377,7 +378,7 @@ export function evidenceExport(status, results) {
     recovery_status:["unknown","pending","verified","failed"].includes(status?.recovery_status) ? status.recovery_status : "unknown",
     outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],SLAVE_MAX) ?? 0])),
     responders:(results?.responders || []).slice(0,SLAVE_MAX).map((row) => ({
-      address:integer(row.address,SLAVE_MAX), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
+      address:integer(row.address,SLAVE_MAX), outcome:[...OUTCOMES, ...HISTORY_ONLY_OUTCOMES].includes(row.outcome) ? row.outcome : "unknown",
       latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
       register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
       raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,

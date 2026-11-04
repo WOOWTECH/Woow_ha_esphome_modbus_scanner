@@ -228,7 +228,7 @@ async def test_wait_caller_cancellation_does_not_cancel_scan(hass):
             "latency_ms",
         ),
         (
-            ProbeResult(1, ScanOutcome.IDENTIFIED, 1, "bad identity", identity={"x": 1}),
+            ProbeResult(1, ScanOutcome.RESPONDED, 1, "bad identity", identity={"x": 1}),
             "identity",
         ),
     ],

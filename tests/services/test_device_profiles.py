@@ -359,7 +359,6 @@ async def test_large_default_range_from_a_profile_still_needs_confirmation(hass)
         ({"register_address": 32, "register_count": 2}, r"cannot read register 33 \(0x0021\)"),
         ({"register_address": 16, "register_count": 4}, None),
         ({"probe_type": "holding_register"}, "requires probe_type in: input_register"),
-        ({"probe_type": "device_identification"}, "requires probe_type"),
     ],
 )
 async def test_service_layer_enforces_the_selected_profile(hass, changes, message):
@@ -407,18 +406,6 @@ async def test_v2_scan_uses_the_profile_inside_the_gateway_limits(hass, v2_gatew
 
     with pytest.raises(ServiceValidationError, match="read allowlist"):
         await call("test_address", {**target, "address": 3, "register_address": 20})
-    # FC43 device identification is out of scope: neither the Generic Device Profile
-    # nor Bridge v2 lets it through.
-    with pytest.raises(ServiceValidationError, match="requires probe_type"):
-        await call(
-            "test_address",
-            {
-                **target,
-                "device_profile_id": "generic",
-                "address": 3,
-                "probe_type": "device_identification",
-            },
-        )
     assert FakeClient.instances == []
 
     started = await call("test_address", {**target, "address": 3})

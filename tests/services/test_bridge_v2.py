@@ -579,7 +579,6 @@ async def test_more_than_one_bus_requires_bus_selection(hass, gateway):
     [
         ({"register_count": 5}, "Bridge Protocol v2 requires register_count<=4"),
         ({"timeout_ms": 99}, "Bridge Protocol v2 requires timeout_ms 100–2000"),
-        ({"probe_type": "device_identification"}, "Bridge Protocol v2 requires probe_type"),
         # A Scan's own gap between Probes must never let the Gateway end its Scan Lease.
         (
             {"inter_request_delay_ms": 3001},

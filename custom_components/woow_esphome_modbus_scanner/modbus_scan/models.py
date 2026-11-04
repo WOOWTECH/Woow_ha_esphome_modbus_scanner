@@ -28,7 +28,6 @@ BUS_NAME_PATTERN = r"[0-9A-Za-z_-]{1,32}"
 class ProbeType(StrEnum):
     """Supported read-only discovery probes."""
 
-    DEVICE_IDENTIFICATION = "device_identification"
     HOLDING_REGISTER = "holding_register"
     INPUT_REGISTER = "input_register"
 
@@ -47,7 +46,6 @@ class MockScenario(StrEnum):
 class ScanOutcome(StrEnum):
     """Normalized terminal outcome for one attempted address."""
 
-    IDENTIFIED = "identified"
     RESPONDED = "responded"
     MODBUS_EXCEPTION = "modbus_exception"
     TIMEOUT = "timeout"
@@ -264,7 +262,6 @@ class ProbeResult:
     def is_responder(self) -> bool:
         """Whether the result provides evidence of a bus responder."""
         return self.outcome in {
-            ScanOutcome.IDENTIFIED,
             ScanOutcome.RESPONDED,
             ScanOutcome.MODBUS_EXCEPTION,
             ScanOutcome.POSSIBLE_COLLISION,

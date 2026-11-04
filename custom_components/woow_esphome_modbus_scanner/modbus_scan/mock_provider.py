@@ -113,21 +113,15 @@ class MockGatewayProvider:
             return _timeout(address)
 
         if scenario == MockScenario.FOUND_DEFAULT:
-            if address == 1:
-                return _identified(address, "WOOWTECH", "WT-RS485-01")
-            if address == 3:
+            if address in {1, 3, 12}:
                 return _responded(address)
             if address == 5:
                 return _exception(address, code=2)
-            if address == 12:
-                return _identified(address, "Acme Controls", "ACM-12")
             return _timeout(address)
 
         if scenario == MockScenario.PARTIAL_TIMEOUT:
-            if address in {2, 11, 42}:
+            if address in {2, 7, 11, 21, 42}:
                 return _responded(address)
-            if address in {7, 21}:
-                return _identified(address, "Mock Industries", f"MI-{address:03d}")
             return _timeout(address)
 
         if scenario == MockScenario.MODBUS_EXCEPTION:
@@ -148,9 +142,7 @@ class MockGatewayProvider:
             return _timeout(address)
 
         # gateway_disconnect behaves normally until run_scan raises.
-        if address == 1:
-            return _identified(address, "WOOWTECH", "WT-RS485-01")
-        if address == 3:
+        if address in {1, 3}:
             return _responded(address)
         return _timeout(address)
 
@@ -165,7 +157,7 @@ def _register_read(request: ScanRequest, result: ProbeResult) -> ProbeResult:
         "attempts": 1,
         "identity": None,
     }
-    if result.outcome not in (ScanOutcome.IDENTIFIED, ScanOutcome.RESPONDED):
+    if result.outcome != ScanOutcome.RESPONDED:
         return replace(result, **evidence)
     # Deterministic values: high byte = slave ID, low byte = register offset.
     values = tuple(
@@ -201,16 +193,6 @@ def _responded(address: int) -> ProbeResult:
         outcome=ScanOutcome.RESPONDED,
         latency_ms=5 + address % 4,
         detail="Valid Modbus response without identity details",
-    )
-
-
-def _identified(address: int, vendor: str, product: str) -> ProbeResult:
-    return ProbeResult(
-        address=address,
-        outcome=ScanOutcome.IDENTIFIED,
-        latency_ms=4 + address % 5,
-        detail="Valid device-identification response",
-        identity={"vendor": vendor, "product": product},
     )
 
 

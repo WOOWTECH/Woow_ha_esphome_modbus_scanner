@@ -18,7 +18,7 @@ const shell = `<!doctype html><html><head><meta charset="utf-8"><meta name="view
 window.calls=[]; window.menuEvents=0; window.mode='normal'; window.polls=0; window.statusDeferred=[]; window.resultsDeferred=[]; window.cancelDeferred=[]; document.body.addEventListener('hass-toggle-menu',()=>window.menuEvents++);
 const uuid='11111111-1111-4111-8111-111111111111'; const uuid2='22222222-2222-4222-8222-222222222222';
 const responders=[{address:3,outcome:'responded',latency_ms:8,detail:'Generic valid response'},{address:1,outcome:'responded',latency_ms:5,register_address:0,raw_value:256,raw_values:[256],attempts:1,detail:'FC03 register 0x0000 x1 = [256]'}];
-const result={scan_id:uuid,status:'completed',phase:'completed',responders,outcome_counts:{identified:0,responded:2,modbus_exception:0,timeout:0,possible_collision:0,gateway_error:0},completed_addresses:2,total_addresses:2,best_effort:true,uniqueness_guaranteed:false};
+const result={scan_id:uuid,status:'completed',phase:'completed',responders,outcome_counts:{responded:2,modbus_exception:0,timeout:0,possible_collision:0,gateway_error:0},completed_addresses:2,total_addresses:2,best_effort:true,uniqueness_guaranteed:false};
 const generic={id:'generic',name:'Generic Device Profile',vendor:'Generic',model:'Any Modbus RTU device',version:'1',function_codes:[3,4],allowed_registers:null,defaults:{},fields:[],builtin:true,deletable:false,limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:4,allowed_registers:null,timeout_ms_min:100,timeout_ms_max:2000}};
 window.profiles=[generic]; window.resultProfile=null; window.resultResponders=null;
 const listed=(doc)=>({...doc,allowed_registers:doc.allowed_registers??null,defaults:doc.defaults||{},fields:doc.fields||[],builtin:false,deletable:true,limits:{slave_min:1,slave_max:247,probe_types:doc.function_codes.map((c)=>c===3?'holding_register':'input_register'),register_count_max:4,allowed_registers:doc.allowed_registers??null,timeout_ms_min:100,timeout_ms_max:2000}});
@@ -78,10 +78,13 @@ try {
   await panel.getByText(/Per attempt; mock uses it only/).waitFor();
   check(await panel.locator("#probe").inputValue()==="holding_register", "Generic Device Profile probe default is not FC03");
   check(await panel.locator('#probe option[value="device_identification"]').count()===0, "device identification is offered under the Generic Device Profile");
-  check(await panel.locator(".profile-description").textContent().then((v)=>v.includes("address 1")&&v.includes("completed")), "profile fixture/terminal help incomplete");
+  check(await panel.locator(".profile-description").textContent().then((v)=>v.includes("addresses 1, 3, and 12 respond with raw register values")&&v.includes("completed")), "profile fixture/terminal help incomplete");
   for (const name of ["Found default","All offline","Partial timeout","Modbus exception","Possible collision","Gateway disconnect"]) {
     await panel.locator(".profiles").getByRole("button",{name:new RegExp(name)}).click();
-    check(/Expected terminal state: (completed|failed)/.test(await panel.locator(".profile-description").textContent()), `${name} terminal/fixture help missing`);
+    const description = await panel.locator(".profile-description").textContent();
+    check(/Expected terminal state: (completed|failed)/.test(description), `${name} terminal/fixture help missing`);
+    // FC43 device identification is out of scope for 0.5.0: no Mock Scenario identifies a device.
+    check(!/identif/i.test(description), `${name} still claims a device identification`);
   }
   check(await panel.locator(".profiles button[aria-pressed=true] ha-icon").getAttribute("icon")==="mdi:check-circle", "selected profile check cue missing");
   await panel.locator(".profiles").getByRole("button", {name:/Found default/}).click();

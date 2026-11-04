@@ -74,8 +74,6 @@ test("Device Profile limits intersect with the Gateway's limits", () => {
   const bounds = boundsFor(v2, tight);
   assert.deepEqual(bounds.register_count, [1, 2]);
   assert.deepEqual(bounds.timeout_ms, [200, 900]);
-  // Generic allows the mock identification probe, but Bridge v2 still refuses it.
-  assert.ok(validateForm({...v2, probe_type: "device_identification"}, false, {}, GENERIC_PROFILE).probe_type);
 });
 
 test("payloads name the selected Device Profile and omit it for Generic", () => {
@@ -103,7 +101,7 @@ test("the Generic Device Profile defaults to an FC03 holding-register Probe", ()
   assert.equal(DEFAULTS.probe_type, "holding_register");
 });
 
-test("the Generic Device Profile blocks device identification on the mock gateway", () => {
+test("device identification is not a probe type, even on the mock gateway", () => {
   const errors = validateForm({...DEFAULTS, safety_confirmed: true, probe_type: "device_identification"}, false, {}, GENERIC_PROFILE);
   assert.deepEqual(Object.keys(errors), ["probe_type"]);
 });

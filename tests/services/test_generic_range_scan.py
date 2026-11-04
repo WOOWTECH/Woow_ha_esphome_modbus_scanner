@@ -66,7 +66,7 @@ async def test_range_of_32_ids_needs_only_safety_confirmation(hass, gateway):
         ({"register_address": 65534, "register_count": 3}, ServiceValidationError),
         ({"register_count": 5}, ServiceValidationError),
         ({"timeout_ms": 2001}, ServiceValidationError),
-        ({"probe_type": "device_identification"}, ServiceValidationError),
+        ({"probe_type": "device_identification"}, vol.Invalid),
         ({"retries": 6}, vol.Invalid),
         ({"start_id": 0}, vol.Invalid),
         ({"end_id": 248}, vol.Invalid),
@@ -183,21 +183,23 @@ async def test_mock_gateway_reads_input_register_blocks_across_1_to_247(hass, ga
     assert "identity" not in rows[7]
 
 
-async def test_generic_device_profile_refuses_device_identification_on_the_mock_gateway(
-    hass, gateway
+@pytest.mark.parametrize(
+    ("service", "fields"),
+    [
+        ("start_scan", {"start_id": 1, "end_id": 3, "safety_confirmed": True}),
+        ("test_address", {"address": 1}),
+    ],
+)
+async def test_device_identification_is_not_a_probe_type_on_the_mock_gateway(
+    hass, gateway, service, fields
 ):
-    # The Generic Device Profile allows FC03/FC04 only; FC43/14 is out of scope.
+    # FC43/14 device identification is out of scope for 0.5.0: the service schema
+    # rejects it as an invalid value, before any Device Profile or Gateway check.
     call = await _setup(hass)
-    with pytest.raises(ServiceValidationError, match="probe_type"):
+    with pytest.raises(vol.Invalid, match="probe type"):
         await call(
-            "start_scan",
-            {
-                "start_id": 1,
-                "end_id": 3,
-                "probe_type": "device_identification",
-                "inter_request_delay_ms": 0,
-                "safety_confirmed": True,
-            },
+            service,
+            {**fields, "probe_type": "device_identification", "inter_request_delay_ms": 0},
         )
     history = await call("get_history")
     assert history["scans"] == []
@@ -225,3 +227,45 @@ async def test_mock_scan_without_probe_type_reads_holding_registers(hass, gatewa
     assert results["outcome_counts"].get("identified", 0) == 0
     assert all(rows[a]["raw_values"] for a in (1, 3, 12))
     assert "FC03" in rows[3]["detail"]
+
+
+# Story 52: the only outcomes a 0.5.0 Scan reports.
+SPEC_OUTCOMES = {"responded", "modbus_exception", "timeout", "possible_collision", "gateway_error"}
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "found_default",
+        "all_offline",
+        "partial_timeout",
+        "modbus_exception",
+        "possible_collision",
+        "gateway_disconnect",
+    ],
+)
+@pytest.mark.parametrize("probe_type", ["holding_register", "input_register"])
+async def test_mock_scenarios_report_only_spec_outcomes(hass, gateway, scenario, probe_type):
+    call = await _setup(hass)
+    started = await call(
+        "start_scan",
+        {
+            "start_id": 1,
+            "end_id": 42,
+            "probe_type": probe_type,
+            "register_count": 3,
+            "inter_request_delay_ms": 0,
+            "mock_scenario": scenario,
+            "large_range_confirmed": True,
+            "safety_confirmed": True,
+        },
+    )
+    await _settle(hass)
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+
+    assert set(results["outcome_counts"]) == SPEC_OUTCOMES
+    assert {row["outcome"] for row in results["responders"]} <= SPEC_OUTCOMES
+    for row in results["responders"]:
+        assert "identity" not in row
+        if row["outcome"] == "responded":
+            assert len(row["raw_values"]) == 3

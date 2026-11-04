@@ -308,7 +308,6 @@ class ModbusScanCoordinator:
             "responder_count": sum(
                 state.counts[outcome.value]
                 for outcome in (
-                    ScanOutcome.IDENTIFIED,
                     ScanOutcome.RESPONDED,
                     ScanOutcome.MODBUS_EXCEPTION,
                     ScanOutcome.POSSIBLE_COLLISION,
