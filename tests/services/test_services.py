@@ -61,6 +61,15 @@ async def test_list_gateways_returns_mock_capabilities(hass):
     assert gateway["gateway_id"] == "mock:rs485-gateway"
     assert gateway["simulated"] is True
     assert gateway["provider"] == "mock"
+    assert gateway["mock_scenarios"] == [
+        "found_default",
+        "all_offline",
+        "partial_timeout",
+        "modbus_exception",
+        "possible_collision",
+        "gateway_disconnect",
+    ]
+    assert "mock_profiles" not in gateway
 
 
 async def test_start_status_and_results_have_normalized_public_shapes(hass):
@@ -95,7 +104,9 @@ async def test_test_address_is_one_id_and_accepts_reserved_device_selector(hass)
 
 async def test_cancel_requests_terminal_cancelled_state(hass):
     async_register_services(hass)
-    started = await _start(hass, end_id=100, inter_request_delay_ms=100)
+    started = await _start(
+        hass, end_id=100, inter_request_delay_ms=100, large_range_confirmed=True
+    )
     requested = await _call(hass, "cancel_scan", {"scan_id": started["scan_id"]})
     assert requested["cancellation_requested"] is True
     assert (await _wait_for_terminal(hass, started["scan_id"]))["status"] == "cancelled"
@@ -136,6 +147,15 @@ async def test_numeric_schema_rejects_floats_and_booleans(hass, field, value):
     async_register_services(hass)
     with pytest.raises(vol.Invalid):
         await _start(hass, **{field: value})
+
+
+async def test_inter_request_delay_schema_allows_the_widest_gateway_delay(hass):
+    """The schema allows 5000 ms (Legacy Gateways); bridge v2 limits cap it lower."""
+    async_register_services(hass)
+    with pytest.raises(vol.Invalid):
+        await _start(hass, inter_request_delay_ms=5001)
+    started = await _start(hass, start_id=1, end_id=1, inter_request_delay_ms=5000)
+    assert (await _wait_for_terminal(hass, started["scan_id"]))["status"] == "completed"
 
 
 async def test_numeric_schema_accepts_exact_integer_strings(hass):
@@ -199,6 +219,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
             {
                 "provider",
                 "gateway_id",
+                "bus",
                 "esphome_device_id",
                 "start_id",
                 "end_id",
@@ -209,8 +230,11 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
-                "mock_profile",
+                "pause_pollers",
+                "mock_scenario",
+                "device_profile_id",
                 "safety_confirmed",
+                "large_range_confirmed",
             },
         ),
         (
@@ -218,6 +242,7 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
             {
                 "provider",
                 "gateway_id",
+                "bus",
                 "esphome_device_id",
                 "address",
                 "probe_type",
@@ -227,12 +252,15 @@ async def test_malformed_or_noncanonical_scan_id_is_schema_rejected(hass, scan_i
                 "retries",
                 "inter_request_delay_ms",
                 "pause_normal_polling",
-                "mock_profile",
+                "pause_pollers",
+                "mock_scenario",
+                "device_profile_id",
             },
         ),
         ("get_scan_status", {"scan_id"}),
         ("get_scan_results", {"scan_id"}),
         ("cancel_scan", {"scan_id"}),
+        ("set_pausable_pollers", {"gateway_id", "bus", "pause_pollers"}),
     ],
 )
 def test_service_metadata_has_selector_for_every_parameter(service, expected):
@@ -265,6 +293,59 @@ def test_selectors_support_only_implemented_providers_and_dynamic_gateway_ids():
         assert "text" in fields["gateway_id"]["selector"]
         assert provider.get("custom_value", False) is False
         assert fields["probe_type"]["default"] == "holding_register"
-        assert fields["register_address"]["default"] == 0x6201
-        assert fields["timeout_ms"]["default"] == 700
+        # Vendor-neutral UI hints: the bridge v2 / Generic Device Profile defaults.
+        assert fields["register_address"]["default"] == 0
+        assert fields["timeout_ms"]["default"] == 1000
         assert fields["pause_normal_polling"]["default"] is True
+
+
+async def test_start_scan_runs_the_selected_mock_scenario(hass):
+    async_register_services(hass)
+    started = await _start(hass, mock_scenario="all_offline")
+    await _wait_for_terminal(hass, started["scan_id"])
+    results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["responders"] == []
+    assert results["outcome_counts"]["timeout"] == 12
+
+
+@pytest.mark.parametrize("parameter", ["mock_scenario", "mock_profile"])
+async def test_test_address_runs_the_selected_mock_scenario(hass, parameter):
+    async_register_services(hass)
+    started = await _call(
+        hass,
+        "test_address",
+        {"address": 7, "inter_request_delay_ms": 0, parameter: "possible_collision"},
+    )
+    await _wait_for_terminal(hass, started["scan_id"])
+    results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+    assert results["outcome_counts"]["possible_collision"] == 1
+
+
+async def test_deprecated_mock_profile_alias_gives_the_same_scan_results(hass):
+    async_register_services(hass)
+    outcomes = []
+    for parameter in ("mock_scenario", "mock_profile"):
+        started = await _start(hass, end_id=20, **{parameter: "partial_timeout"})
+        await _wait_for_terminal(hass, started["scan_id"])
+        results = await _call(hass, "get_scan_results", {"scan_id": started["scan_id"]})
+        outcomes.append(
+            (
+                [item["address"] for item in results["responders"]],
+                results["outcome_counts"],
+            )
+        )
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == [2, 7, 11]
+
+
+@pytest.mark.parametrize("service", ["start_scan", "test_address"])
+async def test_mock_scenario_and_deprecated_alias_together_are_rejected(hass, service):
+    async_register_services(hass)
+    data = {"mock_scenario": "all_offline", "mock_profile": "found_default"}
+    data.update(
+        {"start_id": 1, "end_id": 2, "safety_confirmed": True}
+        if service == "start_scan"
+        else {"address": 1}
+    )
+    with pytest.raises(vol.Invalid, match="mock_profile.*mock_scenario"):
+        await _call(hass, service, data)

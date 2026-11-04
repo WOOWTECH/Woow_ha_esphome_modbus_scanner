@@ -3,17 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+from dataclasses import replace
 
+from .limits import ProbeLimits
 from .models import (
     GatewayInfo,
-    MockProfile,
+    MockScenario,
     ProbeResult,
+    ProbeType,
     ScanOutcome,
     ScanRequest,
 )
 from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
+MOCK_MULTI_BUS_GATEWAY_ID = "mock:multi-bus-gateway"
+MOCK_LIMITS = ProbeLimits("A mock Gateway")
+
+
+def _bus(name: str, baud_rate: int, parity: str = "NONE") -> dict:
+    return {"bus": name, "serial": {"baud_rate": baud_rate, "parity": parity, "stop_bits": 1}}
+
+
+# Simulated Gateways and their Buses. Every Bus answers with the same Mock Scenario.
+MOCK_GATEWAYS = {
+    MOCK_GATEWAY_ID: ("Simulated RS-485 Gateway", (_bus("rs485", 9600),)),
+    MOCK_MULTI_BUS_GATEWAY_ID: (
+        "Simulated two-Bus Gateway",
+        (_bus("rs485_a", 9600), _bus("rs485_b", 19200, "EVEN")),
+    ),
+}
 
 
 class MockGatewayProvider:
@@ -25,20 +45,23 @@ class MockGatewayProvider:
         self._step_delay_ms = step_delay_ms
 
     def list_gateways(self) -> tuple[GatewayInfo, ...]:
-        """Expose one simulated RS-485 gateway and all supported capabilities."""
-        return (
+        """Expose the simulated RS-485 Gateways and all supported capabilities."""
+        return tuple(
             GatewayInfo(
                 provider=self.provider_id,
-                gateway_id=MOCK_GATEWAY_ID,
-                name="Simulated RS-485 Gateway",
+                gateway_id=gateway_id,
+                name=name,
                 capabilities=(
-                    "device_identification",
                     "holding_register",
                     "input_register",
                     "cancellation",
                 ),
-                mock_profiles=tuple(profile.value for profile in MockProfile),
-            ),
+                mock_scenarios=tuple(scenario.value for scenario in MockScenario),
+                limits=MOCK_LIMITS,
+                buses=deepcopy(buses),
+                supports_bus_selection=True,
+            )
+            for gateway_id, (name, buses) in MOCK_GATEWAYS.items()
         )
 
     async def run_scan(
@@ -51,10 +74,15 @@ class MockGatewayProvider:
         request.validate()
         if request.provider != self.provider_id:
             raise ValueError(f"Unsupported mock provider: {request.provider}")
-        if request.gateway_id != MOCK_GATEWAY_ID:
+        if request.gateway_id not in MOCK_GATEWAYS:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
-        if request.mock_profile not in {item.value for item in MockProfile}:
-            raise ValueError(f"Unsupported mock_profile: {request.mock_profile}")
+        buses = [row["bus"] for row in MOCK_GATEWAYS[request.gateway_id][1]]
+        if request.bus is None and len(buses) != 1:
+            raise ValueError(f"The mock Gateway {request.gateway_id} needs a Bus")
+        if request.bus is not None and request.bus not in buses:
+            raise ValueError(f"The mock Gateway {request.gateway_id} has no Bus {request.bus}")
+        if request.mock_scenario not in {item.value for item in MockScenario}:
+            raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")
         delay_ms = max(self._step_delay_ms, request.inter_request_delay_ms)
         for address in range(request.start_id, request.end_id + 1):
             if cancelled():
@@ -67,44 +95,41 @@ class MockGatewayProvider:
                 if cancelled():
                     return
             if (
-                request.mock_profile == MockProfile.GATEWAY_DISCONNECT
+                request.mock_scenario == MockScenario.GATEWAY_DISCONNECT
                 and address >= max(request.start_id + 3, 4)
             ):
                 raise GatewayProviderError(
                     "Simulated gateway disconnected", address=address
                 )
-            emit(self._result_for(request.mock_profile, address))
+            result = self._result_for(request.mock_scenario, address)
+            if request.probe_type in _REGISTER_PROBES:
+                result = _register_read(request, result)
+            emit(result)
 
     @staticmethod
-    def _result_for(profile: str, address: int) -> ProbeResult:
+    def _result_for(scenario: str, address: int) -> ProbeResult:
         """Return the stable outcome table for one mock address."""
-        if profile == MockProfile.ALL_OFFLINE:
+        if scenario == MockScenario.ALL_OFFLINE:
             return _timeout(address)
 
-        if profile == MockProfile.FOUND_DEFAULT:
-            if address == 1:
-                return _identified(address, "WOOWTECH", "WT-RS485-01")
-            if address == 3:
+        if scenario == MockScenario.FOUND_DEFAULT:
+            if address in {1, 3, 12}:
                 return _responded(address)
             if address == 5:
                 return _exception(address, code=2)
-            if address == 12:
-                return _identified(address, "Acme Controls", "ACM-12")
             return _timeout(address)
 
-        if profile == MockProfile.PARTIAL_TIMEOUT:
-            if address in {2, 11, 42}:
+        if scenario == MockScenario.PARTIAL_TIMEOUT:
+            if address in {2, 7, 11, 21, 42}:
                 return _responded(address)
-            if address in {7, 21}:
-                return _identified(address, "Mock Industries", f"MI-{address:03d}")
             return _timeout(address)
 
-        if profile == MockProfile.MODBUS_EXCEPTION:
+        if scenario == MockScenario.MODBUS_EXCEPTION:
             if address in {4, 9, 17}:
                 return _exception(address, code=2 if address != 9 else 3)
             return _timeout(address)
 
-        if profile == MockProfile.POSSIBLE_COLLISION:
+        if scenario == MockScenario.POSSIBLE_COLLISION:
             if address == 7:
                 return ProbeResult(
                     address=address,
@@ -117,11 +142,40 @@ class MockGatewayProvider:
             return _timeout(address)
 
         # gateway_disconnect behaves normally until run_scan raises.
-        if address == 1:
-            return _identified(address, "WOOWTECH", "WT-RS485-01")
-        if address == 3:
+        if address in {1, 3}:
             return _responded(address)
         return _timeout(address)
+
+
+_REGISTER_PROBES = {ProbeType.HOLDING_REGISTER: 3, ProbeType.INPUT_REGISTER: 4}
+
+
+def _register_read(request: ScanRequest, result: ProbeResult) -> ProbeResult:
+    """A register read returns raw register evidence and never a device identity."""
+    evidence = {
+        "register_address": request.register_address,
+        "attempts": 1,
+        "identity": None,
+    }
+    if result.outcome != ScanOutcome.RESPONDED:
+        return replace(result, **evidence)
+    # Deterministic values: high byte = slave ID, low byte = register offset.
+    values = tuple(
+        (result.address << 8 | (request.register_address + offset) & 0xFF) & 0xFFFF
+        for offset in range(request.register_count)
+    )
+    label = (
+        f"FC{_REGISTER_PROBES[request.probe_type]:02d} register "
+        f"0x{request.register_address:04X} x{request.register_count}"
+    )
+    return replace(
+        result,
+        **evidence,
+        outcome=ScanOutcome.RESPONDED,
+        detail=f"{label} = {list(values)}",
+        raw_value=values[0],
+        raw_values=values,
+    )
 
 
 def _timeout(address: int) -> ProbeResult:
@@ -139,16 +193,6 @@ def _responded(address: int) -> ProbeResult:
         outcome=ScanOutcome.RESPONDED,
         latency_ms=5 + address % 4,
         detail="Valid Modbus response without identity details",
-    )
-
-
-def _identified(address: int, vendor: str, product: str) -> ProbeResult:
-    return ProbeResult(
-        address=address,
-        outcome=ScanOutcome.IDENTIFIED,
-        latency_ms=4 + address % 5,
-        detail="Valid device-identification response",
-        identity={"vendor": vendor, "product": product},
     )
 
 

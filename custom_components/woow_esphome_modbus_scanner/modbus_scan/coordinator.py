@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
@@ -12,10 +12,32 @@ from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 
-from .models import ProbeResult, ScanOutcome, ScanPhase, ScanRequest
+from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
+from .limits import ScanTiming
+from .models import (
+    EARLY_LEASE_END_REASONS,
+    GatewayInfo,
+    LeaseEndReason,
+    LeaseStatus,
+    ProbeResult,
+    ProbeType,
+    ScanOutcome,
+    ScanPhase,
+    ScanRequest,
+)
+from .pollers import POLLER_KEYS
 from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
+GENERIC_REQUEST_DEFAULTS: dict[str, Any] = {
+    "probe_type": ProbeType.HOLDING_REGISTER,
+    "register_address": 0,
+    "register_count": 1,
+    "timeout_ms": 500,
+    "retries": 1,
+    "inter_request_delay_ms": 100,
+    "pause_normal_polling": False,
+}
 
 
 class ScanNotFoundError(LookupError):
@@ -23,21 +45,32 @@ class ScanNotFoundError(LookupError):
 
 
 class GatewayBusyError(RuntimeError):
-    """A scan already owns the provider/gateway concurrency key."""
+    """A scan already owns the Bus (or the whole Gateway) this request needs."""
 
-    def __init__(self, provider: str, gateway_id: str, scan_id: str) -> None:
-        super().__init__(f"Gateway {provider}/{gateway_id} is busy with active scan {scan_id}")
+    def __init__(
+        self, provider: str, gateway_id: str, scan_id: str, bus: str | None = None
+    ) -> None:
+        target = f"Bus {bus} of gateway" if bus is not None else "Gateway"
+        super().__init__(f"{target} {provider}/{gateway_id} is busy with active scan {scan_id}")
         self.scan_id = scan_id
+        self.bus = bus
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+
 @dataclass(slots=True)
 class _ScanState:
     scan_id: str
     request: ScanRequest
+    # The Bus scanned: the request's, else the one the provider resolved on connect.
+    bus: str | None = None
+    profile: DeviceProfile = GENERIC_DEVICE_PROFILE
+    device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
+    # How long Scans take on this Gateway (its provider adapter's ScanTiming).
+    timing: ScanTiming = field(default_factory=ScanTiming)
     phase: ScanPhase = ScanPhase.RUNNING
     started_at: str = field(default_factory=_utc_now)
     finished_at: str | None = None
@@ -54,6 +87,15 @@ class _ScanState:
     recovery_status: str = "unknown"
     recovery_error_code: str | None = None
     cleanup_status: str = "unknown"
+    # Scan Lease as reported by the Gateway, or unconfirmed when HA could not tell.
+    lease_status: LeaseStatus = LeaseStatus.NONE
+    lease_end_reason: LeaseEndReason | None = None
+    # Last Slave ID finished when the Gateway ended the lease before the Scan did; later
+    # Probes ran with Normal Polling resumed.
+    lease_ended_after_address: int | None = None
+    paused_pollers: list[dict[str, Any]] = field(default_factory=list)
+    # Chosen pollers the Gateway's current table no longer has; they were not paused.
+    removed_pollers: list[dict[str, Any]] = field(default_factory=list)
     started_clock: float = field(default_factory=monotonic)
     elapsed_ms: int = 0
     events: deque = field(default_factory=lambda: deque(maxlen=32))
@@ -70,46 +112,164 @@ class ModbusScanCoordinator:
         max_history: int = 20,
         history=None,
         issue_callback=None,
+        selection_store=None,
     ) -> None:
         self._hass = hass
         self._providers = {provider.provider_id: provider for provider in providers}
         self._max_history = max_history
         self._history = history
         self._issue_callback = issue_callback
+        # Saved Pausable Poller checklists (PollerSelectionStore), revalidated by the store.
+        self._selection_store = selection_store
         self._issues_failed = False
         self._scans: dict[str, _ScanState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._active: dict[tuple[str, str], str] = {}
+        # (provider, gateway_id, bus) -> running scan id; a None bus holds the whole Gateway.
+        self._active: dict[tuple[str, str, str | None], str] = {}
         self._terminal_order: deque[str] = deque()
         self._shutting_down = False
 
     def list_gateways(self) -> dict[str, Any]:
         """Return every provider gateway in a stable service response."""
         gateways = [
-            gateway.as_dict()
+            {**gateway.as_dict(), **self._poller_selection(gateway, prune=False)}
             for provider in self._providers.values()
             for gateway in provider.list_gateways()
         ]
         return {"gateways": gateways}
 
-    async def start(self, request: ScanRequest) -> dict[str, Any]:
-        """Validate and schedule a scan without awaiting its address loop."""
+    def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
+        """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known."""
+        if self._selection_store is None:
+            return {}
+        return self._selection_store.for_gateway(gateway, prune=prune)
+
+    def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
+        provider = self._providers.get(provider_id)
+        if provider is None:
+            return None
+        return next(
+            (item for item in provider.list_gateways() if item.gateway_id == gateway_id), None
+        )
+
+    def saved_poller_selection(self, gateway_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Saved Pausable Poller checklist per Bus of one Gateway, for a Scan request."""
+        return self._selection_store.saved(gateway_id) if self._selection_store else {}
+
+    def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
+        """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
+        if self._selection_store is None:
+            raise ValueError("No config entry keeps Pausable Poller selections")
+        gateway = self._gateway("esphome", gateway_id)
+        checklists = self._selection_store.save_choice(gateway, bus, indices)
+        return {"gateway_id": gateway_id, "bus": bus, **checklists}
+
+    def request_defaults(
+        self,
+        provider_id: str,
+        gateway_id: str,
+        profile: DeviceProfile = GENERIC_DEVICE_PROFILE,
+    ) -> dict[str, Any]:
+        """Device Profile defaults, then the gateway adapter's, then generic defaults."""
+        gateway = self._gateway(provider_id, gateway_id)
+        reported = gateway.limits.defaults if gateway and gateway.limits else {}
+        return {**GENERIC_REQUEST_DEFAULTS, **reported, **profile.request_defaults}
+
+    def profile_in_use(self, profile_id: str) -> str | None:
+        """The running Scan that uses this Device Profile, if any."""
+        return next(
+            (
+                scan_id
+                for scan_id in self._active.values()
+                if self._scans[scan_id].device_profile["id"] == profile_id
+            ),
+            None,
+        )
+
+    def _running_on(self, provider: str, gateway_id: str, bus: str | None = None) -> str | None:
+        """The running Scan holding this Bus; with bus None, any running Scan of the Gateway.
+
+        A Scan whose Bus is not known yet (None) holds every Bus of its Gateway.
+        """
+        return next(
+            (
+                scan_id
+                for (p, g, b), scan_id in self._active.items()
+                if p == provider and g == gateway_id and (bus is None or b is None or b == bus)
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _target_bus(request: ScanRequest, gateway: GatewayInfo) -> ScanRequest:
+        """Resolve and check the Scan's Bus against the Buses the Gateway reports.
+
+        A Gateway with one known Bus needs no ``bus``. While the Buses of a Gateway that
+        supports Bus selection are not known yet (a bridge v2 Gateway never checked), the
+        provider resolves the Bus when it connects.
+        """
+        names = [row["bus"] for row in gateway.buses]
+        if request.bus is not None:
+            if names and request.bus not in names:
+                raise ValueError(
+                    f"Gateway {request.gateway_id} has no Bus {request.bus}; "
+                    f"its Buses are {', '.join(names)}"
+                )
+            if not names and not gateway.supports_bus_selection:
+                raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
+            return request
+        if len(names) == 1:
+            return replace(request, bus=names[0])
+        if len(names) > 1:
+            raise ValueError(
+                f"Gateway {request.gateway_id} has {len(names)} Buses ({', '.join(names)}); "
+                "choose one with bus"
+            )
+        return request
+
+    async def start(
+        self, request: ScanRequest, profile: DeviceProfile = GENERIC_DEVICE_PROFILE
+    ) -> dict[str, Any]:
+        """Validate and schedule a scan without awaiting its address loop.
+
+        The effective limits are the gateway's limits intersected with the Device Profile's.
+        """
         if self._shutting_down:
             raise RuntimeError("Modbus scan coordinator is shutting down")
         request.validate()
         provider = self._providers.get(request.provider)
         if provider is None:
             raise ValueError(f"Unsupported Modbus scan provider: {request.provider}")
-        if validator := getattr(provider, "validate_request", None):
-            validator(request)
-        available_ids = {item.gateway_id for item in provider.list_gateways()}
-        if request.gateway_id not in available_ids:
+        gateway = self._gateway(request.provider, request.gateway_id)
+        if gateway is None:
             raise ValueError(f"Unknown Modbus gateway: {request.gateway_id}")
-        if existing := self._active.get(request.gateway_key):
-            raise GatewayBusyError(request.provider, request.gateway_id, existing)
+        if gateway.limits is not None:
+            gateway.limits.validate(request)
+        profile.limits.validate(request)
+        if request.pause_pollers is not None and not gateway.supports_scan_lease:
+            raise ValueError("pause_pollers needs a Gateway with Scan Lease support")
+        request = self._target_bus(request, gateway)
+        if existing := self._running_on(request.provider, request.gateway_id, request.bus):
+            raise GatewayBusyError(request.provider, request.gateway_id, existing, request.bus)
+        if gateway.limits is not None:
+            gateway.limits.validate_alongside(
+                request,
+                [
+                    self._scans[scan_id].request
+                    for (p, g, _bus), scan_id in self._active.items()
+                    if p == request.provider and g == request.gateway_id
+                ],
+            )
 
         scan_id = str(uuid4())
-        state = _ScanState(scan_id=scan_id, request=request)
+        state = _ScanState(
+            scan_id=scan_id,
+            request=request,
+            bus=request.bus,
+            profile=profile,
+            device_profile=profile.summary(),
+            timing=gateway.limits.timing if gateway.limits is not None else ScanTiming(),
+        )
         self._scans[scan_id] = state
         self._active[request.gateway_key] = scan_id
         run_coroutine = self._run(state, provider)
@@ -142,6 +302,8 @@ class ModbusScanCoordinator:
             "scan_id": state.scan_id,
             "provider": state.request.provider,
             "gateway_id": state.request.gateway_id,
+            "bus": state.bus,
+            "device_profile": dict(state.device_profile),
             "status": state.phase.value,
             "phase": state.phase.value,
             "current_address": state.current_address,
@@ -151,7 +313,6 @@ class ModbusScanCoordinator:
             "responder_count": sum(
                 state.counts[outcome.value]
                 for outcome in (
-                    ScanOutcome.IDENTIFIED,
                     ScanOutcome.RESPONDED,
                     ScanOutcome.MODBUS_EXCEPTION,
                     ScanOutcome.POSSIBLE_COLLISION,
@@ -160,8 +321,8 @@ class ModbusScanCoordinator:
             "outcome_counts": self._serialized_counts(state),
             "started_at": state.started_at,
             "finished_at": state.finished_at,
-            "estimated_worst_case_ms": state.request.estimated_worst_case_ms,
-            "execution_budget_ms": state.request.execution_budget_ms,
+            "estimated_worst_case_ms": state.timing.estimated_worst_case_ms(state.request),
+            "execution_budget_ms": state.timing.execution_budget_ms(state.request),
             "elapsed_ms": int((monotonic() - state.started_clock) * 1000)
             if state.phase == ScanPhase.RUNNING
             else state.elapsed_ms,
@@ -171,6 +332,7 @@ class ModbusScanCoordinator:
             "recovery_status": state.recovery_status,
             "recovery_error_code": state.recovery_error_code,
             "cleanup_status": state.cleanup_status,
+            **self._lease(state),
             "cancellation_requested": state.cancellation_requested,
             "error": state.error,
             "error_info": state.error_info,
@@ -185,10 +347,14 @@ class ModbusScanCoordinator:
             "scan_id": state.scan_id,
             "provider": state.request.provider,
             "gateway_id": state.request.gateway_id,
+            "bus": state.bus,
+            "device_profile": dict(state.device_profile),
             "status": state.phase.value,
             "phase": state.phase.value,
             "responders": [
-                result.as_dict() for result in state.retained_results if result.is_responder
+                self._responder(state, result)
+                for result in state.retained_results
+                if result.is_responder
             ],
             "outcome_counts": self._serialized_counts(state),
             "completed_addresses": state.completed_addresses,
@@ -199,8 +365,31 @@ class ModbusScanCoordinator:
             "recovery_status": state.recovery_status,
             "recovery_error_code": state.recovery_error_code,
             "cleanup_status": state.cleanup_status,
+            **self._lease(state),
             "error": state.error,
             "error_info": state.error_info,
+        }
+
+    @staticmethod
+    def _responder(state: _ScanState, result: ProbeResult) -> dict[str, Any]:
+        """Raw evidence always; decoded values beside it when the profile defines fields."""
+        row = result.as_dict()
+        values = result.raw_values
+        if values is None and result.raw_value is not None:
+            values = (result.raw_value,)  # single-register reply (legacy bridge v1)
+        if result.register_address is not None and values is not None:
+            if decoded := state.profile.decode(result.register_address, values):
+                row["decoded"] = decoded
+        return row
+
+    @staticmethod
+    def _lease(state: _ScanState) -> dict[str, Any]:
+        return {
+            "lease_status": state.lease_status,
+            "lease_end_reason": state.lease_end_reason,
+            "lease_ended_after_address": state.lease_ended_after_address,
+            "paused_pollers": [dict(poller) for poller in state.paused_pollers],
+            "removed_pollers": [dict(poller) for poller in state.removed_pollers],
         }
 
     async def cancel(self, scan_id: str) -> dict[str, Any]:
@@ -266,18 +455,23 @@ class ModbusScanCoordinator:
                 state.retained_results.append(normalized)
 
         def progress(update):
-            for key, choices in {
-                "operation_phase": {
-                    "connect",
-                    "verify_identity",
-                    "verify_bridge",
-                    "probe",
-                    "inter_request_delay",
-                    "recovery",
-                    "finished",
-                },
-                "recovery_status": {"unknown", "pending", "verified", "failed"},
-                "cleanup_status": {"unknown", "pending", "closed", "forced", "failed"},
+            # Each reported field: the values accepted, and how one is stored.
+            for key, (choices, parse) in {
+                "operation_phase": (
+                    {
+                        "connect",
+                        "verify_identity",
+                        "verify_bridge",
+                        "probe",
+                        "inter_request_delay",
+                        "recovery",
+                        "finished",
+                    },
+                    str,
+                ),
+                "recovery_status": ({"unknown", "pending", "verified", "failed"}, str),
+                "cleanup_status": ({"unknown", "pending", "closed", "forced", "failed"}, str),
+                "lease_status": (set(LeaseStatus), LeaseStatus),
             }.items():
                 if update.get(key) in choices:
                     if key == "operation_phase" and update[key] != state.operation_phase:
@@ -287,7 +481,38 @@ class ModbusScanCoordinator:
                                 "elapsed_ms": int((monotonic() - state.started_clock) * 1000),
                             }
                         )
-                    setattr(state, key, update[key])
+                    setattr(state, key, parse(update[key]))
+            reason = update.get("lease_end_reason")
+            if update.get("lease_status") == state.lease_status and (
+                reason is None or reason in set(LeaseEndReason)
+            ):
+                state.lease_end_reason = None if reason is None else LeaseEndReason(reason)
+            if (
+                state.lease_status == LeaseStatus.ENDED
+                and state.lease_end_reason in EARLY_LEASE_END_REASONS
+                and state.phase == ScanPhase.RUNNING
+                and state.lease_ended_after_address is None
+                # Ended after the last address: no Probe ran without the lease.
+                and state.completed_addresses < state.request.address_count
+            ):
+                # Addresses run in order from start_id, so this is the last one finished
+                # (start_id - 1 when the lease ended during the first address).
+                state.lease_ended_after_address = (
+                    state.request.start_id + state.completed_addresses - 1
+                )
+            if state.bus is None and isinstance(update.get("bus"), str):
+                state.bus = update["bus"]
+            for key in ("paused_pollers", "removed_pollers"):
+                if isinstance(update.get(key), list):
+                    setattr(
+                        state,
+                        key,
+                        [
+                            {name: poller.get(name) for name in POLLER_KEYS}
+                            for poller in update[key]
+                            if isinstance(poller, dict) and "index" in poller
+                        ],
+                    )
             if update.get("recovery_error_code") in {
                 "FIRMWARE_FAULT",
                 "DEVICE_RESTARTED",
@@ -312,7 +537,7 @@ class ModbusScanCoordinator:
             kwargs = {"progress": progress} if getattr(provider, "supports_progress", False) else {}
             cleanup_reserve_ms = 3000 if state.request.provider == "esphome" else 0
             async with asyncio.timeout(
-                (state.request.execution_budget_ms - cleanup_reserve_ms) / 1000
+                (state.timing.execution_budget_ms(state.request) - cleanup_reserve_ms) / 1000
             ):
                 await provider.run_scan(
                     state.request, emit, lambda: state.cancellation_requested, **kwargs
@@ -365,8 +590,19 @@ class ModbusScanCoordinator:
                 self._active.pop(state.request.gateway_key, None)
             if state.recovery_error_code:
                 self._report_issue(state.request.gateway_id, state.recovery_error_code)
+            self._prune_poller_selection(state.request)
             self._record_terminal(state.scan_id)
             self._tasks.pop(state.scan_id, None)
+
+    def _prune_poller_selection(self, request: ScanRequest) -> None:
+        """A Scan read the Gateway's poller table: drop saved choices it no longer has."""
+        gateway = self._gateway(request.provider, request.gateway_id)
+        if gateway is None:
+            return
+        try:
+            self._poller_selection(gateway, prune=True)
+        except Exception:  # noqa: BLE001 - never replace the Scan's own outcome
+            return
 
     def _report_issue(self, gateway_id, code):
         if self._issue_callback:
@@ -465,6 +701,12 @@ class ModbusScanCoordinator:
                 or not 0 <= result.raw_value <= 65535
             ):
                 raise GatewayProviderError("Invalid typed register value")
+            if result.raw_values is not None and (
+                result.outcome != ScanOutcome.RESPONDED
+                or len(result.raw_values) != state.request.register_count
+                or any(type(v) is not int or not 0 <= v <= 65535 for v in result.raw_values)
+            ):
+                raise GatewayProviderError("Invalid typed register values")
             if (
                 type(result.attempts) is not int
                 or not 1 <= result.attempts <= state.request.retries + 1
@@ -480,6 +722,7 @@ class ModbusScanCoordinator:
             register_address=result.register_address,
             raw_value=result.raw_value,
             attempts=result.attempts,
+            raw_values=tuple(result.raw_values) if result.raw_values is not None else None,
         )
 
     def history(self):
@@ -493,9 +736,15 @@ class ModbusScanCoordinator:
         provider = self._providers.get("esphome")
         if provider is None or not hasattr(provider, "check_gateway"):
             raise ValueError("No physical gateways are configured")
-        if existing := self._active.get(("esphome", gateway_id)):
+        if existing := self._running_on("esphome", gateway_id):
             raise GatewayBusyError("esphome", gateway_id, existing)
-        return {"gateway_id": gateway_id, "health": await provider.check_gateway(gateway_id)}
+        health = await provider.check_gateway(gateway_id)
+        response = {"gateway_id": gateway_id, "health": health}
+        if gateway := self._gateway("esphome", gateway_id):
+            response["buses"] = [dict(row) for row in gateway.buses]
+            response.update(gateway.support_flags())
+            response.update(self._poller_selection(gateway, prune=True))
+        return response
 
     def _record_terminal(self, scan_id: str) -> None:
         if self._history:

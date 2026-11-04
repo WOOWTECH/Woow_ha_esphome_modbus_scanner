@@ -1,7 +1,11 @@
 # ADR-0002: Singleton service lifecycle
 
-- Status: Accepted
+- Status: Accepted; service count and in-memory history superseded by [ADR 0008](0008-scanner-service-set-and-persisted-history.md)
 - Date: 2026-08-17
+
+> **Superseded in part.** The scanner services are now every service in
+> `services.yaml`, not six, and Scan history is kept in Home Assistant storage.
+> See ADR 0008. The lifecycle rules below still apply.
 
 ## Context
 

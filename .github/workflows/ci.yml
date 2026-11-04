@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "epic/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "epic/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -42,10 +42,12 @@ jobs:
         working-directory: panel_frontend
       - run: npm run test:browser
         working-directory: panel_frontend
-      - run: node tests/tutorial/browser_check.mjs
-      - run: >-
-          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html
-          node tests/tutorial/browser_check.mjs
+      - name: Current tutorial (0.5.0)
+        run: node tests/tutorial/browser_check.mjs
+      - name: Historical mock-only tutorials
+        run: |
+          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.1.0-zh-TW.html node tests/tutorial/browser_check.mjs
+          TUTORIAL_PATH=/docs/tutorial/woow-esphome-modbus-scanner-v0.2.0-zh-TW.html node tests/tutorial/browser_check.mjs
 
   hassfest:
     runs-on: ubuntu-latest
@@ -64,13 +66,76 @@ jobs:
           cache-dependency-path: requirements-test.txt
       - run: pip install -r requirements-test.txt
       - run: python -m compileall -q custom_components tests/live
-      - run: python tools/generate_profiles.py --check
       - name: Portable firmware invariants (not an ESPHome hardware build)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined firmware/guanjie-scanner/scanner_test.cpp -o /tmp/scanner-state
           /tmp/scanner-state
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined firmware/guanjie-scanner/hardening_test.cpp -o /tmp/scanner-hardening
           /tmp/scanner-hardening
+      - name: modbus_scanner firmware core against the bridge v2 contract (host build)
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -fsanitize=undefined,address firmware/tests/scanner_core_test.cpp -o /tmp/scanner-core
+          /tmp/scanner-core custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json
       - run: >-
           pytest --cov=custom_components/woow_esphome_modbus_scanner
           --cov-report=term-missing --cov-fail-under=90
+
+  esphome:
+    name: ESPHome config/compile (modbus_scanner example)
+    runs-on: ubuntu-latest
+    env:
+      ESPHOME_VERSION: "2026.9.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: Throwaway secrets for CI builds
+        working-directory: firmware/examples
+        run: |
+          {
+            echo 'wifi_ssid: "ci-ssid"'
+            echo 'wifi_password: "ci-password"'
+            echo "api_encryption_key: \"$(head -c 32 /dev/urandom | base64)\""
+          } > secrets.yaml
+      - run: esphome config generic-modbus-scanner.yaml
+        working-directory: firmware/examples
+      - name: Multi-hub example (one Gateway, two Buses)
+        run: esphome config multi-bus-modbus-scanner.yaml
+        working-directory: firmware/examples
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}
+      - run: esphome compile generic-modbus-scanner.yaml
+        working-directory: firmware/examples
+      - name: Compile the multi-hub example (codegen discovery per Bus)
+        working-directory: firmware/examples
+        run: |
+          esphome compile multi-bus-modbus-scanner.yaml
+          main=.esphome/build/multi-bus-modbus-scanner/src/main.cpp
+          # Each Bus gets its own Pausable Poller table and its hub's serial parameters.
+          grep -F 'ModbusScannerBus("line_a", 1000)' "$main"
+          grep -F 'ModbusScannerBus("line_b", 500)' "$main"
+          grep -F 'set_serial(9600, "NONE", 1)' "$main"
+          grep -F 'set_serial(19200, "EVEN", 1)' "$main"
+          grep -F 'add_poller("meter", 0x01, meter)' "$main"
+          grep -F 'add_poller("inverter_2", 0x02, inverter_2)' "$main"
+          test "$(grep -c 'add_bus(' "$main")" -eq 2
+      - name: ESPHome older than 2026.9.0 is refused with a clear message
+        working-directory: firmware/examples
+        run: |
+          python -m venv /tmp/old-esphome
+          /tmp/old-esphome/bin/pip install -q "esphome==2026.8.2"
+          # Drop the example's own esphome.min_version: ESPHome checks it first and stops before
+          # the component's gate runs. A user's YAML may not set min_version, so test the gate itself.
+          sed '/^  min_version:/d' generic-modbus-scanner.yaml > old-esphome-check.yaml
+          if grep -q 'min_version' old-esphome-check.yaml; then
+            echo "min_version was not removed from the check copy"; exit 1
+          fi
+          if /tmp/old-esphome/bin/esphome config old-esphome-check.yaml > /tmp/old.log 2>&1; then
+            cat /tmp/old.log
+            echo "ESPHome 2026.8.2 unexpectedly accepted the modbus_scanner example"; exit 1
+          fi
+          grep -F "requires at least ESPHome version 2026.9.0" /tmp/old.log || { cat /tmp/old.log; exit 1; }

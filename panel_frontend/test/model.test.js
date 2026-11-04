@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULTS, SERVICES, normalizeResponse, safePreferences, sanitizePreferences,
-  sanitizeRecent, startPayload, testPayload, validateForm, selectGateway, boundsFor, PHYSICAL_REGISTERS,
+  sanitizeRecent, startPayload, testPayload, validateForm, selectGateway, boundsFor, reconcileGateway,
 } from "../src/model.js";
+import {LEGACY_GATEWAY, LEGACY_REGISTERS} from "./gateways.js";
 
 test("defines the exact public services", () => {
-  assert.deepEqual(SERVICES, ["check_gateway", "get_history", "list_gateways", "start_scan", "get_scan_status", "get_scan_results", "cancel_scan", "test_address"]);
+  assert.deepEqual(SERVICES, ["check_gateway", "get_history", "list_gateways", "set_pausable_pollers", "start_scan", "get_scan_status", "get_scan_results", "cancel_scan", "test_address",
+    "list_device_profiles", "import_device_profile", "export_device_profile", "delete_device_profile"]);
 });
 
 test("normalizes Home Assistant wrapped and direct service responses", () => {
@@ -58,7 +60,7 @@ test("malformed and obsolete preferences are sanitized by exact type, enum, and 
 });
 
 test("physical gateway selection supplies a valid FC03 profile and resets consent", () => {
-  const form = selectGateway({...DEFAULTS, safety_confirmed:true}, {provider:"esphome", gateway_id:"esphome:aabbccddeeff"});
+  const form = selectGateway({...DEFAULTS, safety_confirmed:true}, LEGACY_GATEWAY);
   assert.deepEqual(validateForm(form, true), {});
   assert.equal(form.probe_type, "holding_register");
   assert.equal(form.register_address, 25089);
@@ -71,18 +73,18 @@ test("physical gateway selection supplies a valid FC03 profile and resets consen
 });
 
 test("physical limits, probe, whitelist and polling are validated before a call", () => {
-  const form = selectGateway(DEFAULTS, {provider:"esphome", gateway_id:"esphome:aabbccddeeff"});
+  const form = selectGateway(DEFAULTS, LEGACY_GATEWAY);
   assert.deepEqual(boundsFor(form).end_id, [1,32]);
   assert.deepEqual(boundsFor(form).register_count, [1,1]);
   assert.deepEqual(boundsFor(form).timeout_ms, [700,700]);
-  for (const register_address of PHYSICAL_REGISTERS) assert.deepEqual(validateForm({...form,register_address},true), {});
+  for (const register_address of LEGACY_REGISTERS) assert.deepEqual(validateForm({...form,register_address},true), {});
   for (const [key, value] of Object.entries({address:33, register_count:2, timeout_ms:500, register_address:0, probe_type:"input_register", pause_normal_polling:false})) {
     assert.ok(validateForm({...form,[key]:value},true)[key], key);
   }
 });
 
 test("persisted physical selection and edited DOM numbers round-trip", () => {
-  const form = {...selectGateway(DEFAULTS, {provider:"esphome",gateway_id:"esphome:aabbccddeeff"}), end_id:"8", register_address:"24833", retries:"2", inter_request_delay_ms:"750", safety_confirmed:true, host:"private", token:"secret"};
+  const form = {...selectGateway(DEFAULTS, LEGACY_GATEWAY), end_id:"8", register_address:"24833", retries:"2", inter_request_delay_ms:"750", safety_confirmed:true, host:"private", token:"secret"};
   const restored = sanitizePreferences(JSON.parse(JSON.stringify(safePreferences(form,true))));
   assert.equal(restored.form.gateway_id, form.gateway_id);
   assert.equal(restored.form.provider, "esphome");
@@ -95,8 +97,10 @@ test("persisted physical selection and edited DOM numbers round-trip", () => {
   assert.equal(restored.form.token, undefined);
 });
 
-test("old incompatible physical preferences migrate without selecting mock", () => {
-  const {form} = sanitizePreferences({form:{...DEFAULTS,provider:"esphome",gateway_id:"esphome:aabbccddeeff",end_id:247}});
+test("old incompatible physical preferences migrate to the Gateway's limits without selecting mock", () => {
+  const stored = sanitizePreferences({form:{...DEFAULTS,provider:"esphome",gateway_id:"esphome:aabbccddeeff",end_id:247}}).form;
+  assert.equal(stored.provider,"esphome");
+  const form = reconcileGateway(stored, LEGACY_GATEWAY);
   assert.equal(form.provider,"esphome");
   assert.deepEqual(validateForm(form,true),{});
   assert.equal(form.end_id,3);
@@ -115,4 +119,51 @@ test("recent storage accepts only unique canonical UUIDs", () => {
   const valid = "11111111-1111-4111-8111-111111111111";
   assert.deepEqual(sanitizeRecent([valid, valid, "id", 4, {}, "11111111-1111-0111-8111-111111111111"]), [valid]);
   assert.deepEqual(sanitizeRecent({0:valid}), []);
+});
+
+test("mock payloads name the Mock Scenario with mock_scenario, never the deprecated alias", () => {
+  const form = {...DEFAULTS, mock_scenario: "all_offline", safety_confirmed: true};
+  for (const payload of [startPayload(form), testPayload(form)]) {
+    assert.equal(payload.mock_scenario, "all_offline");
+    assert.equal("mock_profile" in payload, false);
+  }
+});
+
+test("a Mock Scenario saved under the deprecated preference key is kept", () => {
+  assert.equal(sanitizePreferences({form: {mock_profile: "partial_timeout"}}).form.mock_scenario, "partial_timeout");
+  assert.equal(sanitizePreferences({form: {mock_scenario: "all_offline"}}).form.mock_scenario, "all_offline");
+  assert.equal("mock_profile" in sanitizePreferences({form: {mock_profile: "all_offline"}}).form, false);
+});
+
+test("the selected Gateway's reported limits bound the form", () => {
+  // The shape ProbeLimits.as_dict gives in list_gateways, narrowed below the contract's hard limits.
+  const gateway = {provider: "esphome", gateway_id: "esphome:aabbccddee02", capabilities: ["bridge_v2"], limits: {
+    slave_min: 1, slave_max: 10, probe_types: ["holding_register", "input_register"], register_count_max: 2,
+    allowed_registers: null, example_register: null, timeout_ms_min: 100, timeout_ms_max: 2000, inter_request_delay_ms_max: 3000,
+    pause_normal_polling_required: false, pause_normal_polling_supported: true, attempt_overhead_ms: 300, defaults: {}}};
+  const form = {...selectGateway(DEFAULTS, gateway), safety_confirmed: true};
+  assert.deepEqual(boundsFor(form).address, [1, 10]);
+  assert.deepEqual(boundsFor(form).end_id, [1, 10]);
+  assert.deepEqual(boundsFor(form).register_count, [1, 2]);
+  assert.ok(validateForm({...form, address: 11}, true).address);
+  assert.ok(validateForm({...form, register_count: 3}, true).register_count);
+});
+
+test("selecting a Gateway fills the form from the defaults it reports", () => {
+  const gateway = {provider: "esphome", gateway_id: "esphome:aabbccddee03", capabilities: [], limits: {
+    ...LEGACY_GATEWAY.limits, allowed_registers: [7, 8], example_register: 7, defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 7, end_id: 5}}};
+  const form = selectGateway({...DEFAULTS, safety_confirmed: true}, gateway);
+  assert.equal(form.register_address, 7);
+  assert.equal(form.end_id, 5);
+  assert.deepEqual(validateForm(form, true), {});
+  // Only the Gateway's allowlist, probe types and polling requirement apply.
+  for (const [key, value] of Object.entries({register_address: 9, probe_type: "input_register", pause_normal_polling: false})) {
+    assert.ok(validateForm({...form, [key]: value}, true)[key], key);
+  }
+});
+
+test("refreshing the gateway list keeps what the user typed once the Gateway's limits are known", () => {
+  const form = {...reconcileGateway(sanitizePreferences({form: {provider: "esphome", gateway_id: LEGACY_GATEWAY.gateway_id}}).form, LEGACY_GATEWAY), end_id: "40"};
+  assert.equal(reconcileGateway(form, {...LEGACY_GATEWAY}).end_id, "40");
+  assert.ok(validateForm(form, false).end_id);
 });

@@ -1,0 +1,87 @@
+# Any ESPHome 2026.9+ node with a Modbus RTU bus can become a scanner Gateway.
+# Keep your existing modbus / modbus_controller configuration and add:
+#   1. the external component (below), and
+#   2. one `modbus_scanner` entry naming your Modbus hub id.
+# The scanner registers its own read-only probe and lease-release actions and three diagnostic
+# text sensors. During a Scan it pauses the bus's polling components and resumes them by itself.
+esphome:
+  name: generic-modbus-scanner
+  min_version: 2026.9.0
+  project:
+    name: woowtech.modbus_scanner
+    version: "0.5.0.dev1"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+external_components:
+  # In your own YAML use the published component instead:
+  #   - source:
+  #       type: git
+  #       url: https://github.com/WOOWTECH/Woow_ha_esphome_modbus_scanner
+  #       path: firmware/components
+  #     components: [modbus_scanner]
+  - source:
+      type: local
+      path: ../components
+    components: [modbus_scanner]
+
+uart:
+  id: rs485_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+  parity: NONE
+  stop_bits: 1
+
+modbus:
+  id: rs485
+  uart_id: rs485_uart
+  send_wait_time: 1000ms
+
+# Plain, vendor-neutral polling devices on the same bus. The scanner finds them at compile
+# time as Pausable Pollers (index 0 = meter, 1 = inverter) and pauses them during a Scan.
+modbus_controller:
+  - id: meter
+    modbus_id: rs485
+    address: 1
+    update_interval: 10s
+  - id: inverter
+    modbus_id: rs485
+    address: 2
+    update_interval: 30s
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: meter
+    name: Meter voltage
+    register_type: holding
+    address: 0x0000
+    value_type: U_WORD
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: inverter
+    name: Inverter output power
+    register_type: read
+    address: 0x0010
+    value_type: U_WORD
+
+modbus_scanner:
+  - modbus_id: rs485

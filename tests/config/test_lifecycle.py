@@ -38,7 +38,8 @@ def bypass_panel_registration(monkeypatch):
 
 def _assert_unloaded(hass, coordinator):
     domain_data = hass.data[DOMAIN]
-    assert set(domain_data) == {DATA_LIFECYCLE, "history"}
+    # Stored history and Device Profiles outlive one config-entry generation.
+    assert set(domain_data) == {DATA_LIFECYCLE, "history", "device_profiles"}
     assert not domain_data["history"].pending
     assert domain_data[DATA_LIFECYCLE].owner_entry_id is None
     assert coordinator._tasks == {}
@@ -59,6 +60,7 @@ async def test_setup_registers_only_public_services_and_unload_cleans_tasks(hass
             "end_id": 100,
             "inter_request_delay_ms": 100,
             "safety_confirmed": True,
+            "large_range_confirmed": True,
         },
         blocking=True,
         return_response=True,
@@ -204,7 +206,13 @@ async def test_core_stop_cancels_work_and_flushes_terminal_history(hass):
     started = await hass.services.async_call(
         DOMAIN,
         "start_scan",
-        {"start_id": 1, "end_id": 100, "inter_request_delay_ms": 1000, "safety_confirmed": True},
+        {
+            "start_id": 1,
+            "end_id": 100,
+            "inter_request_delay_ms": 1000,
+            "safety_confirmed": True,
+            "large_range_confirmed": True,
+        },
         blocking=True,
         return_response=True,
     )
@@ -215,3 +223,43 @@ async def test_core_stop_cancels_work_and_flushes_terminal_history(hass):
     history = hass.data[DOMAIN]["history"]
     assert not history.pending
     assert history.get(started["scan_id"])["status"]["status"] == "cancelled"
+
+
+async def test_scan_history_written_by_0_4_with_identified_rows_still_loads(hass, hass_storage):
+    # 0.4.x defaulted to FC43 device identification and stored "identified" rows.
+    scan_id = "00000000-0000-4000-8000-0000000000a1"
+    status = {
+        "scan_id": scan_id,
+        "status": "completed",
+        "phase": "completed",
+        "provider": "mock",
+        "gateway_id": "mock:rs485-gateway",
+        "events": [{"phase": "completed", "elapsed_ms": 40}],
+    }
+    row = {
+        "address": 1,
+        "outcome": "identified",
+        "latency_ms": 5,
+        "detail": "Valid device-identification response",
+        "identity": {"vendor": "WOOWTECH", "product": "WT-RS485-01"},
+    }
+    results = {**status, "responders": [row], "outcome_counts": {"identified": 1}}
+    hass_storage[f"{DOMAIN}.history"] = {
+        "version": 1,
+        "key": f"{DOMAIN}.history",
+        "data": {"records": [{"status": status, "results": results}], "pending": []},
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    assert await async_setup_entry(hass, entry)
+
+    history = await hass.services.async_call(
+        DOMAIN, "get_history", {}, blocking=True, return_response=True
+    )
+    assert [scan["scan_id"] for scan in history["scans"]] == [scan_id]
+    stored = await hass.services.async_call(
+        DOMAIN, "get_scan_results", {"scan_id": scan_id}, blocking=True, return_response=True
+    )
+    assert stored["responders"] == [row]
+    assert not hass.data[DOMAIN]["history"].load_error
+    assert await async_unload_entry(hass, entry)

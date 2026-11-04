@@ -1,9 +1,19 @@
 # Gateway provider contract
 
-## 0.1.0 implementation
+## Implemented providers (0.5.0.dev1)
 
-Only `MockGatewayProvider` exists. It advertises one simulated gateway and six
-deterministic profiles. It performs no network, serial, ESPHome, or Modbus I/O.
+- `MockGatewayProvider` (`provider: mock`): two simulated Gateways
+  (`mock:rs485-gateway` with one Bus, `mock:multi-bus-gateway` with two) and six
+  Mock Scenarios. No network, serial, ESPHome or Modbus I/O.
+- The ESPHome provider (`provider: esphome`) routes each enrolled Gateway to its
+  adapter: bridge v2 (`modbus_scan/bridge_v2/`, the `modbus_scanner` firmware
+  component, contract in `bridge_v2/contract.json`) or legacy bridge v1
+  (`modbus_scan/legacy_v1/`, deprecated). Adapters are registered in one place,
+  `modbus_scan/adapters.py`.
+
+Each provider reports its limits and defaults as `ProbeLimits` on its
+`GatewayInfo`; the coordinator validates every request against those limits
+intersected with the selected Device Profile's limits.
 
 ## Interface
 
@@ -34,18 +44,23 @@ integer latency, string detail, an optional byte-sized exception code, and an
 optional string-to-string identity mapping. Invalid adapters fail the scan
 without corrupting counts.
 
-## Requirements for a future ESPHome provider
+## Requirements for a physical provider
 
-A future adapter must:
+Written before any physical adapter existed; the bridge v2 adapter meets them,
+with polling pause implemented as a Gateway-owned Scan Lease
+([ADR 0007](../adr/0007-per-scan-lease-with-gateway-owned-recovery.md)) instead
+of an HA-side `finally`. A physical adapter must:
 
 1. Resolve an optional Home Assistant `esphome_device_id` to an explicit
    provider gateway and verify that gateway is currently available.
 2. Establish that a supported upstream API exposes the required serial/Modbus
    read transaction. A registry device alone is not a transport API.
-3. Use only device-identification, holding-register read, or input-register read
-   probes. It must never write a register, change a Slave ID, or restart a node.
-4. Enforce the coordinator's one-scan-per-gateway key and avoid hidden parallel
-   requests inside the adapter.
+3. Use only holding-register (FC03) or input-register (FC04) read probes; FC43/14
+   device identification is out of scope for 0.5.0. It must never write a
+   register, change a Slave ID, or restart a node.
+4. Enforce the coordinator's one-Scan-per-Bus key and avoid hidden parallel
+   requests inside the adapter. Scans on different Buses of one Gateway may run
+   at once but share the Gateway's single Probe slot.
 5. Apply timeout, retry, and inter-request delay bounds without extending work
    beyond the requested inclusive address range.
 6. If `pause_normal_polling` is supported, pause only the selected gateway and
@@ -59,7 +74,5 @@ A future adapter must:
 9. Avoid credentials, host details, raw frames, or private registry data in
    public service responses and logs.
 
-Adding the adapter will require a new ADR, integration tests against the selected
-upstream API, documentation updates, and an explicit version change. The
-reserved selector in 0.1.0 is forward-compatible UI metadata, not a claim that
-these requirements are already feasible.
+Adding another adapter requires an ADR, integration tests at the service seam,
+documentation updates and a version change.

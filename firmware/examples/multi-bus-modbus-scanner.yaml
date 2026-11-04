@@ -1,0 +1,99 @@
+# One ESPHome 2026.9+ node serving two RS-485 lines: one Gateway with two Buses.
+# Add one `modbus_scanner` entry per Modbus hub. Each entry is one Bus: HA lists it with its
+# serial parameters (taken from the hub's UART below), and each Bus can run its own Scan.
+# Every Bus gets its own Pausable Poller table: here line_a has the meter, line_b the two
+# inverters. The Gateway's probe/release actions and the three diagnostic text sensors are
+# created once.
+esphome:
+  name: multi-bus-modbus-scanner
+  min_version: 2026.9.0
+  project:
+    name: woowtech.modbus_scanner
+    version: "0.5.0.dev1"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+external_components:
+  # In your own YAML use the published component instead (see generic-modbus-scanner.yaml).
+  - source:
+      type: local
+      path: ../components
+    components: [modbus_scanner]
+
+uart:
+  - id: uart_a
+    tx_pin: GPIO17
+    rx_pin: GPIO16
+    baud_rate: 9600
+    parity: NONE
+    stop_bits: 1
+  - id: uart_b
+    tx_pin: GPIO25
+    rx_pin: GPIO26
+    baud_rate: 19200
+    parity: EVEN
+    stop_bits: 1
+
+modbus:
+  - id: hub_a
+    uart_id: uart_a
+    send_wait_time: 1000ms
+  - id: hub_b
+    uart_id: uart_b
+    send_wait_time: 500ms
+
+modbus_controller:
+  - id: meter
+    modbus_id: hub_a
+    address: 1
+    update_interval: 10s
+  - id: inverter_1
+    modbus_id: hub_b
+    address: 1
+    update_interval: 30s
+  - id: inverter_2
+    modbus_id: hub_b
+    address: 2
+    update_interval: 30s
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: meter
+    name: Meter voltage
+    register_type: holding
+    address: 0x0000
+    value_type: U_WORD
+  - platform: modbus_controller
+    modbus_controller_id: inverter_1
+    name: Inverter 1 output power
+    register_type: read
+    address: 0x0010
+    value_type: U_WORD
+  - platform: modbus_controller
+    modbus_controller_id: inverter_2
+    name: Inverter 2 output power
+    register_type: read
+    address: 0x0010
+    value_type: U_WORD
+
+modbus_scanner:
+  - modbus_id: hub_a
+    bus: line_a
+  - modbus_id: hub_b
+    bus: line_b

@@ -13,29 +13,30 @@ from custom_components.woow_esphome_modbus_scanner.modbus_scan.provider import (
 )
 
 
-async def _outcomes(profile: str, start: int = 1, end: int = 12):
+async def _outcomes(scenario: str, start: int = 1, end: int = 12):
     provider = MockGatewayProvider(step_delay_ms=0)
-    request = ScanRequest.mock(start_id=start, end_id=end, profile=profile)
+    request = ScanRequest.mock(start_id=start, end_id=end, scenario=scenario)
     outcomes = []
     await provider.run_scan(request, outcomes.append, lambda: False)
     return outcomes
 
 
-async def test_default_profile_reports_known_responders():
+async def test_default_scenario_reports_known_responders():
+    # The default probe is an FC03 holding-register read: Responders answer with raw values.
     outcomes = await _outcomes("found_default")
     assert [(item.address, item.outcome.value) for item in outcomes if item.is_responder] == [
-        (1, "identified"),
+        (1, "responded"),
         (3, "responded"),
         (5, "modbus_exception"),
-        (12, "identified"),
+        (12, "responded"),
     ]
 
 
-async def test_gateway_metadata_advertises_profiles_and_read_only_probes():
+async def test_gateway_metadata_advertises_scenarios_and_read_only_probes():
     gateway = MockGatewayProvider().list_gateways()[0]
     assert gateway.gateway_id == "mock:rs485-gateway"
     assert gateway.provider == "mock"
-    assert "found_default" in gateway.mock_profiles
+    assert "found_default" in gateway.mock_scenarios
     assert "holding_register" in gateway.capabilities
 
 
@@ -46,14 +47,14 @@ async def test_all_offline_is_all_timeouts():
 
 
 @pytest.mark.parametrize(
-    ("profile", "end", "expected"),
+    ("scenario", "end", "expected"),
     [
         ("partial_timeout", 42, [2, 7, 11, 21, 42]),
         ("modbus_exception", 17, [4, 9, 17]),
     ],
 )
-async def test_profile_responder_addresses_are_stable(profile, end, expected):
-    outcomes = await _outcomes(profile, 1, end)
+async def test_scenario_responder_addresses_are_stable(scenario, end, expected):
+    outcomes = await _outcomes(scenario, 1, end)
     assert [item.address for item in outcomes if item.is_responder] == expected
 
 
@@ -87,7 +88,7 @@ async def test_single_address_has_no_inter_request_delay():
     request = ScanRequest.mock(
         start_id=3,
         end_id=3,
-        inter_request_delay_ms=5_000,
+        inter_request_delay_ms=3_000,
     )
     sleep = AsyncMock()
 
@@ -102,9 +103,9 @@ async def test_single_address_has_no_inter_request_delay():
     sleep.assert_not_awaited()
 
 
-async def test_mock_specific_profile_validation_lives_in_mock_provider():
+async def test_mock_specific_scenario_validation_lives_in_mock_provider():
     provider = MockGatewayProvider(step_delay_ms=0)
-    request = ScanRequest.mock(profile="not-a-profile")
+    request = ScanRequest.mock(scenario="not-a-scenario")
 
-    with pytest.raises(ValueError, match="mock_profile"):
+    with pytest.raises(ValueError, match="mock_scenario"):
         await provider.run_scan(request, lambda _result: None, lambda: False)

@@ -36,7 +36,7 @@ class _FakeProvider:
                 provider=self.provider_id,
                 gateway_id="fake:gateway",
                 name="Fake gateway",
-                capabilities=("device_identification",),
+                capabilities=("holding_register",),
             ),
         )
 
@@ -89,7 +89,7 @@ async def test_status_tracks_progress_and_terminal_counts(hass):
     assert done["status"] == "completed"
     assert done["completed_addresses"] == 3
     assert done["progress_percent"] == 100.0
-    assert done["outcome_counts"]["identified"] == 1
+    assert done["outcome_counts"]["responded"] == 2
     assert done["outcome_counts"]["timeout"] == 1
 
 
@@ -106,7 +106,7 @@ async def test_cancellation_reaches_terminal_cancelled_state(hass):
 async def test_provider_failure_is_isolated_and_published(hass):
     coordinator = _coordinator(hass)
     scan = await coordinator.start(
-        ScanRequest.mock(end_id=12, profile="gateway_disconnect")
+        ScanRequest.mock(end_id=12, scenario="gateway_disconnect")
     )
     done = await coordinator.wait(scan["scan_id"])
     assert done["status"] == "failed"
@@ -228,7 +228,7 @@ async def test_wait_caller_cancellation_does_not_cancel_scan(hass):
             "latency_ms",
         ),
         (
-            ProbeResult(1, ScanOutcome.IDENTIFIED, 1, "bad identity", identity={"x": 1}),
+            ProbeResult(1, ScanOutcome.RESPONDED, 1, "bad identity", identity={"x": 1}),
             "identity",
         ),
     ],

@@ -3,13 +3,34 @@ list_gateways:
   description: Enrollment, capabilities, last health observations and caller permissions. Enrollment is not proof of connectivity.
 check_gateway:
   name: Check gateway API
-  description: Verify MAC, bridge signature and supported health metadata without issuing a Modbus transaction. Physical-operation authorization applies.
+  description: Verify MAC, Bridge Protocol signature and supported health metadata without issuing a Modbus transaction. Physical-operation authorization applies.
   fields:
     gateway_id:
       name: Physical gateway
       required: true
       selector:
         text:
+set_pausable_pollers:
+  name: Save Pausable Poller selection
+  description: Save which Pausable Pollers of one Bus a Scan on a Bridge Protocol v2 Gateway pauses. Kept in the integration's settings across restarts and revalidated against the firmware's table on every check and Scan. Check the Gateway first so its table is known. Physical-operation authorization applies.
+  fields:
+    gateway_id:
+      name: Physical gateway
+      required: true
+      selector:
+        text:
+    bus:
+      name: Bus
+      description: Bus id as listed by check_gateway.
+      required: true
+      selector:
+        text:
+    pause_pollers:
+      name: Pausable Pollers to pause
+      description: Indices from the Bus's Pausable Poller table; an empty list pauses none.
+      required: true
+      selector:
+        object:
 get_history:
   name: Get saved scan history
   description: Return up to 20 terminal snapshots. Stored or interrupted jobs are never replayed automatically.
@@ -29,6 +50,11 @@ start_scan:
       default: mock:rs485-gateway
       selector:
         text:
+    bus: &bus
+      name: Bus
+      description: Bus id from the gateway's buses in list_gateways. Required when the gateway has more than one Bus; one Scan at a time runs per Bus.
+      selector:
+        text:
     esphome_device_id: &device
       name: ESPHome device
       description: Optional additional device MAC cross-check.
@@ -38,39 +64,39 @@ start_scan:
             - integration: esphome
     start_id:
       name: Start Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; Legacy Gateways allow 1–32.
       default: 1
       selector:
         number: {min: 1, max: 247, mode: box}
     end_id:
       name: End Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; Legacy Gateways allow 1–32.
       default: 3
       selector:
         number: {min: 1, max: 247, mode: box}
     probe_type: &probe
       name: Probe type
-      description: Physical Guanjie supports holding_register (FC03) only.
+      description: holding_register (FC03) or input_register (FC04) as the Device Profile allows.
       default: holding_register
       selector:
         select:
-          options: [device_identification, holding_register, input_register]
+          options: [holding_register, input_register]
     register_address: &register
       name: Register address
-      description: Physical default 25089 (0x6201); the versioned profile whitelist is enforced.
-      default: 25089
+      description: Defaults from the selected Device Profile; its register allowlist, if any, is enforced.
+      default: 0
       selector:
         number: {min: 0, max: 65535, mode: box}
     register_count: &count
       name: Register count
-      description: Physical Guanjie requires exactly 1.
+      description: 1–4 on Bridge Protocol v2 Gateways; Legacy Gateways require exactly 1.
       default: 1
       selector:
         number: {min: 1, max: 125, mode: box}
     timeout_ms: &timeout
       name: Timeout
-      description: Physical Guanjie requires exactly 700 ms.
-      default: 700
+      description: 100–2000 ms on Bridge Protocol v2 Gateways; Legacy Gateways require exactly 700 ms.
+      default: 1000
       selector:
         number: {min: 10, max: 10000, mode: box, unit_of_measurement: ms}
     retries: &retries
@@ -81,27 +107,45 @@ start_scan:
         number: {min: 0, max: 5, mode: box}
     inter_request_delay_ms: &delay
       name: Inter-request delay
-      description: Cancellation-aware wait between addresses; does not remove firmware drain safeguards.
+      description: Cancellation-aware wait between addresses (Bridge Protocol v2 at most 3000 ms, Legacy Gateway 5000 ms); does not remove firmware drain safeguards.
       default: 250
       selector:
         number: {min: 0, max: 5000, mode: box, unit_of_measurement: ms}
     pause_normal_polling: &pause
       name: Pause normal polling
-      description: Required for physical reads; ESP owns arbitration and local restoration. No hardware effect in mock mode.
+      description: Required for physical reads; the Gateway owns arbitration and local restoration. No hardware effect in mock mode.
       default: true
       selector:
         boolean:
-    mock_profile: &mock_profile
-      name: Mock simulation profile
-      description: Used only by the mock provider, never to simulate a physical response.
+    pause_pollers: &pause_pollers
+      name: Pausable Pollers to pause
+      description: Bridge Protocol v2 Gateways only. Indices from the Bus's Pausable Poller table (check_gateway) to pause for this Scan only; an empty list pauses none. Omit to use the selection saved with set_pausable_pollers (all pollers when nothing is saved). Indices the firmware no longer has are reported in removed_pollers and never sent.
+      required: false
+      selector:
+        object:
+    mock_scenario: &mock_scenario
+      name: Mock scenario
+      description: Fixed mock-provider outcome set; never simulates a physical response. Replaces the deprecated mock_profile alias, which is still accepted but cannot be combined with mock_scenario.
       default: found_default
       selector:
         select:
           options: [found_default, all_offline, partial_timeout, modbus_exception, possible_collision, gateway_disconnect]
+    device_profile_id: &device_profile
+      name: Device Profile
+      description: Id from list_device_profiles (defaults to the Generic Device Profile). Its defaults fill omitted fields, and its limits are enforced together with the gateway's own limits.
+      default: generic
+      selector:
+        text:
     safety_confirmed:
       name: Confirm scan safety
       description: I understand reads temporarily pause polling, are best-effort, and prove neither absence nor Slave-ID uniqueness.
       required: true
+      selector:
+        boolean:
+    large_range_confirmed:
+      name: Confirm large range
+      description: Required (exactly true) when the range covers more than 32 IDs. Such a Scan takes up to IDs x attempts x (timeout + Gateway overhead) + delays (estimated_worst_case_ms in the status). On a Bridge Protocol v2 Gateway the Scan Lease ends after 10 minutes; later Probes run with Normal Polling resumed, and the status reports lease_ended_after_address.
+      required: false
       selector:
         boolean:
 get_scan_status:
@@ -129,10 +173,11 @@ test_address:
   fields:
     provider: *provider
     gateway_id: *gateway
+    bus: *bus
     esphome_device_id: *device
     address:
       name: Slave ID
-      description: Physical Guanjie 1–32; mock 1–247.
+      description: 1–247 within the selected Device Profile; Legacy Gateways allow 1–32.
       default: 1
       selector:
         number: {min: 1, max: 247, mode: box}
@@ -143,4 +188,33 @@ test_address:
     retries: *retries
     inter_request_delay_ms: *delay
     pause_normal_polling: *pause
-    mock_profile: *mock_profile
+    pause_pollers: *pause_pollers
+    mock_scenario: *mock_scenario
+    device_profile_id: *device_profile
+list_device_profiles:
+  name: List Device Profiles
+  description: The built-in Generic Device Profile and every imported Device Profile, with their defaults, register allowlists, field definitions and limits.
+import_device_profile:
+  name: Import Device Profile
+  description: Validate a Device Profile JSON document and store it in Home Assistant storage (included in HA backups). An existing Device Profile with the same id is replaced. Invalid documents are rejected with field-level errors.
+  fields:
+    profile:
+      name: Device Profile document
+      description: The Device Profile as a JSON object or JSON text (schema_version 1).
+      required: true
+      selector:
+        object:
+export_device_profile:
+  name: Export Device Profile
+  description: Return the importable JSON document of one Device Profile.
+  fields:
+    profile_id: &profile_id
+      name: Device Profile id
+      required: true
+      selector:
+        text:
+delete_device_profile:
+  name: Delete Device Profile
+  description: Delete an imported Device Profile. The built-in Generic Device Profile cannot be deleted, and a Device Profile used by a running Scan is refused until that Scan ends. Finished Scan results keep the Device Profile label they were recorded with.
+  fields:
+    profile_id: *profile_id

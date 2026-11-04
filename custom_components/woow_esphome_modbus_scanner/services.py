@@ -18,25 +18,36 @@ import voluptuous as vol
 from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
+    DATA_DEVICE_PROFILES,
     DATA_SERVICE_OWNER,
     DATA_SERVICES_AVAILABLE,
     DOMAIN,
     PUBLIC_SERVICES,
     SERVICE_CANCEL_SCAN,
+    SERVICE_DELETE_DEVICE_PROFILE,
+    SERVICE_EXPORT_DEVICE_PROFILE,
     SERVICE_GET_SCAN_RESULTS,
     SERVICE_GET_SCAN_STATUS,
+    SERVICE_IMPORT_DEVICE_PROFILE,
+    SERVICE_LIST_DEVICE_PROFILES,
     SERVICE_LIST_GATEWAYS,
+    SERVICE_SET_PAUSABLE_POLLERS,
     SERVICE_START_SCAN,
     SERVICE_TEST_ADDRESS,
 )
+from .device_profile_store import DeviceProfileNotFoundError, DeviceProfileStore
 from .issues import report_gateway_issue
+from .modbus_scan.adapters import build_physical_provider, physical_gateway_id
 from .modbus_scan.coordinator import (
     GatewayBusyError,
     ModbusScanCoordinator,
     ScanNotFoundError,
 )
+from .modbus_scan.device_profile import GENERIC_PROFILE_ID, DeviceProfile, DeviceProfileError
 from .modbus_scan.mock_provider import MOCK_GATEWAY_ID, MockGatewayProvider
 from .modbus_scan.models import (
+    BUS_NAME_PATTERN,
+    LARGE_RANGE_THRESHOLD,
     MAX_INTER_REQUEST_DELAY_MS,
     MAX_REGISTER_ADDRESS,
     MAX_REGISTER_COUNT,
@@ -45,12 +56,12 @@ from .modbus_scan.models import (
     MAX_TIMEOUT_MS,
     MIN_SLAVE_ID,
     MIN_TIMEOUT_MS,
-    MockProfile,
+    MockScenario,
     ProbeType,
     ScanRequest,
 )
-from .modbus_scan.profile_generated import PROFILE
 from .modbus_scan.provider import GatewayProviderError
+from .poller_selection import PollerSelectionStore
 
 
 def _exact_int(value: object) -> int:
@@ -90,14 +101,21 @@ def _canonical_uuid(value: object) -> str:
     return value
 
 
+_POLLER_INDICES = vol.All(
+    [vol.All(_exact_int, vol.Range(min=0, max=255))], vol.Unique(), vol.Coerce(tuple)
+)
+
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
+    # The Bus to scan; may be omitted when the Gateway has only one.
+    vol.Optional("bus"): vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z")),
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
     vol.Optional("esphome_device_id"): str,
 }
 _PROBE_FIELDS = {
+    vol.Optional("device_profile_id", default=GENERIC_PROFILE_ID): str,
     vol.Optional("probe_type"): _probe_type,
     vol.Optional("register_address"): vol.All(
         _exact_int, vol.Range(min=0, max=MAX_REGISTER_ADDRESS)
@@ -111,40 +129,58 @@ _PROBE_FIELDS = {
         _exact_int, vol.Range(min=0, max=MAX_INTER_REQUEST_DELAY_MS)
     ),
     vol.Optional("pause_normal_polling"): bool,
-    vol.Optional("mock_profile", default=MockProfile.FOUND_DEFAULT.value): vol.In(
-        [item.value for item in MockProfile]
-    ),
+    # Explicit Pausable Poller indices; absent means the Bus's saved selection.
+    vol.Optional("pause_pollers"): _POLLER_INDICES,
+    vol.Optional("mock_scenario"): vol.In([item.value for item in MockScenario]),
+    # Deprecated alias of mock_scenario, kept so existing scripts keep working.
+    vol.Optional("mock_profile"): vol.In([item.value for item in MockScenario]),
 }
 
 
-def _apply_profile_defaults(data):
-    """Only absent fields get defaults; explicit unsupported values stay rejected."""
-    defaults = {
-        "probe_type": ProbeType.DEVICE_IDENTIFICATION,
-        "register_address": 0,
-        "register_count": 1,
-        "timeout_ms": 500,
-        "retries": 1,
-        "inter_request_delay_ms": 100,
-        "pause_normal_polling": False,
-    }
-    if data["provider"] == "esphome":
-        defaults = {key: PROFILE["defaults"][key] for key in defaults}
+def _resolve_mock_scenario(data):
+    """Fold the deprecated mock_profile alias into mock_scenario."""
+    if "mock_scenario" in data and "mock_profile" in data:
+        raise vol.Invalid(
+            "mock_profile is a deprecated alias of mock_scenario; provide only mock_scenario"
+        )
+    data["mock_scenario"] = data.pop(
+        "mock_profile", data.get("mock_scenario", MockScenario.FOUND_DEFAULT.value)
+    )
+    return data
+
+
+def _with_gateway_defaults(
+    coordinator: ModbusScanCoordinator, data, profile: DeviceProfile
+) -> dict[str, Any]:
+    """Only absent fields get Device Profile/gateway defaults; explicit values stay validated."""
+    data = dict(data)
+    defaults = coordinator.request_defaults(data["provider"], data["gateway_id"], profile)
     for key, value in defaults.items():
         data.setdefault(key, value)
     data["probe_type"] = ProbeType(data["probe_type"])
+    if data["provider"] == "esphome":
+        data["pause_checklists"] = coordinator.saved_poller_selection(data["gateway_id"])
     return data
+
+
+def _require_range(data) -> None:
+    if "start_id" not in data or "end_id" not in data:
+        raise ValueError(
+            "start_id and end_id are required unless the Device Profile defines a default "
+            "slave range"
+        )
 
 
 _START_SCAN_SCHEMA = vol.Schema(
     {
         **_PROVIDER_FIELDS,
-        vol.Required("start_id"): vol.All(
+        vol.Optional("start_id"): vol.All(
             _exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)
         ),
-        vol.Required("end_id"): vol.All(_exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)),
+        vol.Optional("end_id"): vol.All(_exact_int, vol.Range(min=MIN_SLAVE_ID, max=MAX_SLAVE_ID)),
         **_PROBE_FIELDS,
         vol.Required("safety_confirmed"): _exact_true,
+        vol.Optional("large_range_confirmed"): _exact_true,
     }
 )
 _SCAN_ID_SCHEMA = vol.Schema({vol.Required("scan_id"): _canonical_uuid})
@@ -156,11 +192,50 @@ _TEST_ADDRESS_SCHEMA = vol.Schema(
     }
 )
 _LIST_GATEWAYS_SCHEMA = vol.Schema({})
-_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _apply_profile_defaults)
-_TEST_ADDRESS_SCHEMA = vol.All(_TEST_ADDRESS_SCHEMA, _apply_profile_defaults)
+_PROFILE_ID_SCHEMA = vol.Schema({vol.Required("profile_id"): str})
+_IMPORT_PROFILE_SCHEMA = vol.Schema(
+    # Any value: the Device Profile parser reports what is wrong with it field by field.
+    {vol.Required("profile"): object}
+)
+_START_SCAN_SCHEMA = vol.All(_START_SCAN_SCHEMA, _resolve_mock_scenario)
+_TEST_ADDRESS_SCHEMA = vol.All(_TEST_ADDRESS_SCHEMA, _resolve_mock_scenario)
 
 
 _Owner = tuple[str, int]
+
+
+async def _profile_store(hass: HomeAssistant, owner: _Owner) -> DeviceProfileStore:
+    """The shared Device Profile store, loaded from HA storage on first use."""
+    _coordinator(hass, owner)  # fail closed once this generation no longer owns services
+    domain_data = hass.data[DOMAIN]
+    store = domain_data.get(DATA_DEVICE_PROFILES)
+    if store is None:
+        store = domain_data[DATA_DEVICE_PROFILES] = DeviceProfileStore(hass)
+    await store.async_load()
+    return store
+
+
+async def _selected_profile(hass: HomeAssistant, owner: _Owner, data) -> DeviceProfile:
+    try:
+        return (await _profile_store(hass, owner)).get(data["device_profile_id"])
+    except DeviceProfileNotFoundError as err:
+        raise ValueError(str(err)) from err
+
+
+def _esphome_endpoint(hass: HomeAssistant):
+    """Resolve an ESPHome config entry id to its current host, port and API key."""
+
+    def resolve(entry_id: str) -> dict[str, Any] | None:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != "esphome":
+            return None
+        return {
+            "host": entry.data.get("host"),
+            "port": entry.data.get("port"),
+            "noise_psk": entry.data.get("noise_psk"),
+        }
+
+    return resolve
 
 
 def _coordinator(
@@ -179,19 +254,18 @@ def _coordinator(
     if coordinator is None:
         providers = [MockGatewayProvider()]
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
-        if entry is not None and entry.data.get("gateways"):
-            from .modbus_scan.esphome_provider import ESPHomeGateway, ESPHomeGatewayProvider
-
-            providers.append(
-                ESPHomeGatewayProvider(
-                    [ESPHomeGateway(**gateway) for gateway in entry.data["gateways"]]
-                )
+        if entry is not None and (
+            physical := build_physical_provider(
+                entry.data.get("gateways", ()), esphome_endpoint=_esphome_endpoint(hass)
             )
+        ):
+            providers.append(physical)
         coordinator = ModbusScanCoordinator(
             hass,
             providers,
             history=domain_data.get("history"),
             issue_callback=lambda gateway, code: report_gateway_issue(hass, gateway, code),
+            selection_store=PollerSelectionStore(hass, owner[0] if owner else None),
         )
         domain_data[DATA_COORDINATOR] = coordinator
         domain_data[DATA_COORDINATOR_OWNER] = owner
@@ -211,6 +285,7 @@ def _scan_request(
         gateway_id=data["gateway_id"],
         start_id=start_id,
         end_id=end_id,
+        bus=data.get("bus"),
         probe_type=data["probe_type"],
         register_address=data["register_address"],
         register_count=data["register_count"],
@@ -218,8 +293,10 @@ def _scan_request(
         retries=data["retries"],
         inter_request_delay_ms=data["inter_request_delay_ms"],
         pause_normal_polling=data["pause_normal_polling"],
-        mock_profile=data["mock_profile"],
+        mock_scenario=data["mock_scenario"],
         safety_confirmed=safety_confirmed,
+        pause_pollers=data.get("pause_pollers"),
+        pause_checklists=data.get("pause_checklists"),
     )
 
 
@@ -234,22 +311,28 @@ def _as_home_assistant_error(err: Exception) -> HomeAssistantError:
     return HomeAssistantError(str(err))
 
 
-async def _physical_allowed(call: ServiceCall, owner: _Owner) -> bool:
-    """All active HA users and internal automations, per the approved policy."""
+async def _is_active_user_or_automation(call: ServiceCall) -> bool:
+    """All active HA users and internal automations, per the approved policy (ADR 0008)."""
     if call.context.user_id is None:
         return True
     user = await call.hass.auth.async_get_user(call.context.user_id)
     return bool(user and user.is_active)
 
 
-async def _authorize_physical(call: ServiceCall, owner: _Owner, provider: str) -> None:
-    if provider == "esphome" and not await _physical_allowed(call, owner):
+async def _require_active_user(call: ServiceCall) -> None:
+    """Refuse unknown and inactive named users; also guards Device Profile writes."""
+    if not await _is_active_user_or_automation(call):
         raise Unauthorized(context=call.context)
+
+
+async def _authorize_physical(call: ServiceCall, provider: str) -> None:
+    if provider == "esphome":
+        await _require_active_user(call)
 
 
 async def _handle_list_gateways(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     result = _coordinator(call.hass, owner).list_gateways()
-    allowed = await _physical_allowed(call, owner)
+    allowed = await _is_active_user_or_automation(call)
     for gateway in result["gateways"]:
         gateway["can_operate"] = gateway["provider"] == "mock" or allowed
     return result
@@ -263,18 +346,33 @@ def _validate_selected_device(call: ServiceCall) -> None:
     device = dr.async_get(call.hass).async_get(call.data["esphome_device_id"])
     if device is None or not any(
         kind == dr.CONNECTION_NETWORK_MAC
-        and "esphome:" + value.replace(":", "").lower() == call.data["gateway_id"]
+        and physical_gateway_id(value) == call.data["gateway_id"]
         for kind, value in device.connections
     ):
         raise ValueError("Selected ESPHome device does not match the configured gateway")
 
 
+def _require_large_range_confirmation(data) -> None:
+    """A long Scan must be confirmed explicitly, not only by safety_confirmed."""
+    count = data["end_id"] - data["start_id"] + 1
+    if count > LARGE_RANGE_THRESHOLD and data.get("large_range_confirmed") is not True:
+        raise ValueError(
+            f"Scanning {count} IDs (more than {LARGE_RANGE_THRESHOLD}) requires "
+            "large_range_confirmed=true"
+        )
+
+
 async def _handle_start_scan(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, call.data["provider"])
+    await _authorize_physical(call, call.data["provider"])
     try:
         _validate_selected_device(call)
-        request = _scan_request(call.data, safety_confirmed=call.data["safety_confirmed"])
-        return await _coordinator(call.hass, owner).start(request)
+        coordinator = _coordinator(call.hass, owner)
+        profile = await _selected_profile(call.hass, owner, call.data)
+        data = _with_gateway_defaults(coordinator, call.data, profile)
+        _require_range(data)
+        _require_large_range_confirmation(data)
+        request = _scan_request(data, safety_confirmed=call.data["safety_confirmed"])
+        return await coordinator.start(request, profile)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
 
@@ -297,24 +395,30 @@ async def _handle_cancel_scan(call: ServiceCall, owner: _Owner) -> ServiceRespon
     try:
         coordinator = _coordinator(call.hass, owner)
         state = coordinator.status(call.data["scan_id"])
-        await _authorize_physical(call, owner, state["provider"])
+        await _authorize_physical(call, state["provider"])
         return await coordinator.cancel(call.data["scan_id"])
     except ScanNotFoundError as err:
         raise _as_home_assistant_error(err) from err
 
 
 async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, call.data["provider"])
+    await _authorize_physical(call, call.data["provider"])
     try:
         _validate_selected_device(call)
-        request = _scan_request(call.data, safety_confirmed=True, address=call.data["address"])
-        return await _coordinator(call.hass, owner).start(request)
+        coordinator = _coordinator(call.hass, owner)
+        profile = await _selected_profile(call.hass, owner, call.data)
+        request = _scan_request(
+            _with_gateway_defaults(coordinator, call.data, profile),
+            safety_confirmed=True,
+            address=call.data["address"],
+        )
+        return await coordinator.start(request, profile)
     except (ValueError, GatewayBusyError, RuntimeError) as err:
         raise _as_home_assistant_error(err) from err
 
 
 async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
-    await _authorize_physical(call, owner, "esphome")
+    await _authorize_physical(call, "esphome")
     try:
         return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
     except ValueError as err:
@@ -331,11 +435,100 @@ async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResp
         raise HomeAssistantError(str(err)) from err
 
 
+async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _authorize_physical(call, "esphome")
+    try:
+        return _coordinator(call.hass, owner).save_poller_selection(
+            call.data["gateway_id"], call.data["bus"], call.data["pause_pollers"]
+        )
+    except ValueError as err:
+        raise _as_home_assistant_error(err) from err
+
+
 async def _handle_get_history(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     return _coordinator(call.hass, owner).history()
 
 
+def _profile_error(err: Exception) -> HomeAssistantError:
+    if isinstance(err, DeviceProfileNotFoundError):
+        err = ValueError(str(err))
+    return _as_home_assistant_error(err)
+
+
+async def _handle_list_device_profiles(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    store = await _profile_store(call.hass, owner)
+    return {"profiles": [profile.as_dict() for profile in store.profiles()]}
+
+
+async def _handle_import_device_profile(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _require_active_user(call)
+    store = await _profile_store(call.hass, owner)
+    try:
+        profile, replaced = await store.async_import(call.data["profile"])
+    except DeviceProfileError as err:
+        raise ServiceValidationError(
+            str(err),
+            translation_domain=DOMAIN,
+            translation_key="invalid_request",
+            translation_placeholders={"reason": str(err)},
+        ) from err
+    except ValueError as err:
+        raise _profile_error(err) from err
+    return {"profile": profile.as_dict(), "replaced": replaced}
+
+
+async def _handle_export_device_profile(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    store = await _profile_store(call.hass, owner)
+    try:
+        return {"profile": store.get(call.data["profile_id"]).export()}
+    except DeviceProfileNotFoundError as err:
+        raise _profile_error(err) from err
+
+
+async def _handle_delete_device_profile(call: ServiceCall, owner: _Owner) -> ServiceResponse:
+    await _require_active_user(call)
+    store = await _profile_store(call.hass, owner)
+    coordinator = _coordinator(call.hass, owner)
+
+    def refuse_if_running(profile_id: str) -> None:
+        if scan_id := coordinator.profile_in_use(profile_id):
+            raise ValueError(
+                f"Device Profile {profile_id} is used by running Scan {scan_id}; "
+                "cancel the Scan or wait for it to finish first"
+            )
+
+    try:
+        await store.async_delete(call.data["profile_id"], refuse_if_running)
+    except (ValueError, DeviceProfileNotFoundError) as err:
+        raise _profile_error(err) from err
+    return {"deleted": call.data["profile_id"]}
+
+
 _SERVICE_DEFINITIONS = (
+    (
+        SERVICE_LIST_DEVICE_PROFILES,
+        _handle_list_device_profiles,
+        vol.Schema({}),
+        SupportsResponse.ONLY,
+    ),
+    (
+        SERVICE_IMPORT_DEVICE_PROFILE,
+        _handle_import_device_profile,
+        _IMPORT_PROFILE_SCHEMA,
+        SupportsResponse.OPTIONAL,
+    ),
+    (
+        SERVICE_EXPORT_DEVICE_PROFILE,
+        _handle_export_device_profile,
+        _PROFILE_ID_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
+    (
+        SERVICE_DELETE_DEVICE_PROFILE,
+        _handle_delete_device_profile,
+        _PROFILE_ID_SCHEMA,
+        SupportsResponse.OPTIONAL,
+    ),
     (
         "check_gateway",
         _handle_check_gateway,
@@ -343,6 +536,18 @@ _SERVICE_DEFINITIONS = (
         SupportsResponse.ONLY,
     ),
     ("get_history", _handle_get_history, vol.Schema({}), SupportsResponse.ONLY),
+    (
+        SERVICE_SET_PAUSABLE_POLLERS,
+        _handle_set_pausable_pollers,
+        vol.Schema(
+            {
+                vol.Required("gateway_id"): str,
+                vol.Required("bus"): str,
+                vol.Required("pause_pollers"): _POLLER_INDICES,
+            }
+        ),
+        SupportsResponse.OPTIONAL,
+    ),
     (
         SERVICE_LIST_GATEWAYS,
         _handle_list_gateways,

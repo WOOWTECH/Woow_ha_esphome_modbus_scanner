@@ -1,0 +1,208 @@
+{
+  "contract": "woow_modbus_scanner_bridge",
+  "bridge_version": 2,
+  "notes": [
+    "Single source of truth for bridge protocol v2. Read at runtime by the HA v2 adapter, by the HA fake gateway in pytest, and by the host-compiled firmware tests (firmware/tests).",
+    "Evolution rule: v2 may only grow additively. New actions, new optional result/info fields and new error codes are allowed; changing or removing an existing action argument, field or code requires bridge_version 3.",
+    "Consumers must require the fields listed here and ignore unknown extra fields."
+  ],
+  "actions": {
+    "probe": {
+      "name": "modbus_scanner_v2_probe",
+      "args": [
+        {"name": "request_id", "type": "string"},
+        {"name": "bus", "type": "string"},
+        {"name": "slave", "type": "int"},
+        {"name": "function_code", "type": "int"},
+        {"name": "register", "type": "int"},
+        {"name": "count", "type": "int"},
+        {"name": "timeout_ms", "type": "int"},
+        {"name": "scan_id", "type": "string"},
+        {"name": "pause_pollers", "type": "string"}
+      ]
+    },
+    "release": {
+      "name": "modbus_scanner_v2_release",
+      "args": [
+        {"name": "bus", "type": "string"},
+        {"name": "scan_id", "type": "string"}
+      ]
+    }
+  },
+  "text_sensors": {
+    "info": {"name": "Modbus Scanner v2 Info"},
+    "result": {"name": "Modbus Scanner v2 Result"},
+    "lease": {"name": "Modbus Scanner v2 Lease"}
+  },
+  "identifiers": {
+    "request_id": {"min_length": 1, "max_length": 32, "charset": "0-9A-Za-z_-"},
+    "scan_id": {"min_length": 1, "max_length": 32, "charset": "0-9A-Za-z_-"},
+    "pause_pollers": "Empty string, or comma-separated decimal Pausable Poller indices from the bus's info entry, e.g. \"0,2\"."
+  },
+  "hard_limits": {
+    "slave_min": 1,
+    "slave_max": 247,
+    "function_codes": [3, 4],
+    "write_function_codes": [5, 6, 15, 16, 22, 23],
+    "register_min": 0,
+    "register_max": 65535,
+    "count_min": 1,
+    "count_max": 4,
+    "timeout_ms_min": 100,
+    "timeout_ms_max": 2000
+  },
+  "outcomes": ["responded", "modbus_exception", "timeout", "possible_collision", "gateway_error"],
+  "error_codes": [
+    "invalid_request_id",
+    "write_function_refused",
+    "unknown_bus",
+    "invalid_slave",
+    "unsupported_function_code",
+    "invalid_register",
+    "invalid_count",
+    "invalid_timeout",
+    "invalid_scan_id",
+    "invalid_poller",
+    "busy",
+    "queue_rejected",
+    "not_sent",
+    "invalid_response"
+  ],
+  "validation_order": [
+    "invalid_request_id",
+    "write_function_refused",
+    "unknown_bus",
+    "invalid_slave",
+    "unsupported_function_code",
+    "invalid_register",
+    "invalid_count",
+    "invalid_timeout",
+    "invalid_scan_id",
+    "invalid_poller",
+    "busy",
+    "queue_rejected"
+  ],
+  "result": {
+    "schema_version": 1,
+    "encoding": "One compact JSON object per result text sensor state. Every accepted or rejected probe action produces exactly one result. A request whose request_id is invalid is not published (it cannot be correlated).",
+    "common_fields": {
+      "v": "int, result schema_version",
+      "id": "string, request_id echoed",
+      "bus": "string, bus echoed",
+      "slave": "int, slave echoed",
+      "fc": "int, function_code echoed",
+      "reg": "int, register echoed",
+      "count": "int, count echoed",
+      "outcome": "one of outcomes",
+      "latency_ms": "int >= 0, from frame sent to terminal hub callback; 0 when never sent"
+    },
+    "outcome_fields": {
+      "responded": {"values": "array of exactly count ints, each 0..65535"},
+      "modbus_exception": {"exception": "int 1..255"},
+      "timeout": {},
+      "possible_collision": {},
+      "gateway_error": {"error": "one of error_codes"}
+    }
+  },
+  "info": {
+    "schema_version": 1,
+    "encoding": "Compact JSON published on boot; HA reads it from the initial state after subscribing.",
+    "fields": {
+      "v": "int, info schema_version",
+      "bridge": "int, bridge_version",
+      "buses": "array of bus objects"
+    },
+    "bus_fields": {
+      "bus": "string, the value to pass as the probe action's bus argument",
+      "pollers": "array of Pausable Poller objects (may be empty)"
+    },
+    "optional_bus_fields": {
+      "serial": "serial object: the hub UART's parameters as configured in YAML; absent when the firmware cannot tell"
+    },
+    "serial_fields": {
+      "baud_rate": "int >= 1",
+      "parity": "one of serial_parities",
+      "stop_bits": "int, 1 or 2"
+    },
+    "serial_parities": ["NONE", "EVEN", "ODD"],
+    "poller_fields": {
+      "index": "int >= 0, stable position in the bus's Pausable Poller table; the value to list in pause_pollers",
+      "name": "string, the component's YAML name, else its id",
+      "address": "int 0..247, the poller's slave address; 0 when the component has none"
+    }
+  },
+  "lease": {
+    "schema_version": 1,
+    "encoding": "Compact JSON published on the lease text sensor when a Scan Lease begins, when it ends, and in answer to every release action for a known bus.",
+    "idle_ms": 5000,
+    "inter_request_delay_max_ms": 3000,
+    "hard_limit_ms": 600000,
+    "rules": [
+      "A Scan Lease begins on the first accepted probe of a scan_id whose pause_pollers is non-empty; that probe's selection is used for the whole lease.",
+      "Before the first probe frame is queued, the selected pollers are stopped and the hub's queued frames for their addresses are cleared.",
+      "Every accepted probe of the same scan_id renews the lease. The idle timer runs only while no probe of the lease is in flight and starts at the last probe's terminal callback.",
+      "The Gateway ends the lease by itself after idle_ms without a probe or hard_limit_ms after it began, and resumes the paused pollers on every ending path.",
+      "A probe with a different scan_id ends an active lease (superseded) before it is handled.",
+      "Once a lease for a scan_id has ended it never restarts; later probes of that scan_id run without pausing.",
+      "HA never waits more than inter_request_delay_max_ms between a terminal result and the next probe of the same scan, leaving the rest of idle_ms for API round trips, so a Scan's own gaps never end its lease."
+    ],
+    "fields": {
+      "v": "int, lease schema_version",
+      "bus": "string, bus echoed",
+      "scan": "string, scan_id echoed",
+      "state": "one of states",
+      "pollers": "array of the paused Pausable Poller indices (empty when state is none)"
+    },
+    "states": ["active", "ended", "none"],
+    "state_fields": {
+      "active": {},
+      "ended": {"reason": "one of end_reasons"},
+      "none": {}
+    },
+    "end_reasons": ["released", "idle", "hard_limit", "superseded"]
+  },
+  "timeout_semantics": "timeout_ms is applied per probe: when the probe frame is transmitted the firmware sets the hub's send_wait_time to timeout_ms and restores the YAML send_wait_time at the probe's terminal callback. Only one frame is in flight per hub, so this affects only the probe frame.",
+  "base_request": {
+    "request_id": "r1",
+    "bus": "bus0",
+    "slave": 1,
+    "function_code": 3,
+    "register": 0,
+    "count": 1,
+    "timeout_ms": 1000,
+    "scan_id": "s1",
+    "pause_pollers": ""
+  },
+  "request_cases": [
+    {"name": "baseline holding register read", "request": {}, "expect": "accepted"},
+    {"name": "input registers, maximum count", "request": {"function_code": 4, "count": 4}, "expect": "accepted"},
+    {"name": "lowest slave and timeout", "request": {"slave": 1, "timeout_ms": 100}, "expect": "accepted"},
+    {"name": "highest slave, register and timeout", "request": {"slave": 247, "register": 65535, "timeout_ms": 2000}, "expect": "accepted"},
+    {"name": "empty request id", "request": {"request_id": ""}, "expect": "invalid_request_id"},
+    {"name": "request id too long", "request": {"request_id": "012345678901234567890123456789012"}, "expect": "invalid_request_id"},
+    {"name": "request id with forbidden character", "request": {"request_id": "r\"1"}, "expect": "invalid_request_id"},
+    {"name": "FC05 write single coil", "request": {"function_code": 5}, "expect": "write_function_refused"},
+    {"name": "FC06 write single register", "request": {"function_code": 6}, "expect": "write_function_refused"},
+    {"name": "FC15 write multiple coils", "request": {"function_code": 15}, "expect": "write_function_refused"},
+    {"name": "FC16 write multiple registers", "request": {"function_code": 16}, "expect": "write_function_refused"},
+    {"name": "FC22 mask write register", "request": {"function_code": 22}, "expect": "write_function_refused"},
+    {"name": "FC23 read/write multiple registers", "request": {"function_code": 23}, "expect": "write_function_refused"},
+    {"name": "write code is refused before any other check", "request": {"function_code": 6, "bus": "nope", "slave": 0}, "expect": "write_function_refused"},
+    {"name": "unknown bus", "request": {"bus": "bus9"}, "expect": "unknown_bus"},
+    {"name": "broadcast slave 0", "request": {"slave": 0}, "expect": "invalid_slave"},
+    {"name": "slave above 247", "request": {"slave": 248}, "expect": "invalid_slave"},
+    {"name": "negative slave", "request": {"slave": -1}, "expect": "invalid_slave"},
+    {"name": "FC01 not supported", "request": {"function_code": 1}, "expect": "unsupported_function_code"},
+    {"name": "FC43 not supported", "request": {"function_code": 43}, "expect": "unsupported_function_code"},
+    {"name": "negative register", "request": {"register": -1}, "expect": "invalid_register"},
+    {"name": "register above 65535", "request": {"register": 65536}, "expect": "invalid_register"},
+    {"name": "register block crosses 65535", "request": {"register": 65534, "count": 3}, "expect": "invalid_register"},
+    {"name": "zero count", "request": {"count": 0}, "expect": "invalid_count"},
+    {"name": "count above hard limit", "request": {"count": 5}, "expect": "invalid_count"},
+    {"name": "timeout below hard limit", "request": {"timeout_ms": 99}, "expect": "invalid_timeout"},
+    {"name": "timeout above hard limit", "request": {"timeout_ms": 2001}, "expect": "invalid_timeout"},
+    {"name": "empty scan id", "request": {"scan_id": ""}, "expect": "invalid_scan_id"},
+    {"name": "poller index not on this bus", "request": {"pause_pollers": "0"}, "expect": "invalid_poller"},
+    {"name": "malformed poller list", "request": {"pause_pollers": "a,b"}, "expect": "invalid_poller"}
+  ]
+}

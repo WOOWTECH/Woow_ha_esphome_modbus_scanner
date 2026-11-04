@@ -32,11 +32,16 @@ def test_services_yaml_exposes_exact_public_names():
         "check_gateway",
         "get_history",
         "list_gateways",
+        "set_pausable_pollers",
         "start_scan",
         "get_scan_status",
         "get_scan_results",
         "cancel_scan",
         "test_address",
+        "list_device_profiles",
+        "import_device_profile",
+        "export_device_profile",
+        "delete_device_profile",
     }
 
 

@@ -1,9 +1,16 @@
 # Experimental Guanjie FC03 bridge (historical local 0.3.0.dev1)
 
-> Historical decision record. The current `0.4.0.dev1` deployment adds encrypted
+- Status: superseded by [ADR 0005](0005-vendor-neutral-scanner-component-and-device-profiles.md)
+
+> **Superseded.** Since 0.5.0.dev1 the firmware side is the vendor-neutral
+> `modbus_scanner` component and device knowledge lives in HA Device Profiles
+> (ADR 0005). This bridge survives only as the legacy bridge v1 adapter for
+> nodes that have not been reflashed; each such Gateway raises a Repairs issue.
+
+> Historical decision record. The later `0.4.0.dev1` deployment added encrypted
 > native API access, firmware health/watchdog, verified recovery and an actual
-> physical sidebar. See [current acceptance](../design/hardening-live-acceptance.md)
-> and [upgrade/rollback](../design/hardening-upgrade-rollback.md). The plaintext
+> physical sidebar. See [0.4.0.dev1 acceptance](../history/hardening-live-acceptance.md)
+> and [upgrade/rollback](../history/hardening-upgrade-rollback.md). The plaintext
 > installation notes below describe the original prototype, not current devices.
 
 This is a local development change, not an upstream release or generic ESPHome

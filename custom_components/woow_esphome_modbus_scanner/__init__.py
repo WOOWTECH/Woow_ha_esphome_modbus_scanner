@@ -16,6 +16,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
+    DATA_DEVICE_PROFILES,
     DATA_LIFECYCLE,
     DATA_STATIC_PATH_REGISTERED,
     DOMAIN,
@@ -26,7 +27,9 @@ from .const import (
     PANEL_URL_PATH,
     VERSION,
 )
+from .device_profile_store import DeviceProfileStore
 from .history import ScanHistory
+from .issues import sync_legacy_bridge_issues
 from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -103,6 +106,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 history = ScanHistory(hass)
                 await history.async_load()
                 domain_data["history"] = history
+            if DATA_DEVICE_PROFILES not in domain_data:
+                profiles = DeviceProfileStore(hass)
+                await profiles.async_load()
+                domain_data[DATA_DEVICE_PROFILES] = profiles
             await _async_register_panel(hass)
         except BaseException:
             if (
@@ -116,6 +123,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         lifecycle.pending_generation = 0
         lifecycle.owner_entry_id = entry.entry_id
         lifecycle.owner_generation = generation
+        sync_legacy_bridge_issues(hass, entry.data.get("gateways", []))
         async_register_services(hass, entry.entry_id, generation)
 
         async def stop_scanner(_event):
@@ -133,6 +141,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_scanner))
         return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Removing the integration leaves no legacy-bridge Repairs behind."""
+    sync_legacy_bridge_issues(hass, [])
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

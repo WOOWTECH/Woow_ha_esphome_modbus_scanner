@@ -5,7 +5,11 @@ import {mkdir} from "node:fs/promises";
 import {createServer} from "node:http";
 import {resolve, sep} from "node:path";
 import {chromium} from "../../panel_frontend/node_modules/playwright/index.mjs";
-import {PHYSICAL_PROFILE} from "../../panel_frontend/src/profile-generated.js";
+// A Legacy Gateway's limits as list_gateways reports them (the frozen bridge v1 profile, ADR 0004).
+const LEGACY_LIMITS = {slave_min:1,slave_max:32,probe_types:['holding_register'],register_count_max:1,
+  allowed_registers:[25089,25090,25091,25093,25094,24837,24833,24834,24835,24836,24838,24849,24850],example_register:25089,timeout_ms_min:700,timeout_ms_max:700,
+  inter_request_delay_ms_max:5000,pause_normal_polling_required:true,pause_normal_polling_supported:true,attempt_overhead_ms:2700,
+  defaults:{start_id:1,end_id:3,address:1,probe_type:'holding_register',register_address:25089,register_count:1,timeout_ms:700,retries:0,inter_request_delay_ms:250,pause_normal_polling:true}};
 
 const root = resolve(process.cwd(), "..");
 const screenshots = process.env.SCANNER_SCREENSHOTS_DIR ? resolve(process.env.SCANNER_SCREENSHOTS_DIR) : resolve(root, "docs/screenshots");
@@ -13,9 +17,13 @@ const bundleUrl = "/custom_components/woow_esphome_modbus_scanner/frontend/woow-
 const shell = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>html,body{margin:0}ha-icon{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;font:700 18px/1 sans-serif}</style><script>customElements.define('ha-icon',class extends HTMLElement{static get observedAttributes(){return ['icon']}connectedCallback(){this.setAttribute('aria-hidden','true');this.draw()}attributeChangedCallback(){this.draw()}draw(){const glyphs={'mdi:menu':'☰','mdi:radar':'◉','mdi:refresh':'↻','mdi:play':'▶','mdi:crosshairs-gps':'⌖','mdi:stop':'■','mdi:table-refresh':'▦','mdi:check-circle':'●','mdi:circle-outline':'○'};this.textContent=glyphs[this.getAttribute('icon')]||'◆'}});</script></head><body><woow-esphome-modbus-scanner-panel></woow-esphome-modbus-scanner-panel><script type="module">import '${bundleUrl}';
 window.calls=[]; window.menuEvents=0; window.mode='normal'; window.polls=0; window.statusDeferred=[]; window.resultsDeferred=[]; window.cancelDeferred=[]; document.body.addEventListener('hass-toggle-menu',()=>window.menuEvents++);
 const uuid='11111111-1111-4111-8111-111111111111'; const uuid2='22222222-2222-4222-8222-222222222222';
-const responders=[{address:3,outcome:'responded',latency_ms:8,detail:'Generic valid response'},{address:1,outcome:'identified',latency_ms:5,identity:{vendor:'WOOWTECH',product:'WT-RS485-01'},detail:'Identity'}];
-const result={scan_id:uuid,status:'completed',phase:'completed',responders,outcome_counts:{identified:1,responded:1,modbus_exception:0,timeout:0,possible_collision:0,gateway_error:0},completed_addresses:2,total_addresses:2,best_effort:true,uniqueness_guaranteed:false};
-const hass={locale:{language:new URL(location.href).searchParams.get('lang')||'en'},callService:async(domain,service,data,target,notify,returnResponse)=>{window.calls.push({domain,service,data,target,notify,returnResponse}); if(window.mode==='network') throw new Error('Connection lost'); if(window.mode==='busy'&&service==='start_scan') throw new Error('Gateway mock/mock:rs485-gateway is busy'); if(window.mode==='unknown'&&['get_scan_status','get_scan_results','cancel_scan'].includes(service)) throw new Error('Unknown scan ID'); if(service==='list_gateways') return {response:{gateways:[{provider:'mock',gateway_id:'mock:rs485-gateway',name:'Simulated RS-485 Gateway',simulated:true}]}}; if(service==='start_scan'||service==='test_address') return {scan_id:uuid,status:'running',phase:'running',progress_percent:0,outcome_counts:{}}; if(service==='cancel_scan'){if(window.mode==='deferredCancel') return new Promise((resolve,reject)=>window.cancelDeferred.push({resolve,reject})); return {response:{scan_id:uuid,status:'cancelled',phase:'cancelled',progress_percent:50,outcome_counts:{timeout:1}}};} if(service==='get_scan_status'){window.polls++; if(window.mode==='deferredStatus') return new Promise((resolve,reject)=>window.statusDeferred.push({resolve,reject})); if(window.mode==='failure') return {...result,status:'failed',phase:'failed',error:'Simulated gateway disconnected'}; if(window.mode==='hold') return {scan_id:uuid,status:'running',phase:'running',progress_percent:25,completed_addresses:1,total_addresses:4,outcome_counts:{timeout:1}}; return window.polls<2?{scan_id:uuid,status:'running',phase:'running',progress_percent:50,completed_addresses:1,total_addresses:2,outcome_counts:{timeout:1}}:result;} if(service==='get_history') return {scans:[{scan_id:uuid,status:'completed',provider:'mock'}]}; if(service==='check_gateway') return {gateway_id:data.gateway_id,health:{api_status:'verified',checked_at:'2026-09-30T00:00:00Z',encrypted:false,firmware_state:{fault:false}}}; if(service==='get_scan_results'){if(window.mode==='deferredResults') return new Promise((resolve,reject)=>window.resultsDeferred.push({resolve,reject})); return {response:result};} throw new Error('unexpected service');}};
+const responders=[{address:3,outcome:'responded',latency_ms:8,detail:'Generic valid response'},{address:1,outcome:'responded',latency_ms:5,register_address:0,raw_value:256,raw_values:[256],attempts:1,detail:'FC03 register 0x0000 x1 = [256]'}];
+const result={scan_id:uuid,status:'completed',phase:'completed',responders,outcome_counts:{responded:2,modbus_exception:0,timeout:0,possible_collision:0,gateway_error:0},completed_addresses:2,total_addresses:2,best_effort:true,uniqueness_guaranteed:false};
+const generic={id:'generic',name:'Generic Device Profile',vendor:'Generic',model:'Any Modbus RTU device',version:'1',function_codes:[3,4],allowed_registers:null,defaults:{},fields:[],builtin:true,deletable:false,limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:4,allowed_registers:null,timeout_ms_min:100,timeout_ms_max:2000}};
+window.profiles=[generic]; window.resultProfile=null; window.resultResponders=null;
+const listed=(doc)=>({...doc,allowed_registers:doc.allowed_registers??null,defaults:doc.defaults||{},fields:doc.fields||[],builtin:false,deletable:true,limits:{slave_min:1,slave_max:247,probe_types:doc.function_codes.map((c)=>c===3?'holding_register':'input_register'),register_count_max:4,allowed_registers:doc.allowed_registers??null,timeout_ms_min:100,timeout_ms_max:2000}});
+const profileService=(service,data)=>{ if(service==='list_device_profiles') return {response:{profiles:window.profiles}}; if(service==='import_device_profile'){let doc; try{doc=JSON.parse(data.profile);}catch(_e){throw new Error('Invalid Device Profile: $: is not valid JSON (line 1, column 2)');} const replaced=window.profiles.some((p)=>p.id===doc.id); window.profiles=[...window.profiles.filter((p)=>p.id!==doc.id),listed(doc)]; return {response:{profile:listed(doc),replaced}};} if(service==='export_device_profile'){const p=window.profiles.find((item)=>item.id===data.profile_id); return {response:{profile:{schema_version:1,id:p.id,name:p.name}}};} if(service==='delete_device_profile'){window.profiles=window.profiles.filter((p)=>p.id!==data.profile_id); return {response:{deleted:data.profile_id}};} return null; };
+const hass={locale:{language:new URL(location.href).searchParams.get('lang')||'en'},callService:async(domain,service,data,target,notify,returnResponse)=>{window.calls.push({domain,service,data,target,notify,returnResponse}); if(window.mode==='network') throw new Error('Connection lost'); if(window.mode==='busy'&&service==='start_scan') throw new Error('Gateway mock/mock:rs485-gateway is busy'); if(window.mode==='unknown'&&['get_scan_status','get_scan_results','cancel_scan'].includes(service)) throw new Error('Unknown scan ID'); if(service.endsWith('_device_profile')||service==='list_device_profiles') return profileService(service,data); if(service==='list_gateways') return {response:{gateways:[{provider:'mock',gateway_id:'mock:rs485-gateway',name:'Simulated RS-485 Gateway',simulated:true,supports_bus_selection:true,supports_scan_lease:false}]}}; if(service==='start_scan'||service==='test_address') return {scan_id:uuid,status:'running',phase:'running',progress_percent:0,outcome_counts:{}}; if(service==='cancel_scan'){if(window.mode==='deferredCancel') return new Promise((resolve,reject)=>window.cancelDeferred.push({resolve,reject})); return {response:{scan_id:uuid,status:'cancelled',phase:'cancelled',progress_percent:50,outcome_counts:{timeout:1}}};} if(service==='get_scan_status'){window.polls++; if(window.mode==='deferredStatus') return new Promise((resolve,reject)=>window.statusDeferred.push({resolve,reject})); if(window.mode==='failure') return {...result,status:'failed',phase:'failed',error:'Simulated gateway disconnected'}; if(window.mode==='hold') return {scan_id:uuid,status:'running',phase:'running',progress_percent:25,completed_addresses:1,total_addresses:4,outcome_counts:{timeout:1}}; return window.polls<2?{scan_id:uuid,status:'running',phase:'running',progress_percent:50,completed_addresses:1,total_addresses:2,outcome_counts:{timeout:1}}:result;} if(service==='get_history') return {scans:[{scan_id:uuid,status:'completed',provider:'mock'}]}; if(service==='check_gateway') return {gateway_id:data.gateway_id,health:{api_status:'verified',checked_at:'2026-09-30T00:00:00Z',encrypted:false,firmware_state:{fault:false}}}; if(service==='get_scan_results'){if(window.mode==='deferredResults') return new Promise((resolve,reject)=>window.resultsDeferred.push({resolve,reject})); return {response:window.resultProfile?{...result,device_profile:window.resultProfile,...(window.resultResponders?{responders:window.resultResponders}:{})}:result};} throw new Error('unexpected service');}};
 const panel=document.querySelector('woow-esphome-modbus-scanner-panel'); panel.hass=hass; panel.narrow=true; window.panel=panel; window.fixture={uuid,uuid2,result};</script></body></html>`;
 const server = createServer((request, response) => {
   const pathName = new URL(request.url, "http://127.0.0.1").pathname;
@@ -68,10 +76,15 @@ try {
   check(!(await panel.locator("details").getAttribute("open")), "advanced disclosure default should be closed");
   await panel.locator("summary").click();
   await panel.getByText(/Per attempt; mock uses it only/).waitFor();
-  check(await panel.locator(".profile-description").textContent().then((v)=>v.includes("address 1")&&v.includes("completed")), "profile fixture/terminal help incomplete");
+  check(await panel.locator("#probe").inputValue()==="holding_register", "Generic Device Profile probe default is not FC03");
+  check(await panel.locator('#probe option[value="device_identification"]').count()===0, "device identification is offered under the Generic Device Profile");
+  check(await panel.locator(".profile-description").textContent().then((v)=>v.includes("addresses 1, 3, and 12 respond with raw register values")&&v.includes("completed")), "profile fixture/terminal help incomplete");
   for (const name of ["Found default","All offline","Partial timeout","Modbus exception","Possible collision","Gateway disconnect"]) {
     await panel.locator(".profiles").getByRole("button",{name:new RegExp(name)}).click();
-    check(/Expected terminal state: (completed|failed)/.test(await panel.locator(".profile-description").textContent()), `${name} terminal/fixture help missing`);
+    const description = await panel.locator(".profile-description").textContent();
+    check(/Expected terminal state: (completed|failed)/.test(description), `${name} terminal/fixture help missing`);
+    // FC43 device identification is out of scope for 0.5.0: no Mock Scenario identifies a device.
+    check(!/identif/i.test(description), `${name} still claims a device identification`);
   }
   check(await panel.locator(".profiles button[aria-pressed=true] ha-icon").getAttribute("icon")==="mdi:check-circle", "selected profile check cue missing");
   await panel.locator(".profiles").getByRole("button", {name:/Found default/}).click();
@@ -128,6 +141,11 @@ try {
   await panel.getByRole("button", {name:"Refresh status"}).click();
   await panel.getByText(/results loaded automatically/).waitFor({timeout:5000});
   check(await panel.locator("tbody tr").count() === 2, "automatic results rows missing");
+  check(await panel.locator("th").filter({hasText:"Decoded value"}).count() === 0, "Generic results must show raw values only");
+  check(await panel.locator(".counts .count").count() === 5 && await panel.locator(".counts .count").filter({hasText:"identified"}).count() === 0, "a 0.5.0 Scan counts strip must show the five outcomes only");
+  const savedStatus = await page.evaluate(async () => { const saved = panel._status; panel._status = {...saved, outcome_counts:{responded:1, identified:2}}; await panel.updateComplete; return saved; });
+  check((await panel.locator(".counts .count").filter({hasText:"identified"}).textContent()).startsWith("2"), "a 0.4.x Scan counts strip hides its identified count");
+  await page.evaluate(async (saved) => { panel._status = saved; await panel.updateComplete; }, savedStatus);
   check(await page.evaluate(() => calls.every((call)=>call.returnResponse === true)), "a service omitted returnResponse");
   check(await panel.locator("th").first().getAttribute("aria-sort")==="ascending", "aria-sort missing");
   await panel.getByRole("button", {name:/Sort by Address/}).click();
@@ -201,7 +219,7 @@ try {
 
   await page.evaluate(() => { mode='failure';panel._currentScanId=fixture.uuid;panel._status={scan_id:fixture.uuid,status:'running'}; });
   await panel.getByRole("button", {name:"Refresh status"}).click();
-  await panel.locator(".notice.failure").filter({hasText:/another scan owns/i}).waitFor();
+  await panel.locator(".notice.failure").filter({hasText:/another Scan is running on the same Bus/i}).waitFor();
   await capturePanel(page, "mocked-failed-long-evidence.png");
 
   const menu = panel.getByRole("button", {name:"Open Home Assistant menu"});
@@ -235,8 +253,9 @@ try {
   await restorePage.evaluate(async () => {panel._gateways=[...panel._gateways,{provider:'esphome',gateway_id:'esphome:aabbccddeeff',name:'Synthetic bridge',simulated:false}];await panel.updateComplete;});
   check(await restored.locator('#gateway').inputValue()==='esphome:aabbccddeeff','late option insertion changed the displayed gateway');
   check(await restored.getByRole('button',{name:'Test address',exact:true}).isDisabled(),'unknown capability profile allowed physical reads');
-  await restorePage.evaluate(async (profile) => {panel._gateways=panel._gateways.map((g)=>g.provider==='esphome'?{...g,profile,can_operate:true}:g);await panel.updateComplete;},PHYSICAL_PROFILE);
-  check(await restored.getByRole('button',{name:'Test address',exact:true}).isEnabled(),'verified configured profile remains disabled');
+  await restorePage.evaluate(async (limits) => {panel._gateways=panel._gateways.map((g)=>g.provider==='esphome'?{...g,limits,can_operate:true}:g);panel._reconcileGateway();await panel.updateComplete;},LEGACY_LIMITS);
+  check(await restored.getByRole('button',{name:'Test address',exact:true}).isEnabled(),'Legacy Gateway reporting its limits remains disabled');
+  check(await restored.locator('#end_id').getAttribute('max')==='32','form limits do not follow the limits the Legacy Gateway reports');
   await restored.getByRole('button',{name:'Check API only',exact:true}).click();
   await restored.getByText('API check finished. This is not a fresh bus probe.',{exact:true}).waitFor();
   check(await restorePage.evaluate(()=>calls.filter(c=>c.service==='test_address'||c.service==='start_scan').length===0),'API check issued a scan');
@@ -252,6 +271,45 @@ try {
   check(await restored.locator('#profile').inputValue()==='possible_collision','restored mock profile display disagrees with stored value');
   await restorePage.close();
 
+  // Fixed fields, Legacy help and recovery attention follow what a Gateway reports, not its Bridge Protocol name.
+  const limitPage=await browser.newPage({viewport:{width:800,height:1400}}); await limitPage.goto(base);
+  const limited=limitPage.locator('woow-esphome-modbus-scanner-panel'); await limited.getByText('1 gateway available.').waitFor();
+  const showGateway=(gateway)=>limitPage.evaluate(async (g)=>{panel._gateways=[...panel._gateways.filter((x)=>x.gateway_id!==g.gateway_id),g];await panel.updateComplete;panel._selectGateway(g.gateway_id);await panel.updateComplete;},gateway);
+  const readonly=async (id)=>(await limited.locator(`#${id}`).getAttribute('readonly'))!==null;
+  const legacy={provider:'esphome',gateway_id:'esphome:aabbccddeeff',name:'Legacy bench',simulated:false,can_operate:true,
+    capabilities:['holding_register','single_register','slave_1_32','timeout_700ms'],supports_bus_selection:false,supports_scan_lease:false,limits:LEGACY_LIMITS};
+  await showGateway(legacy);  // a physical Gateway opens the advanced fields
+  check(await readonly('register_count') && await readonly('timeout_ms') && !(await readonly('retries')), 'Legacy Gateway count and timeout not fixed');
+  check(await limited.locator('#timeout_ms-help').textContent()==='Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.', 'help for the frozen Legacy limits changed');
+  check(await limited.locator('#start_id-help').textContent()==='This Legacy Gateway supports slave IDs 1–32, inclusive.', 'slave range hint for the frozen Legacy limits changed');
+  check(await limited.locator('#register_address-help').textContent()==='Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.', 'register hint for the frozen Legacy limits changed');
+  // The service's slave-range rejection is shown as the slave-range hint, not the probe help.
+  const rangeError=await limitPage.evaluate(async()=>{await panel._action('start',async()=>{throw new Error('A Legacy Gateway supports slave IDs 1–32 only');});return panel._message;});
+  check(rangeError==='This Legacy Gateway supports slave IDs 1–32, inclusive.', `slave-range rejection shows the wrong hint: ${rangeError}`);
+  await showGateway({...legacy,limits:{...LEGACY_LIMITS,slave_max:16,allowed_registers:[200,100,101,102],example_register:100,defaults:{...LEGACY_LIMITS.defaults,end_id:3,register_address:100}}});
+  const rangeHint=await limited.locator('#start_id-help').textContent(), registerHint=await limited.locator('#register_address-help').textContent();
+  check(rangeHint==='This Legacy Gateway supports slave IDs 1–16, inclusive.' && registerHint==='Enter decimal: 0x0064 = 100. Allowed: 100–102, 200.', `Legacy hints ignore the reported limits: ${rangeHint} / ${registerHint}`);
+  await showGateway({...legacy,limits:{...LEGACY_LIMITS,timeout_ms_min:900,timeout_ms_max:900,defaults:{...LEGACY_LIMITS.defaults,timeout_ms:900}}});
+  const legacyHelp=await limited.locator('#timeout_ms-help').textContent();
+  check(legacyHelp.includes('fixed 900 ms timeout') && !legacyHelp.includes('700'), `Legacy help ignores the reported timeout: ${legacyHelp}`);
+  const terminal=(gatewayId)=>limitPage.evaluate(async (id)=>{panel._status={scan_id:fixture.uuid,status:'failed',phase:'failed',provider:'esphome',gateway_id:id,recovery_status:'unknown'};await panel.updateComplete;},gatewayId);
+  const attention='Probe processing ended; normal polling recovery is not verified. Inspect the recovery status before another operation.';
+  await terminal(legacy.gateway_id);
+  check(await limited.getByText(attention).count()===1, 'Legacy Gateway without a Scan Lease hides unverified recovery');
+  const v2={provider:'esphome',gateway_id:'esphome:aabbccddee03',name:'Pinned v2',simulated:false,can_operate:true,
+    capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
+    limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:1,allowed_registers:null,example_register:null,timeout_ms_min:900,timeout_ms_max:900,
+      inter_request_delay_ms_max:3000,pause_normal_polling_required:false,pause_normal_polling_supported:true,attempt_overhead_ms:300,
+      defaults:{probe_type:'holding_register',register_address:0,register_count:1,timeout_ms:900,retries:0,inter_request_delay_ms:100,pause_normal_polling:true}}};
+  await showGateway(v2);
+  check(await readonly('register_count') && await readonly('timeout_ms') && !(await readonly('retries')), 'fields the v2 Gateway pins are editable');
+  await terminal(v2.gateway_id);
+  check(await limited.getByText(attention).count()===0, 'Scan Lease Gateway shows the unverified-recovery notice');
+  await showGateway({...v2,supports_scan_lease:false});
+  await terminal(v2.gateway_id);
+  check(await limited.getByText(attention).count()===1, 'v2 Gateway without a Scan Lease hides unverified recovery');
+  await limitPage.close();
+
   // Traditional Chinese is selected from hass.locale.language and English-only labels disappear.
   const zhPage=await browser.newPage({viewport:{width:800,height:700}}); await zhPage.goto(base+'?lang=zh-Hant');
   const zh=zhPage.locator('woow-esphome-modbus-scanner-panel'); await zh.getByText('有 1 個閘道可用。').waitFor();
@@ -260,6 +318,148 @@ try {
   await zh.getByText('請修正標示的欄位。').waitFor();
   check(await zh.getByText(/預期終止狀態：完成/).count()===1, 'Traditional-Chinese detailed profile help missing');
   await zhPage.close();
+
+  // A range above 32 IDs shows the estimated duration and needs a second confirmation.
+  const rangePage=await browser.newPage({viewport:{width:800,height:900}}); await rangePage.goto(base);
+  const ranged=rangePage.locator('woow-esphome-modbus-scanner-panel'); await ranged.getByText('1 gateway available.').waitFor();
+  await ranged.locator('#end_id').fill('32'); await ranged.locator('#safety').check();
+  check(await ranged.locator('#large-range').count()===0, 'large-range confirmation shown for 32 IDs');
+  await ranged.locator('#end_id').fill('100');
+  // The service's estimate: 100 IDs x 2 attempts (1 retry) x 500 ms timeout + 99 x 100 ms delay = 109.9 s
+  await ranged.getByText(/scans 100 IDs and can take about 109\.9 s/).waitFor();
+  await rangePage.evaluate(() => { calls.length=0; });
+  await ranged.getByRole('button',{name:'Start scan'}).click();
+  await ranged.getByText('This range has more than 32 IDs. Confirm the estimated duration before starting.').waitFor();
+  check(await ranged.locator('#large-range').evaluate((e)=>e===e.getRootNode().activeElement), 'large-range error not focused');
+  check(await rangePage.evaluate(() => !calls.some((c)=>c.service==='start_scan')), 'unconfirmed large range sent start_scan');
+  await ranged.locator('#large-range').check();
+  await ranged.locator('#end_id').fill('99');
+  check(!(await ranged.locator('#large-range').isChecked()), 'changing the range kept the old large-range confirmation');
+  await ranged.locator('#large-range').check();
+  await ranged.getByRole('button',{name:'Start scan'}).click();
+  await rangePage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
+  check(await rangePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.large_range_confirmed===true), 'start_scan omitted large_range_confirmed');
+  await rangePage.close();
+
+  // A bridge v2 Gateway lists its Pausable Pollers, all checked by default; each change is saved in HA.
+  const pollerPage=await browser.newPage({viewport:{width:800,height:1200}}); await pollerPage.goto(base);
+  const polled=pollerPage.locator('woow-esphome-modbus-scanner-panel'); await polled.getByText('1 gateway available.').waitFor();
+  await pollerPage.evaluate(async () => {
+    const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee01',name:'Bench v2',simulated:false,can_operate:true,
+      capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
+      poller_selection:{rs485:[{index:0,name:'meter',address:1,paused:true},{index:1,name:'inverter',address:2,paused:true}]},
+      removed_pollers:{rs485:[{index:2,name:'chiller',address:5}]}};
+    window.saved=[];
+    const original=panel.hass.callService;
+    panel.hass={...panel.hass,callService:async(domain,service,data,...rest)=>{
+      if(service!=='set_pausable_pollers') return original(domain,service,data,...rest);
+      window.saved.push(data);
+      return {response:{gateway_id:data.gateway_id,bus:data.bus,poller_selection:{rs485:gateway.poller_selection.rs485.map((p)=>({...p,paused:data.pause_pollers.includes(p.index)}))},removed_pollers:{rs485:[]}}};
+    }};
+    panel._gateways=[...panel._gateways,gateway]; await panel.updateComplete;
+    panel._selectGateway(gateway.gateway_id); await panel.updateComplete;
+  });
+  await polled.getByText('Bus rs485: pause during a Scan').waitFor();
+  check(await polled.getByLabel('meter (1)').isChecked() && await polled.getByLabel('inverter (2)').isChecked(), 'Pausable Pollers not all checked by default');
+  await polled.getByText(/No longer in the firmware.*chiller \(5\)/).waitFor();
+  await polled.getByLabel('inverter (2)').uncheck();
+  await pollerPage.waitForFunction(() => saved.length===1);
+  check(await pollerPage.evaluate(() => JSON.stringify(saved[0])===JSON.stringify({gateway_id:'esphome:aabbccddee01',bus:'rs485',pause_pollers:[0]})), 'unchecking a poller saved the wrong selection');
+  await polled.getByText('Pausable Poller selection saved.').waitFor();
+  check(!(await polled.getByLabel('inverter (2)').isChecked()) && await polled.getByLabel('meter (1)').isChecked(), 'saved selection not shown');
+  await polled.getByRole('button',{name:'Pause none'}).click();
+  await polled.getByText('No poller is paused: probes interleave with Normal Polling.').waitFor();
+  check(await pollerPage.evaluate(() => saved.length===2&&saved[1].pause_pollers.length===0), 'pause none did not save an empty selection');
+  check(await polled.getByText(/No longer in the firmware/).count()===1, 'removal notice lost after saving');
+  await pollerPage.evaluate(async () => {panel._status={scan_id:fixture.uuid,status:'completed',phase:'completed',provider:'esphome',lease_status:'none',removed_pollers:[{index:7,name:null,address:null}]}; await panel.updateComplete;});
+  await polled.getByText(/firmware no longer has were not paused: #7/).waitFor();
+  check(await polled.locator('#bus').count()===0, 'Bus selector shown for a gateway with one known Bus');
+  await pollerPage.close();
+
+  // A Gateway with two Buses shows a Bus selector (with serial parameters); its Pausable Pollers and every Scan follow the chosen Bus.
+  const busPage=await browser.newPage({viewport:{width:390,height:1200}}); await busPage.goto(base);
+  const bused=busPage.locator('woow-esphome-modbus-scanner-panel'); await bused.getByText('1 gateway available.').waitFor();
+  check(await bused.locator('#bus').count()===0, 'Bus selector shown for the single-Bus simulated gateway');
+  await busPage.evaluate(async () => {
+    const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee02',name:'Two-line v2',simulated:false,can_operate:true,
+      capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
+      buses:[{bus:'line_a',serial:{baud_rate:9600,parity:'NONE',stop_bits:1}},{bus:'line_b',serial:{baud_rate:19200,parity:'EVEN',stop_bits:1}}],
+      poller_selection:{line_a:[{index:0,name:'meter',address:1,paused:true}],line_b:[{index:0,name:'pump',address:4,paused:true}]},
+      removed_pollers:{line_a:[],line_b:[]}};
+    panel._gateways=[...panel._gateways,gateway]; await panel.updateComplete;
+    panel._selectGateway(gateway.gateway_id); await panel.updateComplete;
+  });
+  await bused.locator('#bus').waitFor();
+  check(await bused.locator('#bus').inputValue()==='line_a', 'multi-Bus gateway did not start on its first Bus');
+  check(await bused.locator('#bus option').allTextContents().then((texts)=>texts.join('|'))==='line_a (9600 baud, parity NONE, 1 stop bit)|line_b (19200 baud, parity EVEN, 1 stop bit)', 'Bus options lack serial parameters');
+  await bused.getByText('Bus line_a: pause during a Scan').waitFor();
+  check(await bused.getByText('Bus line_b: pause during a Scan').count()===0, 'checklist of another Bus shown');
+  await bused.locator('#bus').selectOption('line_b');
+  await bused.getByText('Bus line_b: pause during a Scan').waitFor();
+  check(await bused.getByLabel('pump (4)').isChecked(), 'line_b pollers not shown');
+  await busPage.evaluate(() => { calls.length=0; mode='normal'; polls=0; });
+  await bused.locator('#safety').check();
+  await bused.getByRole('button',{name:'Start scan'}).click();
+  await busPage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
+  check(await busPage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.bus==='line_b'), 'start_scan did not target the chosen Bus');
+  await capturePanel(busPage, 'mocked-multi-bus-selector.png');
+  await busPage.close();
+
+  // Device Profiles: upload (invalid and valid), profile-driven form limits, labelled results, export and delete.
+  const profilePage=await browser.newPage({viewport:{width:800,height:1100}}); await profilePage.goto(base);
+  const profiled=profilePage.locator('woow-esphome-modbus-scanner-panel'); await profiled.getByText('1 gateway available.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='generic', 'Generic Device Profile not selected by default');
+  check(await profiled.locator('.profile-list li').count()===1 && await profiled.getByRole('button',{name:/^Delete /}).count()===0, 'Generic Device Profile must be listed and not deletable');
+  await profiled.locator('#profile-upload').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{not json')});
+  await profiled.getByText(/Invalid Device Profile: \$: is not valid JSON/).waitFor();
+  const meter={schema_version:1,id:'acme-meter',name:'Acme Meter',vendor:'Acme',model:'M-100',version:'1.2.0',function_codes:[4],
+    defaults:{slave_start:2,slave_end:5,register:16,count:2,timeout_ms:300,inter_request_delay_ms:0,retries:0},allowed_registers:[16,17,18,19,32]};
+  await profiled.locator('#profile-upload').setInputFiles({name:'acme-meter.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(meter))});
+  await profiled.getByText('Device Profile Acme Meter imported.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='acme-meter', 'imported Device Profile was not selected');
+  check(await profiled.locator('#start_id').inputValue()==='2' && await profiled.locator('#end_id').inputValue()==='5', 'profile slave range defaults not applied');
+  await profiled.locator('summary').click();
+  check(await profiled.locator('#probe').inputValue()==='input_register' && await profiled.locator('#register_address').inputValue()==='16' && await profiled.locator('#timeout_ms').inputValue()==='300', 'profile probe defaults not applied');
+  check(await profiled.locator('#register_count').getAttribute('max')==='4', 'form limits do not follow the Device Profile');
+  await profiled.locator('#register_address').fill('32'); await profiled.locator('#safety').check();
+  await profilePage.evaluate(() => { calls.length=0; });
+  await profiled.getByRole('button',{name:'Start scan'}).click();
+  await profiled.getByText('The selected Device Profile allows registers 16, 17, 18, 19, 32 only.').waitFor();
+  check(await profilePage.evaluate(() => !calls.some((c)=>c.service==='start_scan')), 'register outside the allowlist sent start_scan');
+  await profiled.locator('#register_address').fill('16');
+  await profilePage.evaluate(() => { mode='normal'; polls=0; resultProfile={id:'acme-meter',name:'Acme Meter',version:'1.2.0'}; resultResponders=[{address:3,outcome:'responded',latency_ms:8,detail:'FC04 register 0x0010 x2 = [784, 785]',register_address:16,raw_value:784,raw_values:[784,785],attempts:1,decoded:[{register:16,name:'Voltage',unit:'V',value:78.4}]},{address:5,outcome:'modbus_exception',latency_ms:9,exception_code:2,detail:'Modbus exception 2'}]; });
+  await profiled.getByRole('button',{name:'Start scan'}).click();
+  await profilePage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
+  check(await profilePage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.device_profile_id==='acme-meter'), 'start_scan omitted device_profile_id');
+  await profiled.locator('#result-profile').filter({hasText:'Acme Meter 1.2.0 (acme-meter)'}).waitFor({timeout:5000});
+  // The result source names the Scan the rows belong to, not only its Gateway and Bus.
+  check(await profiled.locator('#result-scan').innerText()==='11111111-1111-4111-8111-111111111111', 'result source does not name its Scan');
+  // Decoded values sit beside the raw values, which stay shown in decimal and hex.
+  await profiled.getByRole('columnheader',{name:'Decoded value'}).waitFor({timeout:5000});
+  const decodedRow=profiled.locator('tbody tr').filter({hasText:'784 (0x0310)'});
+  check(await decodedRow.locator('td.decoded').innerText()==='Voltage = 78.4 V', 'decoded value or unit missing from the result table');
+  check(await profiled.locator('tbody tr').filter({hasText:'Modbus exception 2'}).locator('td.decoded').innerText()==='—', 'row without decoded values must show a dash');
+  await capturePanel(profilePage, 'mocked-device-profiles.png');
+  // A Scan Lease the Gateway ended early is explained, and rows probed after it are marked.
+  await profilePage.evaluate(async () => { window.savedResults=panel._results; panel._results={...panel._results,lease_status:'ended',lease_end_reason:'hard_limit',lease_ended_after_address:3}; await panel.updateComplete; });
+  check((await profiled.locator('#result-lease-ended-early').innerText()).includes('after Slave ID 3'), 'early lease end is not explained with the results');
+  check(await profiled.locator('tbody tr').filter({hasText:'Modbus exception 2'}).locator('.without-lease').count()===1, 'row probed after the lease ended is not marked');
+  check(await decodedRow.locator('.without-lease').count()===0, 'row probed under the lease is marked');
+  await profilePage.evaluate(async () => { panel._results=window.savedResults; await panel.updateComplete; });
+  const download=profilePage.waitForEvent('download');
+  await profiled.getByRole('button',{name:'Export Acme Meter'}).click();
+  check((await download).suggestedFilename()==='acme-meter.json', 'exported Device Profile file name');
+  await profiled.getByRole('button',{name:'Delete Acme Meter'}).click();
+  await profiled.getByText('Device Profile Acme Meter deleted.').waitFor();
+  check(await profiled.locator('#device-profile').inputValue()==='generic' && await profiled.locator('.profile-list li').count()===1, 'deleted Device Profile still selected or listed');
+  await profilePage.close();
+  // A remembered Device Profile that no longer exists falls back to Generic with a notice.
+  const gonePage=await browser.newPage(); await gonePage.addInitScript(() => localStorage.setItem('woow-esphome-modbus-scanner.preferences.v1',JSON.stringify({form:{device_profile_id:'gone'}})));
+  await gonePage.goto(base);
+  const gone=gonePage.locator('woow-esphome-modbus-scanner-panel');
+  await gone.getByText('The saved Device Profile no longer exists; the Generic Device Profile is selected.').waitFor();
+  check(await gone.locator('#device-profile').inputValue()==='generic', 'missing Device Profile did not fall back to Generic');
+  await gonePage.close();
 
   await page.evaluate(() => { mode='hold'; polls=0; calls.length=0; panel._form={...panel._form,safety_confirmed:true}; panel._start(false); });
   await page.waitForTimeout(1200); await page.evaluate(() => panel.remove());

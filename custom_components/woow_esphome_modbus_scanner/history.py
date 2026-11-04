@@ -13,7 +13,11 @@ from .const import DOMAIN
 from .modbus_scan.models import ScanOutcome
 
 MAX_RECORDS = 20
-MAX_RECORD_BYTES = 128 * 1024
+# Room for 247 Responders that each carry 4 raw and 4 decoded register values.
+MAX_RECORD_BYTES = 256 * 1024
+# 0.4.x defaulted to FC43 device identification, so its stored Scans may hold these rows.
+# No 0.5.0 Scan produces them, but they must not make old history look corrupt.
+HISTORY_ONLY_OUTCOMES = frozenset({"identified"})
 
 
 class ScanHistory:
@@ -89,7 +93,8 @@ class ScanHistory:
                 not isinstance(row, dict)
                 or type(row.get("address")) is not int
                 or not 1 <= row["address"] <= 247
-                or row.get("outcome") not in {item.value for item in ScanOutcome}
+                or row.get("outcome")
+                not in {item.value for item in ScanOutcome} | HISTORY_ONLY_OUTCOMES
                 for row in rows
             ):
                 return False

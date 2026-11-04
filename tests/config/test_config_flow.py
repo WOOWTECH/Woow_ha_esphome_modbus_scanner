@@ -16,14 +16,16 @@ def dependency_setup_is_outside_flow_unit_scope(hass):
     hass.config.components.update({"frontend", "panel_custom", "esphome"})
 
 
-async def test_user_flow_creates_singleton_entry(hass):
+async def test_user_flow_creates_a_mock_only_singleton_entry(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] is data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["type"] is data_entry_flow.FlowResultType.MENU
+    assert result["menu_options"] == ["esphome_device", "manual", "mock_only"]
 
-    created = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    created = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "mock_only"}
+    )
     assert created["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert created["title"] == NAME
     assert created["data"] == {"gateways": []}
@@ -40,7 +42,7 @@ async def test_second_entry_aborts_as_already_configured(hass):
 
 @pytest.mark.parametrize("failure", [None, "auth", "network"])
 async def test_reauth_verifies_api_before_saving(hass, failure):
-    from custom_components.woow_esphome_modbus_scanner.modbus_scan.esphome_provider import (
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provider import (
         ESPHomeGatewayProvider,
     )
     from custom_components.woow_esphome_modbus_scanner.modbus_scan.provider import (
@@ -84,32 +86,3 @@ async def test_reauth_verifies_api_before_saving(hass, failure):
         assert updated["reason"] == "reauth_successful"
         assert entry.data["gateways"][0]["noise_psk"] == "B" * 43 + "="
         assert entry.data["allow_physical_automation"] is True
-
-
-async def test_reconfigure_preserves_secret_without_automation_gate(hass):
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "gateways": [
-                {"host": "192.0.2.1", "mac": "AA:BB:CC:DD:EE:FF", "noise_psk": "A" * 43 + "="}
-            ]
-        },
-    )
-    entry.add_to_hass(hass)
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id}
-    )
-    bad = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"host": "192.0.2.2", "mac": ""}
-    )
-    assert bad["errors"]["base"] == "gateway_pair_required"
-    with patch(
-        "custom_components.woow_esphome_modbus_scanner.async_setup_entry", return_value=True
-    ):
-        updated = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {"host": "192.0.2.2", "mac": "AA:BB:CC:DD:EE:FF"},
-        )
-    assert updated["reason"] == "reconfigure_successful"
-    assert entry.data["gateways"][0]["noise_psk"] == "A" * 43 + "="
-    assert "allow_physical_automation" not in entry.data

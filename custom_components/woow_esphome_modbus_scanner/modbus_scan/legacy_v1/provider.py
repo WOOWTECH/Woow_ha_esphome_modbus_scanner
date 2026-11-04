@@ -1,4 +1,4 @@
-"""Bounded read-only bridge. Cached states are never treated as probe evidence."""
+"""Legacy bridge v1 (IN-D17 firmware). Cached states are never treated as probe evidence."""
 
 from __future__ import annotations
 
@@ -20,13 +20,50 @@ from aioesphomeapi import (
     UserServiceArgType,
 )
 
+from ..adapters import physical_gateway_id
+from ..limits import ProbeLimits, ScanTiming
+from ..models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome
+from ..provider import GatewayProviderError
+from .frozen_profile import PROFILE
 from .health import HealthSession
-from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome
-from .profile_generated import PROFILE
-from .provider import GatewayProviderError
 
 SERVICE = "modbus_scanner_probe_v1"
-REGISTERS = frozenset(PROFILE["allowed_registers"])
+LIMITS = ProbeLimits(
+    "A Legacy Gateway",
+    slave_min=PROFILE["limits"]["slave_min"],
+    slave_max=PROFILE["limits"]["slave_max"],
+    probe_types=(ProbeType.HOLDING_REGISTER,),
+    register_count_max=PROFILE["limits"]["register_count"],
+    allowed_registers=tuple(PROFILE["allowed_registers"]),
+    timeout_ms_min=PROFILE["limits"]["timeout_ms"],
+    timeout_ms_max=PROFILE["limits"]["timeout_ms"],
+    inter_request_delay_ms_max=PROFILE["limits"]["inter_request_delay_max_ms"],
+    pause_normal_polling_required=PROFILE["limits"]["polling_pause_required"],
+    defaults={
+        key: PROFILE["defaults"][key]
+        for key in (
+            "start_id",
+            "end_id",
+            "address",
+            "probe_type",
+            "register_address",
+            "register_count",
+            "timeout_ms",
+            "retries",
+            "inter_request_delay_ms",
+            "pause_normal_polling",
+        )
+    },
+    # The v1 firmware drains normal transactions and keeps pre/post quiet periods around
+    # every probe, and HA verifies Normal Polling recovery after the Scan.
+    timing=ScanTiming(
+        attempt_overhead_ms=2700,
+        setup_ms=35_000,
+        attempt_budget_ms=11_000,
+        attempt_budget_includes_timeout=True,
+        cleanup_ms=33_000,
+    ),
+)
 
 
 def _now():
@@ -64,16 +101,16 @@ class ESPHomeGateway:
 
     @property
     def gateway_id(self):
-        return "esphome:" + self.mac.replace(":", "").lower()
+        return physical_gateway_id(self.mac)
 
 
 class ESPHomeGatewayProvider:
     provider_id = "esphome"
     supports_progress = True
 
-    def __init__(self, gateways, *, client_factory=APIClient):
+    def __init__(self, gateways, *, client_factory=None):
         self.gateways = {g.gateway_id: g for g in gateways}
-        self.client_factory = client_factory
+        self.client_factory = client_factory or APIClient
         self._locks = {key: asyncio.Lock() for key in self.gateways}
         self.health = {
             key: {
@@ -100,6 +137,7 @@ class ESPHomeGatewayProvider:
                 ),
                 profile=PROFILE,
                 health=deepcopy(self.health[g.gateway_id]),
+                limits=LIMITS,
             )
             for g in self.gateways.values()
         ]
@@ -108,20 +146,7 @@ class ESPHomeGatewayProvider:
         request.validate()
         if request.provider != self.provider_id or request.gateway_id not in self.gateways:
             raise ValueError("Unknown physical gateway")
-        if request.end_id > PROFILE["limits"]["slave_max"]:
-            raise ValueError("Guanjie bridge supports slave IDs 1–32 only")
-        if request.probe_type != ProbeType.HOLDING_REGISTER or request.register_count != 1:
-            raise ValueError(
-                "Bridge v1 requires probe_type=holding_register (FC03), register_count=1"
-            )
-        if request.register_address not in REGISTERS:
-            raise ValueError(
-                "Register is not in the verified IN-D17 read allowlist; example: 25089 (0x6201)"
-            )
-        if request.timeout_ms != PROFILE["limits"]["timeout_ms"]:
-            raise ValueError("Bridge v1 requires timeout_ms=700")
-        if not request.pause_normal_polling:
-            raise ValueError("Physical reads require pause_normal_polling=true")
+        LIMITS.validate(request)
 
     def _client(self, gateway):
         options = {"noise_psk": gateway.noise_psk} if gateway.noise_psk else {}
