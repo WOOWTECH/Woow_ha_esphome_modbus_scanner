@@ -27,7 +27,7 @@ from .const import (
     PANEL_URL_PATH,
     VERSION,
 )
-from .device_profiles import DeviceProfileStore
+from .device_profile_store import DeviceProfileStore
 from .history import ScanHistory
 from .issues import sync_legacy_bridge_issues
 from .services import async_register_services, async_unregister_services

@@ -35,7 +35,7 @@ from .const import (
     SERVICE_START_SCAN,
     SERVICE_TEST_ADDRESS,
 )
-from .device_profiles import DeviceProfileNotFoundError, DeviceProfileStore
+from .device_profile_store import DeviceProfileNotFoundError, DeviceProfileStore
 from .issues import report_gateway_issue
 from .modbus_scan.adapters import build_physical_provider, physical_gateway_id
 from .modbus_scan.coordinator import (
