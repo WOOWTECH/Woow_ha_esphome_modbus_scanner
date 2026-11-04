@@ -51,8 +51,9 @@ a single contract rather than three generated copies.
   Gateway is gone.
 - Manual Enrollment keeps the v1 choice until then, so an existing Legacy
   Gateway whose entry was removed can enroll again before its reflash. It does
-  not admit new Legacy Gateways: verification requires the frozen v1 firmware's
-  `profile_hash`, and enrollment errors never suggest v1 to a node without the
-  `modbus_scanner` component.
+  not admit new Legacy Gateways: verification requires the enrolled MAC and the
+  exact `modbus_scanner_probe_v1` action that only the frozen v1 firmware exposes,
+  and enrollment errors never suggest v1 to a node without the `modbus_scanner`
+  component.
 - The contract may only grow additively within bridge v2; removing or changing
   an action argument, field or error code needs bridge version 3.
