@@ -22,12 +22,13 @@ async def _outcomes(scenario: str, start: int = 1, end: int = 12):
 
 
 async def test_default_scenario_reports_known_responders():
+    # The default probe is an FC03 holding-register read, so no Responder is identified.
     outcomes = await _outcomes("found_default")
     assert [(item.address, item.outcome.value) for item in outcomes if item.is_responder] == [
-        (1, "identified"),
+        (1, "responded"),
         (3, "responded"),
         (5, "modbus_exception"),
-        (12, "identified"),
+        (12, "responded"),
     ]
 
 

@@ -19,10 +19,10 @@ export const OUTCOMES = Object.freeze([
   "identified", "responded", "modbus_exception", "timeout",
   "possible_collision", "gateway_error",
 ]);
-export const PROBE_TYPES = Object.freeze(["device_identification", "holding_register", "input_register"]);
+export const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
 export const DEFAULTS = Object.freeze({
   provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
-  address: 1, probe_type: "device_identification", register_address: 0,
+  address: 1, probe_type: "holding_register", register_address: 0,
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
@@ -64,7 +64,7 @@ export function reconcileBus(form, gateway) {
 export const GENERIC_PROFILE = Object.freeze({
   id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
   function_codes: [3, 4], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
-  limits: Object.freeze({slave_min: 1, slave_max: 247, probe_types: ["device_identification", "holding_register", "input_register"],
+  limits: Object.freeze({slave_min: 1, slave_max: 247, probe_types: ["holding_register", "input_register"],
     register_count_max: 4, allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000}),
 });
 const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -106,8 +106,7 @@ export const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isB
 /** The gateway's bounds intersected with the selected Device Profile's limits. */
 export function boundsFor(form, profile = GENERIC_PROFILE) {
   const gateway = gatewayBoundsFor(form);
-  const l = profile?.limits;
-  if (!l) return gateway;
+  const l = profile?.limits || GENERIC_PROFILE.limits;
   const meet = ([low, high], min, max) => [Math.max(low, min), Math.min(high, max)];
   return {...gateway,
     start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),

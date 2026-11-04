@@ -249,7 +249,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 
 `start_scan` 的欄位（`test_address` 改用 `address` 取代範圍，且不需確認）。省略的欄位
 先取 Device Profile 預設值，再取 Gateway 預設值；下表為 bridge v2 Gateway 的預設值
-（模擬 Gateway 預設為 `device_identification`、500 ms、重試 1 次、不暫停）：
+（模擬 Gateway 預設為 `holding_register`、500 ms、重試 1 次、不暫停）：
 
 | 欄位 | 預設 | 說明 |
 |---|---|---|
@@ -259,7 +259,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | `esphome_device_id` | — | 選用；與 HA ESPHome 裝置的 MAC 再交叉核對 |
 | `device_profile_id` | `generic` | 其預設值填入省略欄位；其限制與 Gateway 限制同時適用 |
 | `start_id`、`end_id` | profile 預設 | 1–247；profile 未定義站號範圍時必填 |
-| `probe_type` | `holding_register` | `holding_register`（FC03）或 `input_register`（FC04）；`device_identification` 僅限模擬 |
+| `probe_type` | `holding_register` | `holding_register`（FC03）或 `input_register`（FC04） |
 | `register_address`、`register_count` | 0、1 | bridge v2 數量 1–4；區塊結尾不得超過 65535 |
 | `timeout_ms` | 1000 | bridge v2 為 100–2000，在 Gateway 上逐個 Probe 套用 |
 | `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；bridge v2 位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間），Legacy Gateway 為 0–5000 ms |

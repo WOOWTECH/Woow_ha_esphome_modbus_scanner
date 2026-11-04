@@ -98,11 +98,6 @@ class DeviceProfile:
     @property
     def limits(self) -> ProbeLimits:
         probe_types = tuple(_FUNCTION_CODE_PROBES[code] for code in self.function_codes)
-        if self.builtin:
-            # The mock gateway's simulated identification probe is not a Modbus register
-            # read; only the Generic Device Profile lets it through. Physical gateways
-            # still refuse it through their own limits.
-            probe_types = (ProbeType.DEVICE_IDENTIFICATION, *probe_types)
         return ProbeLimits(
             f"Device Profile '{self.name}'",
             slave_min=SLAVE_MIN,

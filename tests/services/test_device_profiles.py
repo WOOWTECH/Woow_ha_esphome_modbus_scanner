@@ -407,9 +407,9 @@ async def test_v2_scan_uses_the_profile_inside_the_gateway_limits(hass, v2_gatew
 
     with pytest.raises(ServiceValidationError, match="read allowlist"):
         await call("test_address", {**target, "address": 3, "register_address": 20})
-    # Gateway limits still apply on top of the profile: Generic allows the mock-only
-    # identification probe, Bridge v2 does not.
-    with pytest.raises(ServiceValidationError, match="Bridge v2 requires probe_type"):
+    # FC43 device identification is out of scope: neither the Generic Device Profile
+    # nor Bridge v2 lets it through.
+    with pytest.raises(ServiceValidationError, match="requires probe_type"):
         await call(
             "test_address",
             {

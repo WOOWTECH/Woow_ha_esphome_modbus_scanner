@@ -76,11 +76,11 @@ start_scan:
         number: {min: 1, max: 247, mode: box}
     probe_type: &probe
       name: Probe type
-      description: holding_register (FC03) or input_register (FC04) as the Device Profile allows; device_identification is mock-only.
+      description: holding_register (FC03) or input_register (FC04) as the Device Profile allows.
       default: holding_register
       selector:
         select:
-          options: [device_identification, holding_register, input_register]
+          options: [holding_register, input_register]
     register_address: &register
       name: Register address
       description: Defaults from the selected Device Profile; its register allowlist, if any, is enforced.

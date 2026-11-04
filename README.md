@@ -281,7 +281,7 @@ active user (physical operations need an active user or an internal automation).
 Fields of `start_scan` (and `test_address`, which takes `address` instead of the
 range and has no confirmations). Omitted fields take the Device Profile's
 defaults first, then the Gateway's; the defaults below are a bridge v2
-Gateway's (the mock Gateways default to `device_identification`, 500 ms, one
+Gateway's (the mock Gateways default to `holding_register`, 500 ms, one
 retry and no pause):
 
 | Field | Default | Notes |
@@ -292,7 +292,7 @@ retry and no pause):
 | `esphome_device_id` | — | Optional extra MAC cross-check against an HA ESPHome device |
 | `device_profile_id` | `generic` | Its defaults fill omitted fields; its limits apply with the Gateway's |
 | `start_id`, `end_id` | profile default | 1–247; required unless the profile defines a slave range |
-| `probe_type` | `holding_register` | `holding_register` (FC03) or `input_register` (FC04); `device_identification` is mock-only |
+| `probe_type` | `holding_register` | `holding_register` (FC03) or `input_register` (FC04) |
 | `register_address`, `register_count` | 0, 1 | Count 1–4 on bridge v2; the block must end at or before 65535 |
 | `timeout_ms` | 1000 | 100–2000 on bridge v2, applied per Probe on the Gateway |
 | `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–3000 ms between addresses on bridge v2 (kept below the 5 s lease idle time), 0–5000 ms on a Legacy Gateway |

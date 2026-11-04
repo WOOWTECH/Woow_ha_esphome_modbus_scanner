@@ -20,7 +20,7 @@ from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
 GENERIC_REQUEST_DEFAULTS: dict[str, Any] = {
-    "probe_type": ProbeType.DEVICE_IDENTIFICATION,
+    "probe_type": ProbeType.HOLDING_REGISTER,
     "register_address": 0,
     "register_count": 1,
     "timeout_ms": 500,

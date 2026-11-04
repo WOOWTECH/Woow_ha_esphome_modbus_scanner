@@ -102,3 +102,23 @@ test("results are labelled with the Device Profile they ran with", () => {
   assert.equal(profileLabel({device_profile: {id: "acme-meter", name: "Acme Meter", version: "1.2.0"}}), "Acme Meter 1.2.0 (acme-meter)");
   assert.equal(profileLabel({}), null);
 });
+
+test("the Generic Device Profile defaults to an FC03 holding-register Probe", () => {
+  assert.equal(DEFAULTS.probe_type, "holding_register");
+});
+
+test("the Generic Device Profile blocks device identification on the mock gateway", () => {
+  const errors = validateForm({...DEFAULTS, safety_confirmed: true, probe_type: "device_identification"}, false, {}, GENERIC_PROFILE);
+  assert.deepEqual(Object.keys(errors), ["probe_type"]);
+});
+
+test("a Device Profile without limits falls back to the Generic Device Profile limits", () => {
+  const bounds = boundsFor({...DEFAULTS}, {id: "x"});
+  assert.deepEqual(bounds.register_count, [1, 4]);
+  assert.deepEqual(bounds.timeout_ms, [100, 2000]);
+});
+
+test("a saved device identification probe type falls back to a holding-register Probe", () => {
+  const {form} = sanitizePreferences({form: {...DEFAULTS, probe_type: "device_identification"}});
+  assert.equal(form.probe_type, "holding_register");
+});

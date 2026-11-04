@@ -181,3 +181,47 @@ async def test_mock_gateway_reads_input_register_blocks_across_1_to_247(hass, ga
     assert rows[42]["raw_values"] == [0x2A10, 0x2A11, 0x2A12]
     assert rows[42]["raw_value"] == 0x2A10
     assert "identity" not in rows[7]
+
+
+async def test_generic_device_profile_refuses_device_identification_on_the_mock_gateway(
+    hass, gateway
+):
+    # The Generic Device Profile allows FC03/FC04 only; FC43/14 is out of scope.
+    call = await _setup(hass)
+    with pytest.raises(ServiceValidationError, match="probe_type"):
+        await call(
+            "start_scan",
+            {
+                "start_id": 1,
+                "end_id": 3,
+                "probe_type": "device_identification",
+                "inter_request_delay_ms": 0,
+                "safety_confirmed": True,
+            },
+        )
+    history = await call("get_history")
+    assert history["scans"] == []
+
+
+async def test_mock_scan_without_probe_type_reads_holding_registers(hass, gateway):
+    call = await _setup(hass)
+    started = await call(
+        "start_scan",
+        {
+            "start_id": 1,
+            "end_id": 12,
+            "inter_request_delay_ms": 0,
+            "mock_scenario": "found_default",
+            "safety_confirmed": True,
+        },
+    )
+    await _settle(hass)
+    results = await call("get_scan_results", {"scan_id": started["scan_id"]})
+
+    assert results["status"] == "completed"
+    rows = {row["address"]: row for row in results["responders"]}
+    # Responders answer with raw holding-register (FC03) values, never a device identity.
+    assert {rows[a]["outcome"] for a in (1, 3, 12)} == {"responded"}
+    assert results["outcome_counts"].get("identified", 0) == 0
+    assert all(rows[a]["raw_values"] for a in (1, 3, 12))
+    assert "FC03" in rows[3]["detail"]

@@ -108,7 +108,7 @@ class ScanRequest:
     gateway_id: str
     start_id: int
     end_id: int
-    probe_type: ProbeType = ProbeType.DEVICE_IDENTIFICATION
+    probe_type: ProbeType = ProbeType.HOLDING_REGISTER
     # The Bus a Scan targets; None lets a Gateway with exactly one Bus use that one.
     bus: str | None = None
     register_address: int = 0

@@ -52,7 +52,6 @@ class MockGatewayProvider:
                 gateway_id=gateway_id,
                 name=name,
                 capabilities=(
-                    "device_identification",
                     "holding_register",
                     "input_register",
                     "cancellation",
