@@ -87,8 +87,8 @@ class PollerSelectionStore:
     def for_gateway(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known.
 
-        Empty for a Gateway without Scan Lease support. With ``prune`` the saved rows the
-        firmware no longer has are dropped (see ``revalidate``).
+        Empty for a Gateway without Scan Lease support: the one place that rule is checked.
+        With ``prune`` the saved rows the firmware no longer has are dropped (see ``revalidate``).
         """
         if not gateway.supports_scan_lease:
             return {}
@@ -97,18 +97,17 @@ class PollerSelectionStore:
         )
         return {"poller_selection": selection, "removed_pollers": removed}
 
-    def choose(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
+    def save_choice(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table).
 
         Validated against the Bus's last known table; returns the Gateway's checklists after.
         """
-        if gateway is None or not gateway.supports_scan_lease:
+        checklists = self.for_gateway(gateway, prune=False) if gateway is not None else {}
+        if not checklists:
             raise ValueError(
-                "Pausable Poller selection needs an enrolled Bridge Protocol v2 Gateway"
+                "Pausable Poller selection needs an enrolled Gateway with Scan Lease support"
             )
-        selection, _removed = self.revalidate(
-            gateway.gateway_id, gateway.pausable_poller_tables, prune=False
-        )
+        selection = checklists["poller_selection"]
         if bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"

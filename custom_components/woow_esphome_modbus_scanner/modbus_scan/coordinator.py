@@ -159,11 +159,9 @@ class ModbusScanCoordinator:
     def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
         if self._selection_store is None:
-            raise ValueError(
-                "Pausable Poller selection needs an enrolled Bridge Protocol v2 Gateway"
-            )
+            raise ValueError("No config entry keeps Pausable Poller selections")
         gateway = self._gateway("esphome", gateway_id)
-        checklists = self._selection_store.choose(gateway, bus, indices)
+        checklists = self._selection_store.save_choice(gateway, bus, indices)
         return {"gateway_id": gateway_id, "bus": bus, **checklists}
 
     def request_defaults(
@@ -249,9 +247,7 @@ class ModbusScanCoordinator:
             gateway.limits.validate(request)
         profile.limits.validate(request)
         if request.pause_pollers is not None and not gateway.supports_scan_lease:
-            raise ValueError(
-                "pause_pollers needs a Bridge Protocol v2 Gateway with Pausable Pollers"
-            )
+            raise ValueError("pause_pollers needs a Gateway with Scan Lease support")
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):
             raise GatewayBusyError(request.provider, request.gateway_id, existing, request.bus)
@@ -459,19 +455,23 @@ class ModbusScanCoordinator:
                 state.retained_results.append(normalized)
 
         def progress(update):
-            for key, choices in {
-                "operation_phase": {
-                    "connect",
-                    "verify_identity",
-                    "verify_bridge",
-                    "probe",
-                    "inter_request_delay",
-                    "recovery",
-                    "finished",
-                },
-                "recovery_status": {"unknown", "pending", "verified", "failed"},
-                "cleanup_status": {"unknown", "pending", "closed", "forced", "failed"},
-                "lease_status": set(LeaseStatus),
+            # Each reported field: the values accepted, and how one is stored.
+            for key, (choices, parse) in {
+                "operation_phase": (
+                    {
+                        "connect",
+                        "verify_identity",
+                        "verify_bridge",
+                        "probe",
+                        "inter_request_delay",
+                        "recovery",
+                        "finished",
+                    },
+                    str,
+                ),
+                "recovery_status": ({"unknown", "pending", "verified", "failed"}, str),
+                "cleanup_status": ({"unknown", "pending", "closed", "forced", "failed"}, str),
+                "lease_status": (set(LeaseStatus), LeaseStatus),
             }.items():
                 if update.get(key) in choices:
                     if key == "operation_phase" and update[key] != state.operation_phase:
@@ -481,8 +481,7 @@ class ModbusScanCoordinator:
                                 "elapsed_ms": int((monotonic() - state.started_clock) * 1000),
                             }
                         )
-                    value = update[key]
-                    setattr(state, key, LeaseStatus(value) if key == "lease_status" else value)
+                    setattr(state, key, parse(update[key]))
             reason = update.get("lease_end_reason")
             if update.get("lease_status") == state.lease_status and (
                 reason is None or reason in set(LeaseEndReason)

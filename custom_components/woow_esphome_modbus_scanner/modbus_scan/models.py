@@ -110,8 +110,7 @@ class GatewayInfo:
     @property
     def pausable_poller_tables(self) -> dict[str, list[dict[str, Any]]] | None:
         """The Gateway's Pausable Poller table per Bus as last read, or None while unknown."""
-        tables = (self.health or {}).get("pausable_pollers")
-        return tables if self.supports_scan_lease else None
+        return (self.health or {}).get("pausable_pollers")
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""

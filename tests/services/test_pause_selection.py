@@ -230,7 +230,7 @@ async def test_explicit_empty_selection_pauses_nothing(hass, gateway):
         ({"bus": "other", "pause_pollers": [0]}, "Bus other has no known Pausable Poller"),
         (
             {"gateway_id": "mock:rs485-gateway", "bus": "rs485", "pause_pollers": []},
-            "needs an enrolled Bridge Protocol v2 Gateway",
+            "needs an enrolled Gateway with Scan Lease support",
         ),
     ],
 )
@@ -271,6 +271,6 @@ async def test_inactive_user_cannot_change_the_selection(hass, gateway):
 async def test_explicit_selection_is_refused_for_gateways_that_cannot_choose(hass, gateway):
     call = await _setup(hass)
     with pytest.raises(
-        ServiceValidationError, match="pause_pollers needs a Bridge Protocol v2 Gateway"
+        ServiceValidationError, match="pause_pollers needs a Gateway with Scan Lease support"
     ):
         await call("test_address", {"provider": "mock", "address": 1, "pause_pollers": [0]})
