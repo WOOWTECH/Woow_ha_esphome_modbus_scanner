@@ -5,7 +5,7 @@ import {
   DEFAULTS, DOMAIN, OUTCOMES, MOCK_SCENARIOS, SERVICES, errorMessage, normalizeResponse,
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
-  estimatedDurationMs, needsLargeRangeConfirmation, outlastsScanLease, probedWithoutLease, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
+  estimatedDurationMs, estimateLeavesOutOtherScans, needsLargeRangeConfirmation, outlastsScanLease, probedWithoutLease, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
   supportsScanLease, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileGateway, INTEGER_BOUNDS, isLegacyGatewayForm,
   visibleOutcomes,
 } from "./model.js";
@@ -438,7 +438,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const estimate = estimatedDurationMs(this._form, gateway);
     const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
     const outlasts = outlastsScanLease(estimate, gateway);
-    return html`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : nothing}>${t.largeRange(count, seconds)}</label>${outlasts ? html`<small class="notice" id="lease-limit-warning" role="status">${t.leaseLimitWarning}</small>` : nothing}${invalid ? html`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : nothing}</div>`;
+    const othersLeftOut = estimateLeavesOutOtherScans(gateway, this._form.bus);
+    return html`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : nothing}>${t.largeRange(count, seconds)}</label>${outlasts ? html`<small class="notice" id="lease-limit-warning" role="status">${t.leaseLimitWarning}</small>` : nothing}${othersLeftOut ? html`<small class="notice" id="estimate-other-scans" role="status">${t.estimateLeavesOutOtherScans}</small>` : nothing}${invalid ? html`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : nothing}</div>`;
   }
   _sortHeader(key, label) {
     const active = this._sort.key === key;

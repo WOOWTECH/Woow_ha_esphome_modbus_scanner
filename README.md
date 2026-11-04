@@ -43,7 +43,8 @@ Design decisions:
 [ADR 0005, vendor-neutral component and Device Profiles](docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md),
 [ADR 0006, Pausable Poller discovery and selection](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md),
 [ADR 0007, Scan Lease with Gateway-owned recovery](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md),
-[ADR 0008, scanner service set and persisted history](docs/adr/0008-scanner-service-set-and-persisted-history.md).
+[ADR 0008, scanner service set and persisted history](docs/adr/0008-scanner-service-set-and-persisted-history.md),
+[ADR 0010, per-Bus Result and Lease sensors](docs/adr/0010-per-bus-result-and-lease-sensors.md).
 Earlier ADRs 0001–0003 cover the provider/coordinator split, the singleton
 lifecycle and the all-user sidebar.
 
@@ -123,9 +124,10 @@ modbus_scanner:
 ```
 
 The component registers the read-only probe and lease-release actions
-(`modbus_scanner_v2_probe`, `modbus_scanner_v2_release`) and three diagnostic
-text sensors (`Modbus Scanner v2 Info`, `Result`, `Lease`); `api:
-custom_services` is not needed. Every `PollingComponent` bound to the same hub,
+(`modbus_scanner_v2_probe`, `modbus_scanner_v2_release`), three shared diagnostic
+text sensors (`Modbus Scanner v2 Info`, `Result`, `Lease`) and, for every Bus,
+`Modbus Scanner v2 Result <bus>` and `Modbus Scanner v2 Lease <bus>`; `api:
+custom_services` is not needed and none of these sensors is declared in YAML. Every `PollingComponent` bound to the same hub,
 here `meter`, becomes a Pausable Poller automatically; adding one later needs a
 recompile. Complete examples:
 [`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)
@@ -253,10 +255,17 @@ up to one of its `update_interval`s. Scan status reports `lease_status`
 `idle`, `hard_limit`, `superseded`).
 
 **Multiple Buses:** Scans of different Buses on one Gateway run side by side,
-one Scan per Bus. Their Probes take turns, so there is one Probe in flight per
-Gateway at a time: all Buses share the node's result sensor, and ESPHome's API
-would otherwise drop one of two results published together. Between two Probes a
-Scan therefore waits its own `inter_request_delay_ms` plus one Probe
+one Scan per Bus. The current `modbus_scanner` component gives every Bus its own
+result and lease sensor (`Modbus Scanner v2 Result <bus>` and
+`Modbus Scanner v2 Lease <bus>`, created automatically; reflash the Gateway, no
+YAML change). Then each Bus has one Probe in flight of its own and a Scan waits
+only for its own `inter_request_delay_ms`; `check_gateway` reports
+`health.probe_slots: per_bus` (ADR 0010).
+
+Firmware without these sensors gets the shared-slot fallback: the Probes of all
+Buses take turns, so there is one Probe in flight per Gateway at a time. All
+Buses share the node's result sensor, and ESPHome's API would otherwise drop one
+of two results published together. Between two Probes a Scan therefore waits its own `inter_request_delay_ms` plus one Probe
 (`timeout_ms` + about 300 ms) of every other running Scan of the Gateway. A Scan
 is refused at start when that wait would pass 3000 ms for any Scan that pauses
 Normal Polling, since a longer gap could end its Scan Lease as idle. At the

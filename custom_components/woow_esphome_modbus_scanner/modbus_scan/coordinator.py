@@ -132,11 +132,23 @@ class ModbusScanCoordinator:
     def list_gateways(self) -> dict[str, Any]:
         """Return every provider gateway in a stable service response."""
         gateways = [
-            {**gateway.as_dict(), **self._poller_selection(gateway, prune=False)}
+            {
+                **gateway.as_dict(),
+                **self._poller_selection(gateway, prune=False),
+                "running_buses": self._running_buses(gateway),
+            }
             for provider in self._providers.values()
             for gateway in provider.list_gateways()
         ]
         return {"gateways": gateways}
+
+    def _running_buses(self, gateway: GatewayInfo) -> list[str]:
+        """Buses of the Gateway with a running Scan (whose Bus is known), in name order."""
+        return sorted(
+            bus
+            for (p, g, bus) in self._active
+            if p == gateway.provider and g == gateway.gateway_id and bus is not None
+        )
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known."""

@@ -1,8 +1,13 @@
 # ADR 0007: A Scan Lease per Scan, ended and recovered by the Gateway
 
-- Status: accepted
+- Status: accepted; the Buses' turn-taking for Probes superseded by [ADR 0010](0010-per-bus-result-and-lease-sensors.md)
 - Date: 2026-11-03
 - Version: 0.5.0.dev1
+
+> **Superseded in part.** On firmware with per-Bus Result and Lease sensors each
+> Bus of a Gateway probes on its own; the last consequence below (Buses take
+> turns for Probes) now applies only to the shared-slot fallback for older v2
+> firmware. See ADR 0010. The Scan Lease rules still apply.
 
 ## Decision
 

@@ -123,6 +123,16 @@ jobs:
           grep -F 'add_poller("meter", 0x01, meter)' "$main"
           grep -F 'add_poller("inverter_2", 0x02, inverter_2)' "$main"
           test "$(grep -c 'add_bus(' "$main")" -eq 2
+          # Each Bus gets its own exposed Result and Lease sensor, and reports the same names in
+          # its info entry (ADR 0010). The shared sensors stay.
+          for bus in line_a line_b; do
+            grep -F "\"Modbus Scanner v2 Result $bus\", " "$main" | grep -F register_text_sensor | grep -vF internal
+            grep -F "\"Modbus Scanner v2 Lease $bus\", " "$main" | grep -F register_text_sensor | grep -vF internal
+            grep -F "\"Modbus Scanner v2 Result $bus\", modbus_scanner_bus" "$main" | grep -F "\"Modbus Scanner v2 Lease $bus\");"
+          done
+          grep -F '"Modbus Scanner v2 Result", ' "$main"
+          grep -F '"Modbus Scanner v2 Lease", ' "$main"
+          test "$(grep -c 'set_own_sensors(' "$main")" -eq 2
       - name: ESPHome older than 2026.9.0 is refused with a clear message
         working-directory: firmware/examples
         run: |

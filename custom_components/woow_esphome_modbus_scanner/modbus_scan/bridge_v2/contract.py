@@ -33,6 +33,9 @@ INFO_SCHEMA_VERSION: int = CONTRACT["info"]["schema_version"]
 INFO_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["fields"])
 INFO_BUS_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["bus_fields"])
 INFO_POLLER_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["poller_fields"])
+# Optional info fields naming a Bus's own result and lease sensors (bus_text_sensors).
+INFO_BUS_RESULT_SENSOR: str = CONTRACT["bus_text_sensors"]["result"]["info_field"]
+INFO_BUS_LEASE_SENSOR: str = CONTRACT["bus_text_sensors"]["lease"]["info_field"]
 INFO_SERIAL_FIELDS: tuple[str, ...] = tuple(CONTRACT["info"]["serial_fields"])
 SERIAL_PARITIES: tuple[str, ...] = tuple(CONTRACT["info"]["serial_parities"])
 

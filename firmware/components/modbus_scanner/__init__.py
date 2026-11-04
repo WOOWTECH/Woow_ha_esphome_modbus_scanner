@@ -11,8 +11,11 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
 On a node with several hubs, add one entry per hub (each is one Bus, optionally named with
 ``bus:``; see firmware/examples/multi-bus-modbus-scanner.yaml). The info entry of each Bus
 reports its hub UART's baud rate, parity and stop bits. The Gateway's probe/release actions
-and the info/result/lease text sensors are created once, by the first entry. Their names are
-fixed by the bridge v2 contract file
+and the shared info/result/lease text sensors are created once, by the first entry. Every entry
+also gets its own Result and Lease text sensors, "Modbus Scanner v2 Result <bus>" and
+"Modbus Scanner v2 Lease <bus>", so the Buses of one Gateway probe independently (ADR 0010);
+the Bus reports their names in its info entry. Users never declare any of these sensors. Their
+names are fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
 
 Pausable Pollers are found here, at code generation: every component in the validated config
@@ -31,6 +34,7 @@ from esphome.const import (
     CONF_ADDRESS,
     CONF_BAUD_RATE,
     CONF_ID,
+    CONF_INTERNAL,
     CONF_NAME,
     CONF_UART_ID,
     ENTITY_CATEGORY_DIAGNOSTIC,
@@ -47,6 +51,9 @@ MULTI_CONF = True
 INFO_SENSOR_NAME = "Modbus Scanner v2 Info"
 RESULT_SENSOR_NAME = "Modbus Scanner v2 Result"
 LEASE_SENSOR_NAME = "Modbus Scanner v2 Lease"
+# The contract's bus_text_sensors name patterns, {bus} being the Bus name.
+BUS_RESULT_SENSOR_PATTERN = "Modbus Scanner v2 Result {bus}"
+BUS_LEASE_SENSOR_PATTERN = "Modbus Scanner v2 Lease {bus}"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
 CONF_BUS = "bus"
@@ -54,6 +61,10 @@ CONF_GATEWAY_ID = "gateway_id"
 CONF_INFO_SENSOR = "info_sensor"
 CONF_RESULT_SENSOR = "result_sensor"
 CONF_LEASE_SENSOR = "lease_sensor"
+# Each Bus's own sensors, created by the component (never declared in YAML).
+CONF_BUS_RESULT_SENSOR = "bus_result_sensor"
+CONF_BUS_LEASE_SENSOR = "bus_lease_sensor"
+_BUS_SENSORS = (CONF_BUS_RESULT_SENSOR, CONF_BUS_LEASE_SENSOR)
 _GATEWAY_KEY = "modbus_scanner_gateway"
 
 modbus_scanner_ns = cg.esphome_ns.namespace("modbus_scanner")
@@ -77,13 +88,13 @@ def _fixed_name(name):
     return validator
 
 
+_SENSOR_SCHEMA = text_sensor.text_sensor_schema(
+    entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:lan-connect"
+)
+
+
 def _sensor(name):
-    return cv.All(
-        text_sensor.text_sensor_schema(
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:lan-connect"
-        ),
-        _fixed_name(name),
-    )
+    return cv.All(_SENSOR_SCHEMA, _fixed_name(name))
 
 
 _GATEWAY_SENSORS = {
@@ -92,6 +103,7 @@ _GATEWAY_SENSORS = {
     CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
 }
 _SENSORS_CLAIMED_KEY = "modbus_scanner_sensors_claimed"
+_ENTRY_COUNT_KEY = "modbus_scanner_entries"
 
 
 def _gateway_sensors_on_first_entry(config):
@@ -115,6 +127,17 @@ def _gateway_sensors_on_first_entry(config):
                 "set it on the first modbus_scanner entry only",
                 path=[key],
             )
+    entry = CORE.data.get(_ENTRY_COUNT_KEY, 0)
+    CORE.data[_ENTRY_COUNT_KEY] = entry + 1
+    for key in _BUS_SENSORS:
+        if key in config:
+            raise cv.Invalid(
+                f"{key} is created by the component for every Bus; do not declare it",
+                path=[key],
+            )
+        # Named in to_code, once the default Bus name (from the hub's resolved id) is known;
+        # until then an id of its own satisfies the entity schema.
+        config[key] = {CONF_ID: f"modbus_scanner_bus{entry}_{key.removeprefix('bus_')}"}
     return config
 
 
@@ -128,6 +151,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(modbus.CONF_MODBUS_ID): cv.use_id(modbus.ModbusClient),
             cv.Optional(CONF_BUS): _bus_name,
             **{cv.Optional(key): _sensor(name) for key, name in _GATEWAY_SENSORS.items()},
+            **{cv.Required(key): _SENSOR_SCHEMA for key in _BUS_SENSORS},
         }
     ),
     cv.require_esphome_version(*MIN_ESPHOME_VERSION),
@@ -240,6 +264,15 @@ async def _gateway(config):
     return gateway
 
 
+async def _bus_sensor(config, key, pattern, bus):
+    """One of the Bus's own sensors, named by the contract pattern; returns (sensor, name)."""
+    name = pattern.format(bus=bus)
+    # Validation named the nameless sensor after its id and made it internal; it is a named
+    # entity HA must see.
+    config[key].update({CONF_NAME: name, CONF_INTERNAL: False})
+    return await text_sensor.new_text_sensor(config[key]), name
+
+
 async def to_code(config):
     gateway = await _gateway(config)
     name = config.get(CONF_BUS) or _default_bus_name(config)
@@ -248,6 +281,14 @@ async def to_code(config):
         config[CONF_ID], name, _hub_send_wait_ms(config[modbus.CONF_MODBUS_ID])
     )
     cg.add(var.set_parent(hub))
+    # The same name goes to the entity and to the Bus's info entry, so HA finds the sensor.
+    result, result_name = await _bus_sensor(
+        config, CONF_BUS_RESULT_SENSOR, BUS_RESULT_SENSOR_PATTERN, name
+    )
+    lease, lease_name = await _bus_sensor(
+        config, CONF_BUS_LEASE_SENSOR, BUS_LEASE_SENSOR_PATTERN, name
+    )
+    cg.add(var.set_own_sensors(result, result_name, lease, lease_name))
     if serial := _hub_serial(config[modbus.CONF_MODBUS_ID]):
         cg.add(var.set_serial(*serial))
     for poller in _pausable_pollers(config[modbus.CONF_MODBUS_ID]):

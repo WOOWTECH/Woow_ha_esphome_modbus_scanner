@@ -133,6 +133,7 @@ def test_readmes_document_every_service_field_and_concept() -> None:
             "docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md",
             "docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md",
             "docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md",
+            "docs/adr/0010-per-bus-result-and-lease-sensors.md",
         ):
             assert item in text, f"{name}: {item}"
 
@@ -235,3 +236,19 @@ def test_tutorial_accessibility_and_offline_contract() -> None:
             assert href[1:] in parser.ids, href
     forbidden = ("woow_multi" + "_protocol", "kn" + "x", "d" + "mx")
     assert all(term not in TUTORIAL.lower() for term in forbidden)
+
+
+def test_tutorial_explains_independent_and_turn_taking_probes() -> None:
+    # ADR 0010: per-Bus sensors make Buses probe independently; older firmware takes turns.
+    section = TUTORIAL.split('id="multi-bus-probes"', 1)[1].split("</section>", 1)[0]
+    for item in (
+        "各自獨立",
+        "輪流送出",
+        "Modbus Scanner v2 Result &lt;bus&gt;",
+        "Modbus Scanner v2 Lease &lt;bus&gt;",
+        "probe_slots: per_bus",
+        "probe_slots: shared",
+        "重刷",
+        "預估未包含其他 Scan 的 Probe",
+    ):
+        assert item in section, item

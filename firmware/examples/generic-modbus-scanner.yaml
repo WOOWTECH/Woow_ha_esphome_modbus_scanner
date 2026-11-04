@@ -2,8 +2,9 @@
 # Keep your existing modbus / modbus_controller configuration and add:
 #   1. the external component (below), and
 #   2. one `modbus_scanner` entry naming your Modbus hub id.
-# The scanner registers its own read-only probe and lease-release actions and three diagnostic
-# text sensors. During a Scan it pauses the bus's polling components and resumes them by itself.
+# The scanner registers its own read-only probe and lease-release actions, three shared
+# diagnostic text sensors and a Result and Lease sensor for the Bus. During a Scan it
+# pauses the bus's polling components and resumes them by itself.
 esphome:
   name: generic-modbus-scanner
   min_version: 2026.9.0

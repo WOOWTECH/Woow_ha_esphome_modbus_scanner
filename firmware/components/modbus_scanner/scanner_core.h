@@ -100,7 +100,8 @@ class Clock {
   virtual uint32_t now_ms() = 0;
 };
 
-/// Publishes compact JSON on the result and lease text sensors.
+/// Publishes compact JSON on a pair of result and lease text sensors: the Gateway's shared pair,
+/// or one Bus's own pair.
 class ResultSink {
  public:
   virtual ~ResultSink() = default;
@@ -262,12 +263,28 @@ class Bus {
     this->serial_ += ",\"stop_bits\":" + std::to_string(stop_bits) + "}";
   }
 
-  /// This bus's info entry: its name, serial parameters (when known) and Pausable Poller table.
+  /// This Bus's own Result and Lease text sensors and their exact entity names, reported in its
+  /// info entry (ADR 0010). Each result and lease message of the Bus is published there and
+  /// mirrored to the Gateway's shared sensors, which older HA versions read.
+  void set_own_sensors(ResultSink *sink, std::string result_sensor, std::string lease_sensor) {
+    this->own_sink_ = sink;
+    this->result_sensor_ = std::move(result_sensor);
+    this->lease_sensor_ = std::move(lease_sensor);
+  }
+
+  /// This bus's info entry: its name, serial parameters (when known), own sensor names (when it
+  /// has them) and Pausable Poller table.
   std::string info_json() const {
     std::string out = "{\"bus\":";
     append_json_string(out, this->name_);
     if (!this->serial_.empty())
       out += ",\"serial\":" + this->serial_;
+    if (this->own_sink_ != nullptr) {
+      out += ",\"result_sensor\":";
+      append_json_string(out, this->result_sensor_);
+      out += ",\"lease_sensor\":";
+      append_json_string(out, this->lease_sensor_);
+    }
     out += ",\"pollers\":[";
     for (size_t i = 0; i < this->pollers_.size(); i++) {
       if (i)
@@ -299,7 +316,20 @@ class Bus {
     if (!this->lease_scan_.empty() && scan_id == this->lease_scan_)
       this->publish_lease_("ended", this->ended_reason_);
     else
-      this->sink_->publish_lease(lease_json(this->name_, scan_id, "none", {}, nullptr));
+      this->publish_lease(lease_json(this->name_, scan_id, "none", {}, nullptr));
+  }
+
+  /// Publish a result of this Bus on its own sensor (if any), then on the shared one.
+  void publish_result(const std::string &json) {
+    if (this->own_sink_ != nullptr)
+      this->own_sink_->publish_result(json);
+    this->sink_->publish_result(json);
+  }
+  /// Publish a lease message of this Bus on its own sensor (if any), then on the shared one.
+  void publish_lease(const std::string &json) {
+    if (this->own_sink_ != nullptr)
+      this->own_sink_->publish_lease(json);
+    this->sink_->publish_lease(json);
   }
 
   // Hub callbacks for this Bus's own probe frame. Calls while idle are ignored.
@@ -420,7 +450,7 @@ class Bus {
   }
 
   void publish_lease_(const char *state, const char *reason) {
-    this->sink_->publish_lease(lease_json(this->name_, this->lease_scan_, state, this->lease_pollers_, reason));
+    this->publish_lease(lease_json(this->name_, this->lease_scan_, state, this->lease_pollers_, reason));
   }
 
   void finish_(const char *outcome, const std::string &outcome_fields) {
@@ -431,7 +461,7 @@ class Bus {
     this->sent_ = false;
     if (this->lease_active_)
       this->lease_touched_ = this->clock_->now_ms();  // the idle timer starts at the terminal callback
-    this->sink_->publish_result(result_json(this->request_, outcome, latency, outcome_fields));
+    this->publish_result(result_json(this->request_, outcome, latency, outcome_fields));
   }
 
  public:
@@ -466,6 +496,9 @@ class Bus {
  private:
   std::string name_;
   std::string serial_;  // compact JSON object, empty when unknown
+  ResultSink *own_sink_{nullptr};  // this Bus's own Result/Lease sensors, or none
+  std::string result_sensor_;
+  std::string lease_sensor_;
   BusPort &port_;
   uint16_t normal_send_wait_ms_;
   std::vector<PollerEntry> pollers_;
@@ -484,7 +517,7 @@ class Bus {
   uint32_t sent_at_{0};
 };
 
-// ---- Gateway: the probe/release actions and the info/result/lease sensors, routing by bus ----
+// ---- Gateway: the probe/release actions and the shared info/result/lease sensors, routing by bus ----
 
 class Gateway {
  public:
@@ -501,22 +534,27 @@ class Gateway {
   void probe(const ProbeRequest &request) {
     if (!valid_id(request.request_id))
       return;  // Cannot be correlated by HA, so publishing would only add noise.
-    Bus *bus = nullptr;
+    Bus *bus = this->find_(request.bus);
     const char *rejection = this->validate_(request, bus);
     if (rejection == nullptr)
       rejection = bus->start(request);
-    if (rejection != nullptr)
-      this->sink_.publish_result(
-          Bus::result_json(request, "gateway_error", 0, "\"error\":\"" + std::string(rejection) + "\""));
+    if (rejection == nullptr)
+      return;
+    const std::string json =
+        Bus::result_json(request, "gateway_error", 0, "\"error\":\"" + std::string(rejection) + "\"");
+    // A rejection of a known Bus reaches that Bus's own sensor too; an unknown Bus has none.
+    if (bus != nullptr)
+      bus->publish_result(json);
+    else
+      this->sink_.publish_result(json);
   }
 
   /// The `modbus_scanner_v2_release` action: end the scan's lease on that bus now.
   void release(const std::string &bus, const std::string &scan_id) {
     if (!valid_id(scan_id))
       return;
-    for (Bus *candidate : this->buses_)
-      if (candidate->name() == bus)
-        candidate->release(scan_id);
+    if (Bus *target = this->find_(bus))
+      target->release(scan_id);
   }
 
   /// Run from the component loop: each Bus recovers Normal Polling by itself.
@@ -538,13 +576,18 @@ class Gateway {
   }
 
  private:
-  const char *validate_(const ProbeRequest &r, Bus *&bus) {
+  Bus *find_(const std::string &name) const {
+    for (Bus *candidate : this->buses_)
+      if (candidate->name() == name)
+        return candidate;
+    return nullptr;
+  }
+
+  /// `bus` is the request's Bus, or nullptr when the Gateway has no such Bus.
+  const char *validate_(const ProbeRequest &r, const Bus *bus) const {
     // Write function codes are refused before anything else, whatever HA sends.
     if (contains(kWriteFunctionCodes, r.function_code))
       return error::WRITE_FUNCTION_REFUSED;
-    for (Bus *candidate : this->buses_)
-      if (candidate->name() == r.bus)
-        bus = candidate;
     if (bus == nullptr)
       return error::UNKNOWN_BUS;
     if (r.slave < kLimits.slave_min || r.slave > kLimits.slave_max)

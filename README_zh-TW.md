@@ -40,7 +40,8 @@ English: [README.md](README.md) · 術語：[GLOSSARY.md](GLOSSARY.md)
 [ADR 0005：廠牌中立元件與 Device Profile](docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md)、
 [ADR 0006：Pausable Poller 的探索與選擇](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md)、
 [ADR 0007：由 Gateway 自行恢復的 Scan Lease](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)、
-[ADR 0008：掃描服務清單與持久保存的歷史](docs/adr/0008-scanner-service-set-and-persisted-history.md)。
+[ADR 0008：掃描服務清單與持久保存的歷史](docs/adr/0008-scanner-service-set-and-persisted-history.md)、
+[ADR 0010：每條 Bus 各自的 Result 與 Lease 感測器](docs/adr/0010-per-bus-result-and-lease-sensors.md)。
 ADR 0001–0003 說明 provider／coordinator 分離、單一設定項目生命週期與全使用者側邊欄。
 
 ## 安全與存取
@@ -112,8 +113,10 @@ modbus_scanner:
 ```
 
 元件會註冊唯讀探測與 lease 釋放動作（`modbus_scanner_v2_probe`、
-`modbus_scanner_v2_release`）及三個診斷文字感測器（`Modbus Scanner v2 Info`、
-`Result`、`Lease`），不需要 `api: custom_services`。綁在同一 hub 的每個
+`modbus_scanner_v2_release`）、三個共用診斷文字感測器（`Modbus Scanner v2 Info`、
+`Result`、`Lease`），以及每條 Bus 的 `Modbus Scanner v2 Result <bus>` 與
+`Modbus Scanner v2 Lease <bus>`；不需要 `api: custom_services`，這些感測器都不用在
+YAML 宣告。綁在同一 hub 的每個
 `PollingComponent`（此例為 `meter`）會自動成為 Pausable Poller；之後新增需重新編譯。
 完整範例：[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)，
 以及一個節點兩條 RS-485 線的
@@ -223,7 +226,14 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 `unconfirmed`）與 `lease_end_reason`（`released`、`idle`、`hard_limit`、`superseded`）。
 
 **多條 Bus：**同一 Gateway 不同 Bus 的 Scan 可同時進行，每條 Bus 一次一個 Scan。
-它們的 Probe 輪流送出，所以每個 Gateway 一次只有一個 Probe 在途：所有 Bus 共用
+目前版本的 `modbus_scanner` 元件會為每條 Bus 自動建立自己的結果與 lease 感測器
+（`Modbus Scanner v2 Result <bus>`、`Modbus Scanner v2 Lease <bus>`；重刷 Gateway
+即可，YAML 不用改）。此時每條 Bus 各有自己在途的 Probe，Scan 只等自己的
+`inter_request_delay_ms`；`check_gateway` 會回報 `health.probe_slots: per_bus`
+（ADR 0010）。
+
+沒有這些感測器的 firmware 會改用共用 slot：所有 Bus 的 Probe 輪流送出，所以每個
+Gateway 一次只有一個 Probe 在途：所有 Bus 共用
 節點的結果感測器，否則 ESPHome API 可能丟掉同時發布的兩筆結果之一。因此一個 Scan
 在兩個 Probe 之間，要等自己的 `inter_request_delay_ms`，再加上同一 Gateway 每個其他
 執行中 Scan 的一個 Probe（`timeout_ms` + 約 300 ms）。若任何會暫停 Normal Polling 的
