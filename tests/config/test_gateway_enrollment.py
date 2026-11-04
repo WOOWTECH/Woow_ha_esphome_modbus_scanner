@@ -241,7 +241,7 @@ async def test_a_third_gateway_joins_existing_legacy_gateways_unchanged(hass, no
     assert entry.options == {"kept": True}
 
 
-async def test_reselecting_an_enrolled_device_takes_its_new_host_and_key(hass, node):
+async def test_reselecting_an_enrolled_gateway_takes_its_new_host_and_key(hass, node):
     entry = scanner_entry(
         hass,
         [{"host": "192.0.2.10", "mac": MAC, "name": "pump-room", "bridge": "v2", "noise_psk": KEY}],

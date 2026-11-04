@@ -107,13 +107,13 @@ start_scan:
         number: {min: 0, max: 5, mode: box}
     inter_request_delay_ms: &delay
       name: Inter-request delay
-      description: Cancellation-aware wait between addresses (bridge v2 at most 3000 ms, Legacy Gateway 5000 ms); does not remove firmware drain safeguards.
+      description: Cancellation-aware wait between addresses (Bridge Protocol v2 at most 3000 ms, Legacy Gateway 5000 ms); does not remove firmware drain safeguards.
       default: 250
       selector:
         number: {min: 0, max: 5000, mode: box, unit_of_measurement: ms}
     pause_normal_polling: &pause
       name: Pause normal polling
-      description: Required for physical reads; ESP owns arbitration and local restoration. No hardware effect in mock mode.
+      description: Required for physical reads; the Gateway owns arbitration and local restoration. No hardware effect in mock mode.
       default: true
       selector:
         boolean:
@@ -132,7 +132,7 @@ start_scan:
           options: [found_default, all_offline, partial_timeout, modbus_exception, possible_collision, gateway_disconnect]
     device_profile_id: &device_profile
       name: Device Profile
-      description: Id from list_device_profiles (default generic). Its defaults fill omitted fields, and its limits are enforced together with the gateway's own limits.
+      description: Id from list_device_profiles (defaults to the Generic Device Profile). Its defaults fill omitted fields, and its limits are enforced together with the gateway's own limits.
       default: generic
       selector:
         text:

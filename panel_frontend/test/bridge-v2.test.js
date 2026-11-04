@@ -81,7 +81,7 @@ test("raw register values are shown in decimal and hex", () => {
 
 const PAUSED = [{index: 0, name: "meter", address: 1}, {index: 1, name: "inverter", address: 2}];
 
-test("an active Scan Lease warns that paused devices' entity values are stale", () => {
+test("an active Scan Lease warns that paused Pausable Pollers' entity values are stale", () => {
   const notice = leaseNotice({lease_status: "active", lease_end_reason: null, paused_pollers: PAUSED});
   assert.deepEqual(notice, {state: "active", reason: null, stale: ["meter (1)", "inverter (2)"], endedAfter: null});
 });

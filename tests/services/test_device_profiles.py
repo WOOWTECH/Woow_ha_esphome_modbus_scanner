@@ -226,7 +226,7 @@ async def test_profiles_restored_from_storage_are_available(hass, hass_storage):
     assert await _ids(call) == ["generic", "acme-meter"]
 
 
-async def test_generic_profile_cannot_be_deleted(hass):
+async def test_generic_device_profile_cannot_be_deleted(hass):
     call = await _setup(hass)
     with pytest.raises(ServiceValidationError, match="Generic Device Profile cannot be deleted"):
         await call("delete_device_profile", {"profile_id": "generic"})
@@ -385,7 +385,7 @@ async def test_service_layer_enforces_the_selected_profile(hass, changes, messag
         ({"timeout_ms": 2001}, "timeout_ms 100"),
     ],
 )
-async def test_generic_profile_bounds_apply_to_the_mock_gateway_too(hass, changes, message):
+async def test_generic_device_profile_bounds_apply_to_the_mock_gateway_too(hass, changes, message):
     call = await _setup(hass)
     with pytest.raises(ServiceValidationError, match=message):
         await call("test_address", {"address": 1, **changes})

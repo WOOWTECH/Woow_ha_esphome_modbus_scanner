@@ -155,13 +155,13 @@ is a single entry; the set-up menu offers:
 
 - **Add a gateway from an ESPHome device** (recommended): lists nodes already in
   HA's ESPHome integration with a known MAC, reuses their host, port and API key,
-  and verifies the MAC and the bridge v2 signature over the API without sending
-  a Modbus frame. Failures name the cause: scanner component missing, bridge
-  mismatch, identity mismatch, authentication or connection. Every later
+  and verifies the MAC and the Bridge Protocol v2 signature over the API without sending
+  a Modbus frame. Failures name the cause: scanner component missing, Bridge
+  Protocol mismatch, identity mismatch, authentication or connection. Every later
   connection reads the host, port and key from that ESPHome entry again, so a new
   IP address or a rotated key there needs no re-enrolment.
 - **Add a gateway manually** (advanced): host, MAC and API key, with the same
-  checks. Choose bridge v2, or legacy bridge v1 for a node not yet reflashed.
+  checks. Choose Bridge Protocol v2, or v1 for a Legacy Gateway not yet reflashed.
 - **Mock gateway only for now.**
 
 Use **Reconfigure** to add, refresh (picks up a new host or key) or remove
@@ -241,7 +241,7 @@ The pause is a Scan Lease held by the Gateway, not by Home Assistant:
 - HA releases it when the Scan completes, is cancelled or fails;
 - if HA or the connection disappears, the Gateway ends it by itself after
   **5 s** without a Probe, and in every case after **10 minutes** (later Probes
-  of a longer Scan run without pausing). On bridge v2 the inter-request delay is
+  of a longer Scan run without pausing). On Bridge Protocol v2 the inter-request delay is
   capped at 3000 ms so a Scan's own gaps never reach the idle time;
 - on every ending path the Gateway resumes the pollers.
 
@@ -265,7 +265,7 @@ active user (physical operations need an active user or an internal automation).
 | Service | Purpose |
 |---|---|
 | `list_gateways` | Gateways with provider, Buses, limits, health, Pausable Poller checklist and `can_operate` |
-| `check_gateway` | Verify one Gateway's MAC and bridge signature and read its Buses and pollers, without a Modbus frame |
+| `check_gateway` | Verify one Gateway's MAC and Bridge Protocol signature and read its Buses and pollers, without a Modbus frame |
 | `set_pausable_pollers` | Save which Pausable Pollers of one Bus a Scan pauses (`gateway_id`, `bus`, `pause_pollers`) |
 | `start_scan` | Start a range Scan; returns its `scan_id` immediately |
 | `test_address` | Scan one slave ID (`address`); range confirmation is implicit |
@@ -280,7 +280,7 @@ active user (physical operations need an active user or an internal automation).
 
 Fields of `start_scan` (and `test_address`, which takes `address` instead of the
 range and has no confirmations). Omitted fields take the Device Profile's
-defaults first, then the Gateway's; the defaults below are a bridge v2
+defaults first, then the Gateway's; the defaults below are a Bridge Protocol v2
 Gateway's (the mock Gateways default to `holding_register`, 500 ms, one
 retry and no pause):
 
@@ -291,11 +291,11 @@ retry and no pause):
 | `bus` | — | Required when the Gateway has more than one Bus |
 | `esphome_device_id` | — | Optional extra MAC cross-check against an HA ESPHome device |
 | `device_profile_id` | `generic` | Its defaults fill omitted fields; its limits apply with the Gateway's |
-| `start_id`, `end_id` | profile default | 1–247; required unless the profile defines a slave range |
+| `start_id`, `end_id` | Device Profile default | 1–247; required unless the Device Profile defines a slave range |
 | `probe_type` | `holding_register` | `holding_register` (FC03) or `input_register` (FC04) |
-| `register_address`, `register_count` | 0, 1 | Count 1–4 on bridge v2; the block must end at or before 65535 |
-| `timeout_ms` | 1000 | 100–2000 on bridge v2, applied per Probe on the Gateway |
-| `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–3000 ms between addresses on bridge v2 (kept below the 5 s lease idle time), 0–5000 ms on a Legacy Gateway |
+| `register_address`, `register_count` | 0, 1 | Count 1–4 on Bridge Protocol v2; the block must end at or before 65535 |
+| `timeout_ms` | 1000 | 100–2000 on Bridge Protocol v2, applied per Probe on the Gateway |
+| `retries`, `inter_request_delay_ms` | 0, 100 | Retries 0–5 after a timeout; delay 0–3000 ms between addresses on Bridge Protocol v2 (kept below the 5 s lease idle time), 0–5000 ms on a Legacy Gateway |
 | `pause_normal_polling` | `true` | `false` scans without pausing anything |
 | `pause_pollers` | saved selection | Pausable Poller indices for this Scan only |
 | `mock_scenario` | `found_default` | Mock provider only |
@@ -344,17 +344,17 @@ data:
 response_variable: started
 ```
 
-## Legacy bridge v1 Gateways
+## Legacy Gateways (Bridge Protocol v1)
 
-Gateways enrolled before 0.5.0 that still run the vendor-specific bridge v1
+Gateways enrolled before 0.5.0 that still run the vendor-specific Bridge Protocol v1
 firmware keep working with its frozen limits (slave IDs 1–32, FC03, count 1,
 one allowlisted register, 700 ms, polling pause required, no `bus`). Each such
 Gateway raises a **Repairs** warning. To migrate: add `modbus_scanner` to the
 node's YAML as above and reflash it, open the integration's **Reconfigure**,
 choose **Add or refresh a gateway from an ESPHome device** for that node (or the
-manual option with bridge v2), then import the example Device Profile if you
+manual option with Bridge Protocol v2), then import the example Device Profile if you
 want the former register map. The Repairs issue disappears once the Gateway is
-enrolled as bridge v2. Legacy support will be removed in a future release.
+enrolled with Bridge Protocol v2. Legacy support will be removed in a future release.
 
 ## Development
 
@@ -405,7 +405,7 @@ it does not describe the current design.
   [upgrade and rollback](docs/history/hardening-upgrade-rollback.md),
   [software checkpoint](docs/history/hardening-software-checkpoint.md) and
   [implementation phases](docs/history/implementation-phases.md).
-  Its firmware, `firmware/guanjie-scanner/`, is the legacy bridge v1 and stays
+  Its firmware, `firmware/guanjie-scanner/`, runs Bridge Protocol v1 and stays
   until those nodes are reflashed.
 - Earlier design notes: [0.2.0 service and safety model](docs/history/service-and-safety-model.md),
   [0.2.0 testing strategy](docs/history/testing.md). All of these live in

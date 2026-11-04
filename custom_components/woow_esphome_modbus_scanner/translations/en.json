@@ -22,14 +22,14 @@
       },
       "esphome_device": {
         "title": "Gateway from an ESPHome device",
-        "description": "Only devices in the ESPHome integration are listed; their host and API encryption key are used, read again from the ESPHome integration on every connection. Enrollment checks the device's MAC and the modbus_scanner component (bridge v2) over the API without sending a Modbus frame. Selecting an enrolled Gateway's device again refreshes its stored host and key.",
+        "description": "Only devices in the ESPHome integration are listed; their host and API encryption key are used, read again from the ESPHome integration on every connection. Enrollment checks the device's MAC and the modbus_scanner component (Bridge Protocol v2) over the API without sending a Modbus frame. Selecting an enrolled Gateway's device again refreshes its stored host and key.",
         "data": {
           "device": "ESPHome device"
         }
       },
       "manual": {
         "title": "Gateway entered manually",
-        "description": "For ESPHome devices that are not in the ESPHome integration. Entering an enrolled MAC edits that gateway: a blank key retains the stored key, which is never displayed, and a blank Bridge Protocol keeps the stored one. PSK configures this integration only, not ESP firmware. The gateway's MAC and bridge protocol are checked over the ESPHome API before it is saved; no Modbus frame is sent.",
+        "description": "For ESPHome devices that are not in the ESPHome integration. Entering an enrolled MAC edits that gateway: a blank key retains the stored key, which is never displayed, and a blank Bridge Protocol keeps the stored one. PSK configures this integration only, not the Gateway firmware. The gateway's MAC and Bridge Protocol are checked over the ESPHome API before it is saved; no Modbus frame is sent.",
         "data": {
           "host": "ESPHome host",
           "mac": "Expected MAC (AA:BB:CC:DD:EE:FF)",
@@ -47,7 +47,7 @@
       },
       "reauth_confirm": {
         "title": "Verify ESPHome API credentials",
-        "description": "Choose the gateway and enter its replacement key. Blank retains the stored key. This checks API identity and bridge support only; it does not issue a Modbus transaction or change firmware.",
+        "description": "Choose the gateway and enter its replacement key. Blank retains the stored key. This checks API identity and Bridge Protocol support only; it does not issue a Modbus transaction or change firmware.",
         "data": {
           "gateway": "Gateway",
           "noise_psk": "API encryption key",
@@ -63,9 +63,9 @@
       "invalid_psk": "Use a base64-encoded 32-byte ESPHome API key.",
       "conflicting_psk": "Do not enter a replacement key and select clear for the same gateway.",
       "invalid_auth": "API authentication failed. Check the key and the firmware encryption setting.",
-      "cannot_connect": "Could not verify gateway API identity and bridge support. Existing settings were not changed.",
-      "scanner_missing": "This ESPHome device does not run the modbus_scanner component (bridge v2). Add the component to its ESPHome YAML and reflash, then enroll it again.",
-      "bridge_mismatch": "The device's modbus_scanner component speaks a different Bridge Protocol version than this integration. Update the firmware and the integration to the same release.",
+      "cannot_connect": "Could not verify gateway API identity and Bridge Protocol support. Existing settings were not changed.",
+      "scanner_missing": "This ESPHome device does not run the modbus_scanner component (Bridge Protocol v2). Add the component to its ESPHome YAML and reflash, then enroll it again.",
+      "bridge_mismatch": "The node's modbus_scanner component speaks a different Bridge Protocol version than this integration. Update the firmware and the integration to the same release.",
       "identity_mismatch": "The device at this host reports a different MAC than expected; nothing was enrolled."
     },
     "abort": {
@@ -90,11 +90,11 @@
   "issues": {
     "gateway_action_required": {
       "title": "Scanner gateway requires attention",
-      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and versioned bridge firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual device maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
+      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and Bridge Protocol version of the Gateway firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual Gateway maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
     },
     "legacy_bridge": {
-      "title": "Gateway {name} uses the deprecated legacy bridge v1",
-      "description": "Gateway {name} ({host}, {mac}) still runs the legacy bridge v1 firmware. It keeps working with the legacy limits for now (slave IDs 1-32, FC03, one allowlisted register, 700 ms), but legacy support will be removed in a future release. Add the vendor-neutral modbus_scanner component to the Gateway's ESPHome YAML and reflash it, then open this integration's Reconfigure and choose \"Add or refresh a gateway from an ESPHome device\" (or the manual option with bridge v2) for this Gateway. This issue disappears once the gateway is enrolled as bridge v2. The former vendor register map is available as an example Device Profile (examples/device_profiles/guanjie-ind17.json) that you can import in the sidebar."
+      "title": "Gateway {name} uses the deprecated Bridge Protocol v1",
+      "description": "Gateway {name} ({host}, {mac}) still runs Bridge Protocol v1 firmware. It keeps working with the legacy limits for now (slave IDs 1-32, FC03, one allowlisted register, 700 ms), but legacy support will be removed in a future release. Add the vendor-neutral modbus_scanner component to the Gateway's ESPHome YAML and reflash it, then open this integration's Reconfigure and choose \"Add or refresh a gateway from an ESPHome device\" (or the manual option with Bridge Protocol v2) for this Gateway. This issue disappears once the gateway is enrolled with Bridge Protocol v2. The former vendor register map is available as an example Device Profile (examples/device_profiles/guanjie-ind17.json) that you can import in the sidebar."
     }
   }
 }

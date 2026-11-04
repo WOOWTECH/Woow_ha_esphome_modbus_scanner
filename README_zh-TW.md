@@ -124,7 +124,7 @@ modbus_scanner:
 每條 Bus 各有自己的 Pausable Poller 表，並回報鮑率、同位元與停止位元。探測動作與
 文字感測器每個節點只有一組。
 
-傳輸協定（bridge protocol v2）定義在單一機器可讀檔
+傳輸協定（Bridge Protocol v2）定義在單一機器可讀檔
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json)，
 HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。
 
@@ -139,12 +139,12 @@ HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。
 接著到 **設定 → 裝置與服務 → 新增整合**。本整合只有一個設定項目，設定選單提供：
 
 - **從 ESPHome 裝置新增 Gateway**（建議）：列出 HA ESPHome 整合中已知 MAC 的節點，
-  沿用其主機、連接埠與 API 金鑰，並透過 API 驗證 MAC 與 bridge v2 簽章，不送出任何
-  Modbus 封包。失敗時會指出原因：缺少掃描元件、bridge 不符、身分不符、認證或連線。
+  沿用其主機、連接埠與 API 金鑰，並透過 API 驗證 MAC 與 Bridge Protocol v2 簽章，不送出任何
+  Modbus 封包。失敗時會指出原因：缺少掃描元件、Bridge Protocol 不符、身分不符、認證或連線。
   之後每次連線都會重新讀取該 ESPHome 項目的主機、連接埠與金鑰，所以 IP 變更或金鑰
   更換後不需重新加入。
-- **手動新增 Gateway**（進階）：輸入主機、MAC 與 API 金鑰，檢查相同。可選 bridge v2，
-  或尚未重刷節點用的 legacy bridge v1。
+- **手動新增 Gateway**（進階）：輸入主機、MAC 與 API 金鑰，檢查相同。可選 Bridge Protocol v2，
+  或尚未重刷節點用的 Bridge Protocol v1。
 - **目前只用模擬 Gateway。**
 
 **重新設定**可新增、更新（取得新的主機或金鑰）或移除 Gateway，數量不限。
@@ -213,7 +213,7 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 - 從 Scan 的第一個 Probe 開始；選定的輪詢元件停止，hub 中這些站號排隊的封包會被清除；
 - Scan 完成、取消或失敗時，HA 釋放 lease；
 - 若 HA 或連線消失，Gateway 在 **5 秒**沒有 Probe 後自行結束 lease，且無論如何在
-  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）。bridge v2 的位址間隔上限為
+  **10 分鐘**後結束（更長的 Scan 後續 Probe 不再暫停）。Bridge Protocol v2 的位址間隔上限為
   3000 ms，所以 Scan 自己的間隔不會達到閒置時間；
 - 每一種結束方式，Gateway 都會恢復輪詢元件。
 
@@ -234,7 +234,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | 動作 | 用途 |
 |---|---|
 | `list_gateways` | 列出 Gateway：provider、Bus、限制、健康狀態、Pausable Poller 清單與 `can_operate` |
-| `check_gateway` | 驗證一個 Gateway 的 MAC 與 bridge 簽章並讀取其 Bus 與輪詢元件，不送 Modbus 封包 |
+| `check_gateway` | 驗證一個 Gateway 的 MAC 與 Bridge Protocol 簽章並讀取其 Bus 與輪詢元件，不送 Modbus 封包 |
 | `set_pausable_pollers` | 儲存一條 Bus 的 Scan 要暫停哪些 Pausable Poller（`gateway_id`、`bus`、`pause_pollers`） |
 | `start_scan` | 開始範圍 Scan，立即回傳 `scan_id` |
 | `test_address` | 掃描單一站號（`address`）；隱含範圍確認 |
@@ -248,7 +248,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | `delete_device_profile` | 刪除匯入的 profile（`profile_id`） |
 
 `start_scan` 的欄位（`test_address` 改用 `address` 取代範圍，且不需確認）。省略的欄位
-先取 Device Profile 預設值，再取 Gateway 預設值；下表為 bridge v2 Gateway 的預設值
+先取 Device Profile 預設值，再取 Gateway 預設值；下表為 Bridge Protocol v2 Gateway 的預設值
 （模擬 Gateway 預設為 `holding_register`、500 ms、重試 1 次、不暫停）：
 
 | 欄位 | 預設 | 說明 |
@@ -260,9 +260,9 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 | `device_profile_id` | `generic` | 其預設值填入省略欄位；其限制與 Gateway 限制同時適用 |
 | `start_id`、`end_id` | profile 預設 | 1–247；profile 未定義站號範圍時必填 |
 | `probe_type` | `holding_register` | `holding_register`（FC03）或 `input_register`（FC04） |
-| `register_address`、`register_count` | 0、1 | bridge v2 數量 1–4；區塊結尾不得超過 65535 |
-| `timeout_ms` | 1000 | bridge v2 為 100–2000，在 Gateway 上逐個 Probe 套用 |
-| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；bridge v2 位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間），Legacy Gateway 為 0–5000 ms |
+| `register_address`、`register_count` | 0、1 | Bridge Protocol v2 數量 1–4；區塊結尾不得超過 65535 |
+| `timeout_ms` | 1000 | Bridge Protocol v2 為 100–2000，在 Gateway 上逐個 Probe 套用 |
+| `retries`、`inter_request_delay_ms` | 0、100 | 逾時後重試 0–5 次；Bridge Protocol v2 位址間隔 0–3000 ms（低於 lease 的 5 秒閒置時間），Legacy Gateway 為 0–5000 ms |
 | `pause_normal_polling` | `true` | `false` 表示掃描時不暫停任何元件 |
 | `pause_pollers` | 已儲存的選擇 | 僅用於本次 Scan 的 Pausable Poller 索引 |
 | `mock_scenario` | `found_default` | 僅限模擬 provider |
@@ -309,14 +309,14 @@ data:
 response_variable: started
 ```
 
-## Legacy bridge v1 Gateway
+## Legacy Gateway（Bridge Protocol v1）
 
-0.5.0 之前登錄、仍執行廠牌專用 bridge v1 韌體的 Gateway 可繼續使用，但維持其凍結的
+0.5.0 之前登錄、仍執行廠牌專用 Bridge Protocol v1 韌體的 Gateway 可繼續使用，但維持其凍結的
 限制（站號 1–32、FC03、數量 1、一個允許清單內的暫存器、700 ms、必須暫停輪詢、不支援
 `bus`）。每個這類 Gateway 都會產生 **Repairs** 警告。遷移方式：依上文在節點 YAML 加入
 `modbus_scanner` 並重刷，開啟整合的**重新設定**，對該節點選擇「從 ESPHome 裝置新增或
-更新 Gateway」（或手動選項並選 bridge v2）；若需要舊的暫存器對照表，再匯入範例
-Device Profile。Gateway 以 bridge v2 登錄後，Repairs 問題會自動消失。Legacy 支援將在
+更新 Gateway」（或手動選項並選 Bridge Protocol v2）；若需要舊的暫存器對照表，再匯入範例
+Device Profile。Gateway 以 Bridge Protocol v2 登錄後，Repairs 問題會自動消失。Legacy 支援將在
 未來版本移除。
 
 ## 開發
@@ -365,7 +365,7 @@ WSL 或 Docker。[`tests/live/README.md`](tests/live/README.md) 說明選用的 
   [升級與回復](docs/history/hardening-upgrade-rollback.md)、
   [軟體檢查點](docs/history/hardening-software-checkpoint.md)與
   [實作階段](docs/history/implementation-phases.md)。
-  其韌體 `firmware/guanjie-scanner/` 即 legacy bridge v1，會保留到這些節點重刷為止。
+  其韌體 `firmware/guanjie-scanner/` 執行 Bridge Protocol v1，會保留到這些節點重刷為止。
 - 較早的設計筆記：[0.2.0 動作與安全模型](docs/history/service-and-safety-model.md)、
   [0.2.0 測試策略](docs/history/testing.md)。以上文件都在 `docs/history/`。
 

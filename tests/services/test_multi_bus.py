@@ -83,14 +83,14 @@ async def test_a_bus_without_reported_serial_parameters_is_still_listed(hass, ga
         {"parity": "NONE", "stop_bits": 1},
     ],
 )
-async def test_malformed_serial_parameters_are_an_incompatible_bridge(hass, gateway, serial):
+async def test_malformed_serial_parameters_are_incompatible_bridge_info(hass, gateway, serial):
     gateway.serial = {"line_a": serial}
     call = await _setup(hass)
     with pytest.raises(HomeAssistantError, match="incompatible bridge info"):
         await call("check_gateway", {"gateway_id": GATEWAY_ID})
 
 
-async def test_duplicate_bus_names_are_an_incompatible_bridge(hass, gateway):
+async def test_duplicate_bus_names_are_incompatible_bridge_info(hass, gateway):
     gateway.buses = ["line_a", "line_a"]
     call = await _setup(hass)
     with pytest.raises(HomeAssistantError, match="incompatible bridge info"):

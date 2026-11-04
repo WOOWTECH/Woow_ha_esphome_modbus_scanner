@@ -37,13 +37,13 @@ const hardeningText = {
     timeline:"Recent operation events (last 8; API retains at most 32)",
     exportEvidence:"Download redacted evidence JSON",
     firmwareFault:"Firmware blocked further reads because transport state is uncertain. Arrange manual maintenance, then check API health again.",
-    checkGateway:"Check API only", apiOnly:"Checks API identity and bridge capabilities. Does not issue a Modbus read.",
+    checkGateway:"Check API only", apiOnly:"Checks API identity and Bridge Protocol capabilities. Does not issue a Modbus read.",
     healthTitle:"Last observed gateway health", apiEvidence:"API verification", busEvidence:"Last fresh bus response", encryption:"API encryption configured", yes:"Yes", no:"No",
     unchecked:"Not checked", healthChecked:"API check finished. This is not a fresh bus probe.",
-    readOnly:"HA identity is inactive or unavailable; reconnect. All active HA users and internal automations may operate physical gateways.", unsupportedProfile:"Unknown or mismatched capability profile. Reload the integration and panel; physical operations are blocked.",
+    readOnly:"HA identity is inactive or unavailable; reconnect. All active HA users and internal automations may operate physical gateways.", unsupportedProfile:"Unknown or mismatched Bridge Protocol capabilities. Reload the integration and panel; physical operations are blocked.",
     recovery:"Normal polling recovery", cleanup:"Connection cleanup", attempt:"Attempt", operation:"Operation", budget:"Execution budget (not ETA)", elapsed:"Elapsed", rawRegister:"Register / raw value", rawHelp:"Raw FC03/FC04 values are evidence only; engineering units appear only as decoded values from a Device Profile.",
     recoveryStates:{unknown:"Not verified",pending:"Awaiting fresh normal polling",verified:"Fresh normal core polling verified",failed:"Recovery check failed"},
-    operationStates:{queued:"Queued",connect:"Connecting",verify_identity:"Checking identity",verify_bridge:"Checking bridge",probe:"Read-only probe",inter_request_delay:"Waiting between reads",recovery:"Checking normal polling",finished:"Finished"},
+    operationStates:{queued:"Queued",connect:"Connecting",verify_identity:"Checking identity",verify_bridge:"Checking Bridge Protocol",probe:"Read-only probe",inter_request_delay:"Waiting between reads",recovery:"Checking normal polling",finished:"Finished"},
     history:"Load saved history", historyHelp:"At most 20 terminal snapshots are retained in HA. Interrupted checkpoints are marked failed, never resumed automatically.", yaml:"Generate service YAML", yamlLabel:"Validated range-scan YAML (generation does not execute it)",
     recentSelected:"History selected. Refresh status or results; no scan will be started.",
     checkpoint:"Interrupted checkpoint: subsequent progress is unknown. No scan was resumed.", attention:"Probe processing ended; normal polling recovery is not verified. Inspect the recovery status before another operation.",
@@ -53,13 +53,13 @@ const hardeningText = {
     timeline:"近期操作事件（最近 8 筆，API 最多保留 32 筆）",
     exportEvidence:"下載去識別證據 JSON",
     firmwareFault:"韌體因傳輸狀態不明而阻擋後續讀取。請安排人工維護，完成後重新檢查 API 健康。",
-    checkGateway:"只檢查 API", apiOnly:"核對 API 身分與橋接能力，不發出 Modbus 讀取。",
+    checkGateway:"只檢查 API", apiOnly:"核對 API 身分與橋接協定能力，不發出 Modbus 讀取。",
     healthTitle:"上次觀測的閘道健康", apiEvidence:"API 身分核對", busEvidence:"最近有效匯流排回應", encryption:"已設定 API 加密", yes:"是", no:"否",
     unchecked:"尚未檢查", healthChecked:"API 檢查完成；這不是新的匯流排探測證據。",
-    readOnly:"HA 身分已停用或無法使用，請重新連線。所有啟用中的 HA 使用者及內部自動化皆可操作實機。", unsupportedProfile:"能力設定未知或版本不符。請重載整合與面板；實機操作已阻擋。",
+    readOnly:"HA 身分已停用或無法使用，請重新連線。所有啟用中的 HA 使用者及內部自動化皆可操作實機。", unsupportedProfile:"橋接協定能力未知或版本不符。請重載整合與面板；實機操作已阻擋。",
     recovery:"正常輪詢復原", cleanup:"連線清理", attempt:"嘗試次數", operation:"目前操作", budget:"操作時間上限（非預計完成時間）", elapsed:"已耗時", rawRegister:"暫存器／原始值", rawHelp:"原始 FC03/FC04 數值僅作證據；工程單位只會以設備規格的解讀值呈現。",
     recoveryStates:{unknown:"尚未驗證",pending:"等待新的正常輪詢",verified:"已驗證新的核心正常輪詢",failed:"復原檢查失敗"},
-    operationStates:{queued:"排程中",connect:"連線中",verify_identity:"核對身分",verify_bridge:"核對橋接",probe:"唯讀探測",inter_request_delay:"等候下一次讀取",recovery:"確認正常輪詢",finished:"已結束"},
+    operationStates:{queued:"排程中",connect:"連線中",verify_identity:"核對身分",verify_bridge:"核對橋接協定",probe:"唯讀探測",inter_request_delay:"等候下一次讀取",recovery:"確認正常輪詢",finished:"已結束"},
     history:"載入保存歷程", historyHelp:"HA 最多保存 20 筆終止快照。中斷檢查點會標為失敗，絕不自動重播掃描。", yaml:"產生服務 YAML", yamlLabel:"通過檢查的範圍掃描 YAML（產生不會執行）",
     recentSelected:"已選擇歷程。請重新整理狀態或結果；不會因此開始掃描。",
     checkpoint:"這是中斷檢查點，之後的進度未知；未自動重播任何掃描。", attention:"探測處理已結束，但尚未證實正常輪詢復原；再次操作前請先檢查復原狀態。",
@@ -76,12 +76,12 @@ const en = {
   title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
   physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
   physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
-  physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
-  physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
-  v2Help: `Bridge v2: FC03 or FC04, any register, ${COUNT_MIN}–${COUNT_MAX} registers, ${TIMEOUT_MIN}–${TIMEOUT_MAX} ms timeout.`,
+  physicalHelp: "Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
+  physicalRange: "This Legacy Gateway supports slave IDs 1–32, inclusive.",
+  v2Help: `Bridge Protocol v2: FC03 or FC04, any register, ${COUNT_MIN}–${COUNT_MAX} registers, ${TIMEOUT_MIN}–${TIMEOUT_MAX} ms timeout.`,
   v2Pause: `The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, ${IDLE_S} s without a probe or after ${HARD_LIMIT_MIN} minutes.`,
   pollersTitle: "Pausable Pollers", pollersBus: (bus) => `Bus ${bus}: pause during a Scan`,
-  pollersHelp: "Checked pollers stop polling for the Scan. Unchecked devices keep reporting, and their traffic interleaves with the probes, so the Scan is slower. Saved in Home Assistant for this Bus.",
+  pollersHelp: "Checked pollers stop polling for the Scan. Unchecked Pausable Pollers keep polling, and their traffic interleaves with the probes, so the Scan is slower. Saved in Home Assistant for this Bus.",
   pollersNone: "No poller is paused: probes interleave with Normal Polling.",
   pollersEmpty: "This Bus has no Pausable Pollers.",
   pollersUnknown: "Check the gateway to list its Pausable Pollers.",
@@ -91,7 +91,7 @@ const en = {
   lease: "Scan Lease",
   leaseStates: {active: "Active: Normal Polling paused", ended: "Ended: Normal Polling resumed", unconfirmed: "Ending not confirmed: the Gateway resumes Normal Polling by itself within 5 s"},
   leaseReasons: {released: "released by Home Assistant", idle: "ended by the Gateway after 5 s without a probe", hard_limit: "ended by the Gateway at the 10-minute limit", superseded: "replaced by a newer Scan"},
-  staleWarning: "Entity values of these paused devices are stale until the Scan ends:",
+  staleWarning: "Entity values of these paused Pausable Pollers are stale until the Scan ends:",
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x attempts x (timeout + gateway overhead) + delays).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
   leaseLimitWarning: "This estimate is longer than the 10-minute Scan Lease limit. After 10 minutes the Gateway resumes Normal Polling, and the rest of the Scan shares the Bus with it. To keep Normal Polling paused for the full Scan, scan a smaller range or use a shorter timeout or fewer retries.",
@@ -119,12 +119,12 @@ const en = {
   tutorial: "View mock tutorial source", download: "Download mock tutorial", tutorialLinks:"Tutorial and download links", gateway: "Gateway", availableGateway: "Available gateway",
   simulated: "simulated", simulatedGateway:"Simulated RS-485 Gateway", simulatedMultiBus:"Simulated two-Bus Gateway",
   bus:"Bus", busHelp:"This gateway has several RS-485 Buses. A Scan runs on the chosen Bus; other Buses can scan at the same time, one Scan per Bus.",
-notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies safe bridge defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
+notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies the Gateway's safe defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
   futureHelp: "This identity summary is intentionally disabled; choose the transport using Available gateway above. The backend verifies the enrolled MAC before any read.", refreshGateways: "Refresh gateways",
   scanRange: "Scan range", startId: "Start Slave ID", startHelp: `Inclusive; Modbus unicast addresses are ${SLAVE_MIN}–${SLAVE_MAX$1}.`, endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", mockScenario: "Mock scenario", mockScenarioHelp: "Choose a deterministic fixture. The selected scenario's addresses, outcomes, and terminal state are described below.", quickMockScenarios: "Mock quick scenarios",
   advanced: "Advanced read-only probe settings", probe: "Probe type", holdingRegister: "Holding register read", inputRegister: "Input register read",
-  probeHelp: "In simulated mode the scenario fixes which IDs respond; register reads return deterministic raw values instead of identities.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
+  probeHelp: "In simulated mode the scenario fixes which IDs respond, and register reads return deterministic raw values.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
   timeout: "Timeout (ms)", timeoutHelp: "Per attempt; mock uses it only for the worst-case estimate.", retries: "Retries", retriesHelp: "Additional attempts after the first; mock does not retry.", delay: "Inter-request delay (ms)", delayHelp: "Minimum requested gap; mock has a built-in 10 ms minimum.",
   pause: "Pause normal polling", pauseHelp: "Mock mode has no normal polling. Physical mode requires automatic polling suspension and restoration.", safety: "I understand scans are best-effort and a physical scan can disrupt polling.", start: "Start scan", test: "Test address", cancel: "Cancel",
   statusTitle: "Status and progress", recent: "Recent scan ID (this browser only)", storage: "Preferences and IDs stay in localStorage. Tokens, hosts, frames, replies, and credentials are never stored.", phase: "Phase", noRecent: "No recent scan", noScanId: "No scan ID", progress: "Scan progress", addresses: "addresses", responders: "responders", terminalError: "Terminal error", refreshStatus: "Refresh status", refreshResults: "Refresh results",
@@ -156,12 +156,12 @@ const zh = {
   ...en, title:"Modbus 掃描器",menu:"開啟 Home Assistant 選單",mock:"模擬模式 — 僅限模擬",
   physicalTitle:"實驗功能 — 實體 MODBUS",
   physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
-  physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
-  physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
-  v2Help:`橋接 v2：FC03 或 FC04、任意暫存器、數量 ${COUNT_MIN}–${COUNT_MAX}、逾時 ${TIMEOUT_MIN}–${TIMEOUT_MAX} 毫秒。`,
+  physicalHelp:"橋接協定 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
+  physicalRange:"此舊版閘道支援從站 1–32，包含起訖位址。",
+  v2Help:`橋接協定 v2：FC03 或 FC04、任意暫存器、數量 ${COUNT_MIN}–${COUNT_MAX}、逾時 ${TIMEOUT_MIN}–${TIMEOUT_MAX} 毫秒。`,
   v2Pause:`掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、${IDLE_S} 秒無探測或 ${HARD_LIMIT_MIN} 分鐘後，閘道會自行恢復輪詢。`,
   pollersTitle:"可暫停輪詢元件",pollersBus:(bus)=>`匯流排 ${bus}：掃描時暫停`,
-  pollersHelp:"勾選的元件在掃描期間停止輪詢。未勾選的設備持續回報，其流量會與探測交錯，掃描較慢。此選擇保存在 Home Assistant，依匯流排分別記住。",
+  pollersHelp:"勾選的元件在掃描期間停止輪詢。未勾選的可暫停輪詢元件持續輪詢，其流量會與探測交錯，掃描較慢。此選擇保存在 Home Assistant，依匯流排分別記住。",
   pollersNone:"未暫停任何元件：探測會與一般輪詢交錯。",
   pollersEmpty:"此匯流排沒有可暫停輪詢元件。",
   pollersUnknown:"請先檢查閘道以列出可暫停輪詢元件。",
@@ -171,7 +171,7 @@ const zh = {
   lease:"掃描租約",
   leaseStates:{active:"進行中：一般輪詢已暫停",ended:"已結束：一般輪詢已恢復",unconfirmed:"未確認結束：閘道會在 5 秒內自行恢復一般輪詢"},
   leaseReasons:{released:"由 Home Assistant 釋放",idle:"閘道於 5 秒無探測後結束",hard_limit:"閘道於 10 分鐘上限時結束",superseded:"已由較新的掃描取代"},
-  staleWarning:"下列暫停中設備的實體數值在掃描結束前為過期資料：",
+  staleWarning:"下列暫停中可暫停輪詢元件的實體數值在掃描結束前為過期資料：",
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 × 嘗試次數 ×（逾時 + Gateway 額外時間）+ 間隔）。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
   leaseLimitWarning:"預估時間超過 Scan Lease 的 10 分鐘上限。10 分鐘後 Gateway 會恢復一般輪詢，掃描的其餘部分會與一般輪詢共用匯流排。若要在整個掃描期間保持一般輪詢暫停，請縮小範圍，或縮短逾時、減少重試次數。",
@@ -196,9 +196,9 @@ const zh = {
   missingGateway:"儲存的閘道目前無法使用。請明確選擇可用閘道，不會自動退回模擬。",
   resultGateway:"結果來源（可能與下一次掃描選擇不同）",
   banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
-  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",simulatedMultiBus:"模擬雙匯流排閘道",bus:"匯流排",busHelp:"此閘道有多條 RS-485 匯流排。掃描在所選匯流排上執行；其他匯流排可同時掃描，每條匯流排一次一個掃描。",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
+  gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",simulatedMultiBus:"模擬雙匯流排閘道",bus:"匯流排",busHelp:"此閘道有多條 RS-485 匯流排。掃描在所選匯流排上執行；其他匯流排可同時掃描，每條匯流排一次一個掃描。",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入閘道的安全預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
   scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:`包含此值；Modbus 單播位址為 ${SLAVE_MIN}–${SLAVE_MAX$1}。`,endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",mockScenario:"模擬快速情境",mockScenarioHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickMockScenarios:"模擬快速情境",
-  advanced:"進階唯讀探測設定",probe:"探測類型",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應；暫存器讀取會回傳固定的原始值而非裝置識別。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
+  advanced:"進階唯讀探測設定",probe:"探測類型",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應，暫存器讀取會回傳固定的原始值。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",
   ready:"準備就緒。請重新整理閘道以確認服務可用。",correcting:"請修正標示的欄位。",started:"掃描已開始。",testStarted:"位址測試已開始。",statusRefreshed:"狀態已重新整理。",resultsRefreshed:"結果已重新整理。",cancelRequested:"已要求取消；目前交易可能會先完成。",recentSelected:"已選擇最近掃描。請重新整理狀態或結果；伺服器會保留最近 20 次已結束的掃描，重新啟動後仍保留。",serviceUnavailable:"Home Assistant 連線無法使用。請重新連線後再試。",invalidResponse:"Home Assistant 回傳空白或無效的服務回應。",startMissing:"開始回應未包含掃描 ID。",noChosen:"請先開始掃描或選擇最近的掃描 ID。",noResultsId:"沒有可用於結果的掃描 ID。",noCancel:"沒有可取消的進行中掃描。",unknownState:"掃描 ID 未知或已過期。已清除舊狀態與結果；請開始新掃描或選擇其他最近 ID。",gatewayCount:(n)=>`有 ${n} 個閘道可用。`,noGateway:"沒有可用閘道。請重新載入整合並檢查 Home Assistant 記錄。",finished:(status)=>`掃描已${status === "completed" ? "完成" : "終止"}；已自動載入結果。`,pollingStopped:(error)=>`狀態輪詢已停止：${error} 請用「重新整理狀態」重試。`,terminalLoadFailed:(error)=>`無法載入終止結果：${error}`,
@@ -219,7 +219,7 @@ function stringsFor(hass) {
   return {...base, ...additions, help:{...base.help, unknown:additions.historyHelp}};
 }
 
-// The bridge v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
+// The Bridge Protocol v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
 const HARD = contract.hard_limits;
 const SLAVE_MAX = HARD.slave_max;
 const DOMAIN = "woow_esphome_modbus_scanner";
@@ -250,7 +250,7 @@ const DEFAULTS = Object.freeze({
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
   device_profile_id: "generic", bus: "",
 });
-/** A Bus name as Gateways report it (the bridge v2 identifier charset). */
+/** A Bus name as Gateways report it (the Bridge Protocol v2 identifier charset). */
 const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
 const PARITIES = ["NONE", "EVEN", "ODD"];
 function serialLabel(serial) {
@@ -308,9 +308,9 @@ function outlastsScanLease(estimateMs, gateway) {
 function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
-/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (bridge v2 only). */
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (Bridge Protocol v2 only). */
 const holdsScanLease = (gateway) => isBridgeV2(gateway);
-/** Whether a form (or stored preferences) targets a bridge v2 Gateway. */
+/** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
 const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 /** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
 const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
@@ -438,7 +438,7 @@ const LEASE_END_REASONS = contract.lease.end_reasons;
 const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
 /**
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
- * `stale` names the paused devices whose entity values are frozen while the lease may hold.
+ * `stale` names the paused Pausable Pollers whose entity values are frozen while the lease may hold.
  */
 /** "name (slave address)" of a Pausable Poller from untrusted response data. */
 function pollerLabel(poller) {
@@ -474,7 +474,7 @@ function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
+ * The Pausable Poller checklist of each Bus of a Bridge Protocol v2 Gateway, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
  * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */

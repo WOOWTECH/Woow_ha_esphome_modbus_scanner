@@ -22,14 +22,14 @@
       },
       "esphome_device": {
         "title": "從 ESPHome 裝置登錄閘道",
-        "description": "只列出 ESPHome 整合中的裝置，並使用其主機與 API 加密金鑰；每次連線都會重新從 ESPHome 整合讀取。登錄時會經由 API 核對裝置 MAC 與 modbus_scanner 元件（bridge v2），不發出任何 Modbus 封包。再次選擇已登錄閘道的裝置會更新已儲存的主機與金鑰。",
+        "description": "只列出 ESPHome 整合中的裝置，並使用其主機與 API 加密金鑰；每次連線都會重新從 ESPHome 整合讀取。登錄時會經由 API 核對裝置 MAC 與 modbus_scanner 元件（橋接協定 v2），不發出任何 Modbus 封包。再次選擇已登錄閘道的裝置會更新已儲存的主機與金鑰。",
         "data": {
           "device": "ESPHome 裝置"
         }
       },
       "manual": {
         "title": "手動輸入閘道",
-        "description": "適用於未加入 ESPHome 整合的裝置。輸入已登錄的 MAC 即編輯該閘道：金鑰留空會保留既有金鑰（不會顯示），橋接協定留空則維持原設定。PSK 只設定此整合，不會改動 ESP 韌體。儲存前會透過 ESPHome API 檢查閘道的 MAC 與橋接協定，不會送出 Modbus 封包。",
+        "description": "適用於未加入 ESPHome 整合的裝置。輸入已登錄的 MAC 即編輯該閘道：金鑰留空會保留既有金鑰（不會顯示），橋接協定留空則維持原設定。PSK 只設定此整合，不會改動閘道韌體。儲存前會透過 ESPHome API 檢查閘道的 MAC 與橋接協定，不會送出 Modbus 封包。",
         "data": {
           "host": "ESPHome 主機",
           "mac": "預期 MAC（AA:BB:CC:DD:EE:FF）",
@@ -47,7 +47,7 @@
       },
       "reauth_confirm": {
         "title": "核對 ESPHome API 認證",
-        "description": "選擇閘道並輸入替換金鑰，留空則保留原值。只核對 API 身分與橋接支援，不發出 Modbus 交易，也不改動韌體。",
+        "description": "選擇閘道並輸入替換金鑰，留空則保留原值。只核對 API 身分與橋接協定支援，不發出 Modbus 交易，也不改動韌體。",
         "data": {
           "gateway": "閘道",
           "noise_psk": "API 加密金鑰",
@@ -63,9 +63,9 @@
       "invalid_psk": "請使用 Base64 編碼、解碼後為 32 位元組的 ESPHome API 金鑰。",
       "conflicting_psk": "同一閘道不可同時輸入新金鑰又勾選清除。",
       "invalid_auth": "API 認證失敗，請核對金鑰與韌體加密設定。",
-      "cannot_connect": "無法核對閘道 API 身分與橋接支援；未變更既有設定。",
-      "scanner_missing": "此 ESPHome 裝置未執行 modbus_scanner 元件（bridge v2）。請在其 ESPHome YAML 加入此元件並重燒，然後再登錄一次。",
-      "bridge_mismatch": "裝置的 modbus_scanner 元件 bridge 版本與此整合不符，請將韌體與整合更新到相同版本。",
+      "cannot_connect": "無法核對閘道 API 身分與橋接協定支援；未變更既有設定。",
+      "scanner_missing": "此 ESPHome 裝置未執行 modbus_scanner 元件（橋接協定 v2）。請在其 ESPHome YAML 加入此元件並重燒，然後再登錄一次。",
+      "bridge_mismatch": "裝置的 modbus_scanner 元件橋接協定版本與此整合不符，請將韌體與整合更新到相同版本。",
       "identity_mismatch": "此主機上的裝置回報的 MAC 與預期不同，未登錄任何閘道。"
     },
     "abort": {
@@ -90,11 +90,11 @@
   "issues": {
     "gateway_action_required": {
       "title": "掃描閘道需要處理",
-      "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及橋接韌體版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
+      "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及閘道韌體的橋接協定版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護閘道。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
     },
     "legacy_bridge": {
-      "title": "閘道 {name} 使用已淘汰的舊版 bridge v1",
-      "description": "閘道 {name}（{host}，{mac}）仍執行舊版 bridge v1 韌體。過渡期內仍可依舊版限制運作（站號 1-32、FC03、白名單內的單一暫存器、700 ms），但舊版支援將於日後版本移除。請在該閘道的 ESPHome YAML 加入廠牌中立的 modbus_scanner 元件並重燒，再到本整合的「重新設定」選擇「從 ESPHome 裝置新增或更新閘道」（或以手動方式選 bridge v2）登錄此閘道。閘道改以 bridge v2 登錄後，此問題會自動消失。原廠牌暫存器規格已改為範例 Device Profile（examples/device_profiles/guanjie-ind17.json），可在側欄匯入。"
+      "title": "閘道 {name} 使用已淘汰的橋接協定 v1",
+      "description": "閘道 {name}（{host}，{mac}）仍執行橋接協定 v1 韌體。過渡期內仍可依舊版限制運作（站號 1-32、FC03、白名單內的單一暫存器、700 ms），但舊版支援將於日後版本移除。請在該閘道的 ESPHome YAML 加入廠牌中立的 modbus_scanner 元件並重燒，再到本整合的「重新設定」選擇「從 ESPHome 裝置新增或更新閘道」（或以手動方式選橋接協定 v2）登錄此閘道。閘道改以橋接協定 v2 登錄後，此問題會自動消失。原廠牌暫存器規格已改為範例 Device Profile（examples/device_profiles/guanjie-ind17.json），可在側欄匯入。"
     }
   }
 }

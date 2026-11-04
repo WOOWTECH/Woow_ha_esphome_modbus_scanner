@@ -1,4 +1,4 @@
-// The bridge v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
+// The Bridge Protocol v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
 import contract from "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json" with {type: "json"};
 const HARD = contract.hard_limits;
 const SLAVE_MAX = HARD.slave_max;
@@ -30,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
   device_profile_id: "generic", bus: "",
 });
-/** A Bus name as Gateways report it (the bridge v2 identifier charset). */
+/** A Bus name as Gateways report it (the Bridge Protocol v2 identifier charset). */
 const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
 const PARITIES = ["NONE", "EVEN", "ODD"];
 function serialLabel(serial) {
@@ -88,9 +88,9 @@ export function outlastsScanLease(estimateMs, gateway) {
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
-/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (bridge v2 only). */
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (Bridge Protocol v2 only). */
 export const holdsScanLease = (gateway) => isBridgeV2(gateway);
-/** Whether a form (or stored preferences) targets a bridge v2 Gateway. */
+/** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
 export const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 /** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
 export const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
@@ -218,7 +218,7 @@ const LEASE_END_REASONS = contract.lease.end_reasons;
 const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
 /**
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
- * `stale` names the paused devices whose entity values are frozen while the lease may hold.
+ * `stale` names the paused Pausable Pollers whose entity values are frozen while the lease may hold.
  */
 /** "name (slave address)" of a Pausable Poller from untrusted response data. */
 function pollerLabel(poller) {
@@ -254,7 +254,7 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The Pausable Poller checklist of each Bus of a bridge v2 Gateway, as saved in HA and
+ * The Pausable Poller checklist of each Bus of a Bridge Protocol v2 Gateway, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
  * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
