@@ -42,6 +42,9 @@ LIMITS = ProbeLimits(
     defaults={
         key: PROFILE["defaults"][key]
         for key in (
+            "start_id",
+            "end_id",
+            "address",
             "probe_type",
             "register_address",
             "register_count",

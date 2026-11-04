@@ -1,12 +1,17 @@
 import {hardeningText} from "./hardening-i18n.js";
+// Bridge v2 limits and Scan Lease timers are the contract's (ADR 0005), never copied here.
+import contract from "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json" with {type: "json"};
+const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
+const IDLE_S = contract.lease.idle_ms / 1000;
+const HARD_LIMIT_MIN = contract.lease.hard_limit_ms / 60000;
 const en = {
   title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
   physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
   physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
   physicalHelp: "Bridge v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
   physicalRange: "This physical bridge supports slave IDs 1–32, inclusive.",
-  v2Help: "Bridge v2: FC03 or FC04, any register, 1–4 registers, 100–2000 ms timeout.",
-  v2Pause: "The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, 5 s without a probe or after 10 minutes.",
+  v2Help: `Bridge v2: FC03 or FC04, any register, ${COUNT_MIN}–${COUNT_MAX} registers, ${TIMEOUT_MIN}–${TIMEOUT_MAX} ms timeout.`,
+  v2Pause: `The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, ${IDLE_S} s without a probe or after ${HARD_LIMIT_MIN} minutes.`,
   pollersTitle: "Pausable Pollers", pollersBus: (bus) => `Bus ${bus}: pause during a Scan`,
   pollersHelp: "Checked pollers stop polling for the Scan. Unchecked devices keep reporting, and their traffic interleaves with the probes, so the Scan is slower. Saved in Home Assistant for this Bus.",
   pollersNone: "No poller is paused: probes interleave with Normal Polling.",
@@ -48,7 +53,7 @@ const en = {
   bus:"Bus", busHelp:"This gateway has several RS-485 Buses. A Scan runs on the chosen Bus; other Buses can scan at the same time, one Scan per Bus.",
 notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies safe bridge defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
   futureHelp: "This identity summary is intentionally disabled; choose the transport using Available gateway above. The backend verifies the enrolled MAC before any read.", refreshGateways: "Refresh gateways",
-  scanRange: "Scan range", startId: "Start Slave ID", startHelp: "Inclusive; Modbus unicast addresses are 1–247.", endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
+  scanRange: "Scan range", startId: "Start Slave ID", startHelp: `Inclusive; Modbus unicast addresses are ${SLAVE_MIN}–${SLAVE_MAX}.`, endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", mockScenario: "Mock scenario", mockScenarioHelp: "Choose a deterministic fixture. The selected scenario's addresses, outcomes, and terminal state are described below.", quickMockScenarios: "Mock quick scenarios",
   advanced: "Advanced read-only probe settings", probe: "Probe type", holdingRegister: "Holding register read", inputRegister: "Input register read",
   probeHelp: "In simulated mode the scenario fixes which IDs respond; register reads return deterministic raw values instead of identities.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
@@ -85,8 +90,8 @@ const zh = {
   physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
   physicalHelp:"橋接 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
   physicalRange:"此實體橋接支援從站 1–32，包含起訖位址。",
-  v2Help:"橋接 v2：FC03 或 FC04、任意暫存器、數量 1–4、逾時 100–2000 毫秒。",
-  v2Pause:"掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、5 秒無探測或 10 分鐘後，閘道會自行恢復輪詢。",
+  v2Help:`橋接 v2：FC03 或 FC04、任意暫存器、數量 ${COUNT_MIN}–${COUNT_MAX}、逾時 ${TIMEOUT_MIN}–${TIMEOUT_MAX} 毫秒。`,
+  v2Pause:`掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、${IDLE_S} 秒無探測或 ${HARD_LIMIT_MIN} 分鐘後，閘道會自行恢復輪詢。`,
   pollersTitle:"可暫停輪詢元件",pollersBus:(bus)=>`匯流排 ${bus}：掃描時暫停`,
   pollersHelp:"勾選的元件在掃描期間停止輪詢。未勾選的設備持續回報，其流量會與探測交錯，掃描較慢。此選擇保存在 Home Assistant，依匯流排分別記住。",
   pollersNone:"未暫停任何元件：探測會與一般輪詢交錯。",
@@ -124,7 +129,7 @@ const zh = {
   resultGateway:"結果來源（可能與下一次掃描選擇不同）",
   banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
   gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",simulatedMultiBus:"模擬雙匯流排閘道",bus:"匯流排",busHelp:"此閘道有多條 RS-485 匯流排。掃描在所選匯流排上執行；其他匯流排可同時掃描，每條匯流排一次一個掃描。",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入橋接預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
-  scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:"包含此值；Modbus 單播位址為 1–247。",endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",mockScenario:"模擬快速情境",mockScenarioHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickMockScenarios:"模擬快速情境",
+  scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:`包含此值；Modbus 單播位址為 ${SLAVE_MIN}–${SLAVE_MAX}。`,endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",mockScenario:"模擬快速情境",mockScenarioHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickMockScenarios:"模擬快速情境",
   advanced:"進階唯讀探測設定",probe:"探測類型",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應；暫存器讀取會回傳固定的原始值而非裝置識別。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",

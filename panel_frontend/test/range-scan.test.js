@@ -4,15 +4,11 @@ import {
   DEFAULTS, estimatedDurationMs, needsLargeRangeConfirmation, safePreferences, sanitizePreferences,
   selectGateway, serviceYaml, startPayload, validateForm,
 } from "../src/model.js";
-
-const V2_GATEWAY = {
-  provider: "esphome", gateway_id: "esphome:aabbccddee01", name: "ESPHome Modbus DDEE01",
-  capabilities: ["bridge_v2", "holding_register", "input_register", "multi_register"], can_operate: true,
-};
+import {V2_GATEWAY} from "./gateways.js";
 const v2Form = (changes = {}) => ({...selectGateway(DEFAULTS, V2_GATEWAY), safety_confirmed: true, ...changes});
 
 // The Gateway as list_gateways reports it: limits carry the per-attempt overhead of its bridge.
-const LISTED_V2 = {...V2_GATEWAY, limits: {attempt_overhead_ms: 300}};
+const LISTED_V2 = V2_GATEWAY;
 
 test("estimated duration uses the service's formula, retries and the gateway's overhead", () => {
   // The service's worked example (tests/services/test_bridge_v2.py): 3 IDs x 2 attempts x

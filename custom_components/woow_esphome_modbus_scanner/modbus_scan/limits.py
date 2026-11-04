@@ -132,4 +132,9 @@ class ProbeLimits:
             "pause_normal_polling_supported": self.pause_normal_polling_supported,
             # The panel's duration estimate uses the same formula as the service's.
             "attempt_overhead_ms": self.timing.attempt_overhead_ms,
+            # The panel fills its form from these, so it keeps no per-Gateway copy.
+            "defaults": {
+                key: str(value) if isinstance(value, ProbeType) else value
+                for key, value in self.defaults.items()
+            },
         }

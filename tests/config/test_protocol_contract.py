@@ -1,7 +1,7 @@
 """The bridge v2 contract file is the only cross-language protocol source.
 
-HA's v2 adapter, the HA fake Gateway and the host-compiled firmware tests all read the same
-``contract.json``; CI runs the firmware tests against that file. The former three-way
+HA's v2 adapter, the HA fake Gateway, the panel and the host-compiled firmware tests all read the
+same ``contract.json``; CI runs the firmware tests against that file. The former three-way
 profile generator (one Python, one JS and one C++ copy of the vendor profile) is gone.
 """
 
@@ -44,9 +44,11 @@ def test_ha_adapter_reads_the_shared_contract_file():
     assert contract.CONTRACT == json.loads((ROOT / CONTRACT_PATH).read_text(encoding="utf-8"))
 
 
-def test_ha_fake_gateway_and_firmware_tests_read_the_same_contract_file():
+def test_ha_fake_gateway_panel_and_firmware_tests_read_the_same_contract_file():
     fake_gateway = (ROOT / "tests/services/test_bridge_v2.py").read_text(encoding="utf-8")
     assert CONTRACT_PATH in fake_gateway
+    panel_model = (ROOT / "panel_frontend/src/model.js").read_text(encoding="utf-8")
+    assert f"../../{CONTRACT_PATH}" in panel_model  # its fallback limits, bundled at build time
     firmware_test = (ROOT / "firmware/tests/scanner_core_test.cpp").read_text(encoding="utf-8")
     assert CONTRACT_PATH in firmware_test  # its default; CI passes the path explicitly too
     ci_runs = "\n".join(_run_steps("tests"))
@@ -113,22 +115,6 @@ def test_generic_device_profile_bounds_are_the_contract_hard_limits():
             assert f"FC{code:02d} is a write function code" in str(err)
         else:
             raise AssertionError(f"FC{code} was accepted")
-
-
-def test_panel_bridge_v2_defaults_are_the_v2_adapters_defaults():
-    """The panel's V2_DEFAULTS mirror what the v2 adapter fills in for omitted fields."""
-    import re
-
-    from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2.provider import (
-        LIMITS,
-    )
-
-    model = (ROOT / "panel_frontend/src/model.js").read_text(encoding="utf-8")
-    literal = re.search(r"export const V2_DEFAULTS = Object\.freeze\(\{(.*?)\}\);", model, re.S)
-    body = re.sub(r"(\w+):", r'"\1":', literal.group(1)).strip().rstrip(",")
-    panel = json.loads("{" + body + "}")
-    assert panel == {key: str(value) if isinstance(value, str) else value
-                     for key, value in LIMITS.defaults.items()}
 
 
 def test_inter_request_delay_cap_leaves_the_lease_idle_time_for_round_trips():

@@ -1,18 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {DEFAULTS, PHYSICAL_PROFILE, boundsFor, selectGateway, serviceYaml, supportedGateway, evidenceExport} from "../src/model.js";
+import {DEFAULTS, boundsFor, selectGateway, serviceYaml, supportedGateway, evidenceExport} from "../src/model.js";
+import {LEGACY_GATEWAY} from "./gateways.js";
 
-test("capability contract is recursively immutable and unknown profiles fail closed", () => {
-  assert.throws(() => PHYSICAL_PROFILE.limits.slave_max = 247, TypeError);
-  assert.throws(() => PHYSICAL_PROFILE.allowed_registers.push(0), TypeError);
+test("a physical Gateway that reports no limits fails closed", () => {
   assert.equal(supportedGateway({provider:"esphome"}), false);
   assert.equal(supportedGateway({provider:"esphome",profile:{profile_hash:"wrong"}}), false);
-  assert.equal(supportedGateway({provider:"esphome",profile:PHYSICAL_PROFILE}), true);
+  assert.equal(supportedGateway({provider:"esphome",limits:[]}), false);
+  assert.equal(supportedGateway(LEGACY_GATEWAY), true);
 });
 
-test("physical controls and service YAML share the generated defaults", () => {
-  const gateway = {provider:"esphome",gateway_id:"esphome:aabbccddeeff",profile:PHYSICAL_PROFILE};
-  const form = selectGateway(DEFAULTS, gateway);
+test("physical controls and service YAML share the Gateway's reported defaults", () => {
+  const form = selectGateway(DEFAULTS, LEGACY_GATEWAY);
   assert.deepEqual(boundsFor(form).timeout_ms, [700,700]);
   assert.throws(() => serviceYaml(form));
   const yaml = serviceYaml({...form,safety_confirmed:true});

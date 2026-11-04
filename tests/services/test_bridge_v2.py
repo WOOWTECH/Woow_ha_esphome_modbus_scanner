@@ -396,6 +396,16 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "pause_normal_polling_required": False,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 300,
+        # What the adapter fills in for omitted fields; the panel's form starts from them.
+        "defaults": {
+            "probe_type": "holding_register",
+            "register_address": 0,
+            "register_count": 1,
+            "timeout_ms": 1000,
+            "retries": 0,
+            "inter_request_delay_ms": 100,
+            "pause_normal_polling": True,
+        },
     }
 
 

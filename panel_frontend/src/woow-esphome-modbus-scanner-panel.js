@@ -6,7 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, outlastsScanLease, probedWithoutLease, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
-  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileBus, INTEGER_BOUNDS, isLegacyGatewayForm,
+  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileGateway, INTEGER_BOUNDS, isLegacyGatewayForm,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -103,8 +103,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     this._form = selectBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id), bus);
     this._persist();
   }
-  _reconcileBus() {
-    this._form = reconcileBus(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id && g.provider === this._form.provider));
+  _reconcileGateway() {
+    this._form = reconcileGateway(this._form, this._gateways.find((g) => g.gateway_id === this._form.gateway_id && g.provider === this._form.provider));
   }
   _set(name, value) {
     this._yaml = "";
@@ -146,7 +146,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       if (!Array.isArray(payload.gateways)) throw new Error(this._text.noGateway);
       this._gateways = payload.gateways;
       this._loaded = true;
-      this._reconcileBus();
+      this._reconcileGateway();
       // Never silently replace a saved physical gateway with mock mode.
       const available = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
       this._message = !available ? this._text.missingGateway : this._text.gatewayCount(this._gateways.length);
@@ -220,7 +220,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       if (generation !== this._operationGeneration || !this.isConnected) return;
       // The check learns the Gateway's Buses (with their serial parameters).
       this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
-      this._reconcileBus();
+      this._reconcileGateway();
       this._message = this._text.healthChecked;
     });
   }
@@ -481,7 +481,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           ${isBridgeV2(gateway) && gatewayAvailable ? html`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : nothing}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => html`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
-            ${this._field("start_id", t.startId, 1, 247, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, 1, 247, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, 1, 247, v1 ? t.physicalRange : t.addressHelp)}
+            ${this._field("start_id", t.startId, ...INTEGER_BOUNDS.start_id, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, ...INTEGER_BOUNDS.end_id, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, ...INTEGER_BOUNDS.address, v1 ? t.physicalRange : t.addressHelp)}
             <div class="field"><label for="profile">${t.mockScenario}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((scenario) => html`<option value=${scenario} .selected=${scenario === selectedScenario}>${t.mockScenarioNames[scenario]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.mockScenarioHelp}</small></div>
           </div><div class="profiles" aria-label=${t.quickMockScenarios}>${MOCK_SCENARIOS.map((scenario) => { const selected = selectedScenario === scenario; return html`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", scenario)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.mockScenarioNames[scenario]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.mockScenarioNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.mockScenarioDetails[selectedScenario]}</p></div>

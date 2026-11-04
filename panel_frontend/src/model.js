@@ -1,5 +1,7 @@
-import {PHYSICAL_PROFILE} from "./legacy-v1-profile.js";
-export {PHYSICAL_PROFILE} from "./legacy-v1-profile.js";
+// The bridge v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
+import contract from "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json" with {type: "json"};
+const HARD = contract.hard_limits;
+const SLAVE_MAX = HARD.slave_max;
 export const DOMAIN = "woow_esphome_modbus_scanner";
 export const SERVICES = Object.freeze([
   "check_gateway", "get_history",
@@ -60,42 +62,29 @@ export function reconcileBus(form, gateway) {
   const bus = initialBus(gateway, form.bus);
   return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
 }
+const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
 /** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
 export const GENERIC_PROFILE = Object.freeze({
   id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
-  function_codes: [3, 4], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
-  limits: Object.freeze({slave_min: 1, slave_max: 247, probe_types: ["holding_register", "input_register"],
-    register_count_max: 4, allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000}),
+  function_codes: [...HARD.function_codes], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
+  limits: Object.freeze({slave_min: HARD.slave_min, slave_max: HARD.slave_max,
+    probe_types: HARD.function_codes.map((code) => FUNCTION_CODE_PROBES[code]),
+    register_count_max: HARD.count_max, allowed_registers: null, timeout_ms_min: HARD.timeout_ms_min, timeout_ms_max: HARD.timeout_ms_max}),
 });
 const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
 /** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
 export const LARGE_RANGE_THRESHOLD = 32;
+/** Bounds until a Gateway reports its limits; the slave range is the contract's. */
 export const INTEGER_BOUNDS = Object.freeze({
-  start_id: [1, 247], end_id: [1, 247], address: [1, 247],
+  start_id: [HARD.slave_min, SLAVE_MAX], end_id: [HARD.slave_min, SLAVE_MAX], address: [HARD.slave_min, SLAVE_MAX],
   register_address: [0, 65535], register_count: [1, 125],
   timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
-export const PHYSICAL_REGISTERS = PHYSICAL_PROFILE.allowed_registers;
-export const PHYSICAL_DEFAULTS = PHYSICAL_PROFILE.defaults;
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
-/** Hard limits of bridge v2 Gateways (the contract file's hard_limits; a model test checks them). */
-export const V2_LIMITS = Object.freeze({
-  slave_min: 1, slave_max: 247, register_count_max: 4, timeout_ms_min: 100, timeout_ms_max: 2000,
-  // The contract's lease.inter_request_delay_max_ms: below the lease idle time, so a Scan's own gaps never end it.
-  inter_request_delay_ms_max: 3000,
-  probe_types: Object.freeze(["holding_register", "input_register"]),
-});
-/** Scan Lease timers of bridge v2 Gateways (the contract file's lease; a model test checks them). */
-export const V2_LEASE = Object.freeze({idle_ms: 5000, hard_limit_ms: 600000});
-/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a bridge v2 Gateway. */
+/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a bridge v2 Gateway (the contract's hard limit). */
 export function outlastsScanLease(estimateMs, gateway) {
-  return isBridgeV2(gateway) && Number.isFinite(estimateMs) && estimateMs > V2_LEASE.hard_limit_ms;
+  return isBridgeV2(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
-export const V2_DEFAULTS = Object.freeze({
-  probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
-  retries: 0, inter_request_delay_ms: 100, pause_normal_polling: true,
-});
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
@@ -107,21 +96,38 @@ export const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isB
 export function boundsFor(form, profile = GENERIC_PROFILE) {
   const gateway = gatewayBoundsFor(form);
   const l = profile?.limits || GENERIC_PROFILE.limits;
-  const meet = ([low, high], min, max) => [Math.max(low, min), Math.min(high, max)];
   return {...gateway,
     start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),
     address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
     timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
 }
+/** The limits a Gateway reports in list_gateways (ProbeLimits.as_dict), or null. */
+function reportedLimits(gateway) {
+  const limits = gateway?.limits;
+  return limits && typeof limits === "object" && !Array.isArray(limits) ? limits : null;
+}
+const meet = ([low, high], min, max) => [Math.max(low, Number.isInteger(min) ? min : low), Math.min(high, Number.isInteger(max) ? max : high)];
 function gatewayBoundsFor(form) {
-  if (isBridgeV2Form(form)) {
-    const slaves = [V2_LIMITS.slave_min, V2_LIMITS.slave_max];
+  const reported = reportedLimits({limits: form.gateway_limits});
+  if (reported) {
+    const slaves = meet(INTEGER_BOUNDS.address, reported.slave_min, reported.slave_max);
     return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
-      register_count: [1, V2_LIMITS.register_count_max], timeout_ms: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max],
-      inter_request_delay_ms: [0, V2_LIMITS.inter_request_delay_ms_max]};
+      register_count: meet(INTEGER_BOUNDS.register_count, 1, reported.register_count_max),
+      timeout_ms: meet(INTEGER_BOUNDS.timeout_ms, reported.timeout_ms_min, reported.timeout_ms_max),
+      inter_request_delay_ms: meet(INTEGER_BOUNDS.inter_request_delay_ms, 0, reported.inter_request_delay_ms_max)};
   }
-  const l = PHYSICAL_PROFILE.limits;
-  return form.provider === "esphome" ? {...INTEGER_BOUNDS, start_id:[l.slave_min,l.slave_max], end_id:[l.slave_min,l.slave_max], address:[l.slave_min,l.slave_max], register_count:[l.register_count,l.register_count], timeout_ms:[l.timeout_ms,l.timeout_ms], retries:[0,l.retries_max], inter_request_delay_ms:[0,Math.min(l.inter_request_delay_max_ms,INTEGER_BOUNDS.inter_request_delay_ms[1])]} : INTEGER_BOUNDS;
+  return INTEGER_BOUNDS;
+}
+/** The form fields a Gateway's reported defaults may set, checked like stored preferences. */
+function reportedDefaults(limits) {
+  const source = limits?.defaults && typeof limits.defaults === "object" ? limits.defaults : {};
+  const defaults = {};
+  for (const [name, [minimum, maximum]] of Object.entries(INTEGER_BOUNDS)) {
+    if (Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) defaults[name] = source[name];
+  }
+  if (PROBE_TYPES.includes(source.probe_type)) defaults.probe_type = source.probe_type;
+  if (typeof source.pause_normal_polling === "boolean") defaults.pause_normal_polling = source.pause_normal_polling;
+  return defaults;
 }
 /** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
 export function selectDeviceProfile(form, profile) {
@@ -143,13 +149,44 @@ export function profileLabel(record) {
   if (!p || typeof p.id !== "string") return null;
   return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
 }
+/** Target a Gateway: the limits it reports bound the form and the defaults it reports fill it. */
 export function selectGateway(form, gateway) {
-  const bus = initialBus(gateway);
-  if (isBridgeV2(gateway)) {
-    return {...form, ...V2_DEFAULTS, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:"v2", bus, safety_confirmed:false};
+  const limits = reportedLimits(gateway);
+  const bridge = isBridgeV2(gateway) ? "v2" : gateway.provider === "esphome" ? "v1" : "";
+  return {...form, ...(gateway.provider === "mock" ? DEFAULTS : {}), ...reportedDefaults(limits), provider:gateway.provider,
+    gateway_id:gateway.gateway_id, bridge, bus:initialBus(gateway), gateway_limits:limits, safety_confirmed:false};
+}
+/**
+ * Revalidate a restored or kept form once its gateway is (re)loaded: when the limits the Gateway
+ * reports are new to the form, values outside them fall back to its defaults; then the Bus is revalidated.
+ */
+export function reconcileGateway(form, gateway) {
+  if (!gateway) return form;
+  const limits = reportedLimits(gateway);
+  const next = {...form, gateway_limits: limits};
+  if (limits && JSON.stringify(limits) !== JSON.stringify(form.gateway_limits ?? null)) {
+    const defaults = reportedDefaults(limits);
+    for (const [name, [minimum, maximum]] of Object.entries(gatewayBoundsFor(next))) {
+      const value = Number(next[name]);
+      if (wholeNumber(next[name]) && value >= minimum && value <= maximum) continue;
+      next[name] = name in defaults ? defaults[name] : Math.min(Math.max(Number.isInteger(value) ? value : minimum, minimum), maximum);
+    }
+    if (Number(next.start_id) > Number(next.end_id)) {
+      next.start_id = defaults.start_id ?? next.start_id;
+      next.end_id = defaults.end_id ?? next.start_id;
+    }
+    const probes = limits.probe_types;
+    if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = defaults.probe_type ?? probes[0];
+    const allowed = limits.allowed_registers;
+    if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) {
+      next.register_address = defaults.register_address ?? allowed[0];
+    }
+    // The panel offers no Normal Polling choice for physical Gateways; their defaults decide it.
+    if (next.provider === "esphome" && "pause_normal_polling" in defaults) next.pause_normal_polling = defaults.pause_normal_polling;
+    if (limits.pause_normal_polling_required === true) next.pause_normal_polling = true;
+    if (Object.keys(DEFAULTS).some((key) => next[key] !== form[key])) Object.assign(next, {safety_confirmed: false, large_range_confirmed: false});
   }
-  const defaults = gateway.provider === "esphome" ? PHYSICAL_DEFAULTS : DEFAULTS;
-  return {...form, ...defaults, provider:gateway.provider, gateway_id:gateway.gateway_id, bridge:gateway.provider === "esphome" ? "v1" : "", bus, safety_confirmed:false};
+  return reconcileBus(next, gateway);
 }
 /** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
 export function formatRawValues(row) {
@@ -183,7 +220,7 @@ const EARLY_END_REASONS = ["idle", "hard_limit", "superseded"];
 /** "name (slave address)" of a Pausable Poller from untrusted response data. */
 function pollerLabel(poller) {
   const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
-  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= 247 ? `${name} (${poller.address})` : name;
+  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= SLAVE_MAX ? `${name} (${poller.address})` : name;
 }
 const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) => poller && typeof poller === "object") : [];
 export function leaseNotice(status) {
@@ -203,7 +240,7 @@ export function leaseNotice(status) {
  */
 function leaseEndedAfter(status, reason) {
   const after = status?.lease_ended_after_address;
-  return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= 247 ? after : null;
+  return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= SLAVE_MAX ? after : null;
 }
 /** Whether a Responder row was probed after the Scan Lease ended early at `endedAfter` (leaseNotice). */
 export function probedWithoutLease(endedAfter, row) {
@@ -267,17 +304,14 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
   }
-  if (isBridgeV2Form(form)) {
-    const message = text.v2 || "Bridge v2 reads FC03/FC04 only.";
-    if (!V2_LIMITS.probe_types.includes(form.probe_type)) errors.probe_type = message;
-    if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
-      errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
-    }
-  } else if (form.provider === "esphome") {
-    const message = text.physical || "Physical bridge requires FC03, one allowed register, 700 ms timeout and polling pause.";
-    if (form.probe_type !== "holding_register") errors.probe_type = message;
-    if (!PHYSICAL_REGISTERS.includes(Number(form.register_address))) errors.register_address = message;
-    if (form.pause_normal_polling !== true) errors.pause_normal_polling = message;
+  const limits = reportedLimits({limits: form.gateway_limits});
+  // The Gateway's own limits, as it reports them.
+  const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
+  if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
+  if (limits?.pause_normal_polling_required === true && form.pause_normal_polling !== true) errors.pause_normal_polling = gatewayText;
+  if (limits?.pause_normal_polling_supported === false && form.pause_normal_polling === true) errors.pause_normal_polling = gatewayText;
+  if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
+    errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
   }
   const probes = profile?.limits?.probe_types;
   if (!errors.probe_type && Array.isArray(probes) && !probes.includes(form.probe_type)) {
@@ -286,6 +320,10 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
   const allowed = profile?.allowed_registers;
   // Every register of the block is read, so every one must be allowed.
   const block = Array.from({length: Math.max(1, Number(form.register_count) || 1)}, (_, i) => Number(form.register_address) + i);
+  const gatewayAllowed = limits?.allowed_registers;
+  if (!errors.register_address && !errors.register_count && Array.isArray(gatewayAllowed) && block.some((reg) => !gatewayAllowed.includes(reg))) {
+    errors.register_address = gatewayText;
+  }
   if (!errors.register_address && !errors.register_count && Array.isArray(allowed) && block.some((reg) => !allowed.includes(reg))) {
     errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
   }
@@ -317,7 +355,8 @@ export function startPayload(form) {
 }
 export function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 export function supportedGateway(gateway) {
-  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && gateway.profile?.profile_hash === PHYSICAL_PROFILE.profile_hash);
+  // A Legacy Gateway is usable once HA reports its limits; the panel keeps no copy of them.
+  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && reportedLimits(gateway) !== null);
 }
 export function serviceYaml(form, profile = GENERIC_PROFILE) {
   if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
@@ -333,9 +372,9 @@ export function evidenceExport(status, results) {
     provider:["mock","esphome"].includes(results?.provider) ? results.provider : "unknown",
     status:["running","completed","cancelled","failed"].includes(results?.status) ? results.status : "unknown",
     recovery_status:["unknown","pending","verified","failed"].includes(status?.recovery_status) ? status.recovery_status : "unknown",
-    outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],247) ?? 0])),
-    responders:(results?.responders || []).slice(0,247).map((row) => ({
-      address:integer(row.address,247), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
+    outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],SLAVE_MAX) ?? 0])),
+    responders:(results?.responders || []).slice(0,SLAVE_MAX).map((row) => ({
+      address:integer(row.address,SLAVE_MAX), outcome:OUTCOMES.includes(row.outcome) ? row.outcome : "unknown",
       latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
       register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
       raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,
@@ -368,26 +407,11 @@ export function sanitizePreferences(value) {
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;
-  if (isBridgeV2Form(source)) {
+  // Checked against the limits the gateway reports once the gateway list loads (reconcileGateway).
+  if (source.provider === "esphome") {
     form.provider = "esphome";
-    form.bridge = "v2";
+    form.bridge = isBridgeV2Form(source) ? "v2" : "v1";
     form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
-    const [countMin, countMax] = [1, V2_LIMITS.register_count_max];
-    if (form.register_count < countMin || form.register_count > countMax) form.register_count = V2_DEFAULTS.register_count;
-    if (form.timeout_ms < V2_LIMITS.timeout_ms_min || form.timeout_ms > V2_LIMITS.timeout_ms_max) form.timeout_ms = V2_DEFAULTS.timeout_ms;
-    if (!V2_LIMITS.probe_types.includes(form.probe_type)) form.probe_type = V2_DEFAULTS.probe_type;
-    if (form.inter_request_delay_ms > V2_LIMITS.inter_request_delay_ms_max) form.inter_request_delay_ms = V2_DEFAULTS.inter_request_delay_ms;
-    // A v2 Scan pauses the Pausable Pollers saved in HA for its Bus (set_pausable_pollers).
-    form.pause_normal_polling = true;
-  } else if (source.provider === "esphome") {
-    form.provider = "esphome";
-    form.bridge = "v1";
-    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
-    // Migrate old incompatible preferences, without silently changing provider.
-    for (const key of ["probe_type", "register_count", "timeout_ms", "pause_normal_polling"]) form[key] = PHYSICAL_DEFAULTS[key];
-    if (!PHYSICAL_REGISTERS.includes(form.register_address)) form.register_address = PHYSICAL_DEFAULTS.register_address;
-    for (const key of ["start_id", "end_id", "address"]) if (form[key] > PHYSICAL_PROFILE.limits.slave_max) form[key] = PHYSICAL_DEFAULTS[key];
-    if (form.start_id > form.end_id) {form.start_id = PHYSICAL_DEFAULTS.start_id; form.end_id = PHYSICAL_DEFAULTS.end_id;}
   }
   return {form, advancedOpen: value.advancedOpen === true};
 }

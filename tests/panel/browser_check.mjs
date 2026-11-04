@@ -5,7 +5,11 @@ import {mkdir} from "node:fs/promises";
 import {createServer} from "node:http";
 import {resolve, sep} from "node:path";
 import {chromium} from "../../panel_frontend/node_modules/playwright/index.mjs";
-import {PHYSICAL_PROFILE} from "../../panel_frontend/src/legacy-v1-profile.js";
+// A Legacy Gateway's limits as list_gateways reports them (the frozen bridge v1 profile, ADR 0004).
+const LEGACY_LIMITS = {slave_min:1,slave_max:32,probe_types:['holding_register'],register_count_max:1,
+  allowed_registers:[25089,25090,25091,25093,25094,24837,24833,24834,24835,24836,24838,24849,24850],timeout_ms_min:700,timeout_ms_max:700,
+  inter_request_delay_ms_max:5000,pause_normal_polling_required:true,pause_normal_polling_supported:true,attempt_overhead_ms:2700,
+  defaults:{start_id:1,end_id:3,address:1,probe_type:'holding_register',register_address:25089,register_count:1,timeout_ms:700,retries:0,inter_request_delay_ms:250,pause_normal_polling:true}};
 
 const root = resolve(process.cwd(), "..");
 const screenshots = process.env.SCANNER_SCREENSHOTS_DIR ? resolve(process.env.SCANNER_SCREENSHOTS_DIR) : resolve(root, "docs/screenshots");
@@ -242,8 +246,9 @@ try {
   await restorePage.evaluate(async () => {panel._gateways=[...panel._gateways,{provider:'esphome',gateway_id:'esphome:aabbccddeeff',name:'Synthetic bridge',simulated:false}];await panel.updateComplete;});
   check(await restored.locator('#gateway').inputValue()==='esphome:aabbccddeeff','late option insertion changed the displayed gateway');
   check(await restored.getByRole('button',{name:'Test address',exact:true}).isDisabled(),'unknown capability profile allowed physical reads');
-  await restorePage.evaluate(async (profile) => {panel._gateways=panel._gateways.map((g)=>g.provider==='esphome'?{...g,profile,can_operate:true}:g);await panel.updateComplete;},PHYSICAL_PROFILE);
-  check(await restored.getByRole('button',{name:'Test address',exact:true}).isEnabled(),'verified configured profile remains disabled');
+  await restorePage.evaluate(async (limits) => {panel._gateways=panel._gateways.map((g)=>g.provider==='esphome'?{...g,limits,can_operate:true}:g);panel._reconcileGateway();await panel.updateComplete;},LEGACY_LIMITS);
+  check(await restored.getByRole('button',{name:'Test address',exact:true}).isEnabled(),'Legacy Gateway reporting its limits remains disabled');
+  check(await restored.locator('#end_id').getAttribute('max')==='32','form limits do not follow the limits the Legacy Gateway reports');
   await restored.getByRole('button',{name:'Check API only',exact:true}).click();
   await restored.getByText('API check finished. This is not a fresh bus probe.',{exact:true}).waitFor();
   check(await restorePage.evaluate(()=>calls.filter(c=>c.service==='test_address'||c.service==='start_scan').length===0),'API check issued a scan');

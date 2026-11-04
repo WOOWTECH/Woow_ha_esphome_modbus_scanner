@@ -2,31 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {
-  DEFAULTS, INTEGER_BOUNDS, V2_LEASE, V2_LIMITS, boundsFor, estimatedDurationMs, outlastsScanLease, probedWithoutLease, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
-  selectGateway, startPayload, supportedGateway, testPayload, validateForm,
+  DEFAULTS, GENERIC_PROFILE, INTEGER_BOUNDS, boundsFor, estimatedDurationMs, outlastsScanLease, probedWithoutLease, formatRawValues, leaseNotice, safePreferences, sanitizePreferences,
+  reconcileGateway, selectGateway, startPayload, supportedGateway, testPayload, validateForm,
 } from "../src/model.js";
+import {LEGACY_GATEWAY, V2_GATEWAY} from "./gateways.js";
 
 const contract = JSON.parse(readFileSync(new URL(
   "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json", import.meta.url,
 ), "utf8"));
-const V2_GATEWAY = {
-  provider: "esphome", gateway_id: "esphome:aabbccddee01", name: "ESPHome Modbus DDEE01",
-  capabilities: ["bridge_v2", "holding_register", "input_register", "multi_register"], can_operate: true,
-};
-
-test("panel v2 limits are the contract's hard limits", () => {
-  const hard = contract.hard_limits;
-  assert.deepEqual(
-    {slave: [V2_LIMITS.slave_min, V2_LIMITS.slave_max], count: V2_LIMITS.register_count_max,
-      timeout: [V2_LIMITS.timeout_ms_min, V2_LIMITS.timeout_ms_max]},
-    {slave: [hard.slave_min, hard.slave_max], count: hard.count_max,
-      timeout: [hard.timeout_ms_min, hard.timeout_ms_max]},
-  );
-});
-
-test("panel Scan Lease timers are the contract's", () => {
-  assert.deepEqual({...V2_LEASE}, {idle_ms: contract.lease.idle_ms, hard_limit_ms: contract.lease.hard_limit_ms});
-});
 
 test("a v2 range scan estimated past the lease hard limit is flagged", () => {
   const form = {...selectGateway(DEFAULTS, V2_GATEWAY), start_id: 1, end_id: 247, timeout_ms: 2000, retries: 2};
@@ -40,14 +23,13 @@ test("a v2 range scan estimated past the lease hard limit is flagged", () => {
 
 test("the contract caps the inter-request delay of bridge v2 Gateways only", () => {
   const cap = contract.lease.inter_request_delay_max_ms;
-  assert.equal(V2_LIMITS.inter_request_delay_ms_max, cap);
   const v2 = selectGateway(DEFAULTS, V2_GATEWAY);
   assert.deepEqual(boundsFor(v2).inter_request_delay_ms, [0, cap]);
   assert.ok(validateForm({...v2, inter_request_delay_ms: cap + 1}, true).inter_request_delay_ms);
-  const stored = {form: {provider: "esphome", bridge: "v2", inter_request_delay_ms: cap + 1}};
-  assert.equal(sanitizePreferences(stored).form.inter_request_delay_ms, DEFAULTS.inter_request_delay_ms);
+  const stored = {form: {provider: "esphome", bridge: "v2", gateway_id: V2_GATEWAY.gateway_id, inter_request_delay_ms: cap + 1}};
+  assert.equal(reconcileGateway(sanitizePreferences(stored).form, V2_GATEWAY).inter_request_delay_ms, 100);
   // A Legacy Gateway has no Scan Lease and keeps its frozen 5000 ms.
-  const v1 = {...DEFAULTS, provider: "esphome", bridge: "v1", gateway_id: "esphome:aabbccddeeff"};
+  const v1 = selectGateway(DEFAULTS, LEGACY_GATEWAY);
   assert.deepEqual(boundsFor(v1).inter_request_delay_ms, [0, 5000]);
   assert.equal(validateForm({...v1, inter_request_delay_ms: cap + 1}, true).inter_request_delay_ms, undefined);
   assert.equal(INTEGER_BOUNDS.inter_request_delay_ms[1], 5000);
@@ -77,15 +59,15 @@ test("v2 form accepts any register, FC04 and up to four registers, within hard l
   assert.deepEqual(Object.keys(bad).sort(), ["probe_type", "register_count", "timeout_ms"]);
 });
 
-test("v2 preferences survive a reload and are clamped to v2 limits", () => {
+test("v2 preferences survive a reload and are clamped to the limits the Gateway reports", () => {
   const saved = safePreferences({...selectGateway(DEFAULTS, V2_GATEWAY), register_count: 3, address: 200});
-  const restored = sanitizePreferences(saved);
+  const restored = {form: reconcileGateway(sanitizePreferences(saved).form, V2_GATEWAY)};
   assert.equal(restored.form.bridge, "v2");
   assert.equal(restored.form.gateway_id, V2_GATEWAY.gateway_id);
   assert.equal(restored.form.register_count, 3);
   assert.equal(restored.form.address, 200);
-  const clamped = sanitizePreferences({form: {...saved.form, register_count: 50, timeout_ms: 5000,
-    pause_normal_polling: false}});
+  const clamped = {form: reconcileGateway(sanitizePreferences({form: {...saved.form, register_count: 50, timeout_ms: 5000,
+    pause_normal_polling: false}}).form, V2_GATEWAY)};
   assert.equal(clamped.form.register_count, 1);
   assert.equal(clamped.form.timeout_ms, 1000);
   assert.equal(clamped.form.pause_normal_polling, true);  // which pollers is saved in HA
@@ -137,4 +119,21 @@ test("no lease, unknown states and hostile poller names render safely", () => {
   assert.equal(notice.reason, null);
   assert.deepEqual(leaseNotice({lease_status: "active", paused_pollers: [{index: 0, name: 42, address: 1}]}).stale,
     ["#0 (1)"]);
+});
+
+test("before a Gateway reports limits, the panel's Generic Device Profile and slave range are the contract's", () => {
+  const hard = contract.hard_limits;
+  const {slave_min, slave_max, register_count_max, timeout_ms_min, timeout_ms_max, probe_types} = GENERIC_PROFILE.limits;
+  assert.deepEqual({slave_min, slave_max, register_count_max, timeout_ms_min, timeout_ms_max, function_codes: GENERIC_PROFILE.function_codes},
+    {slave_min: hard.slave_min, slave_max: hard.slave_max, register_count_max: hard.count_max,
+      timeout_ms_min: hard.timeout_ms_min, timeout_ms_max: hard.timeout_ms_max, function_codes: hard.function_codes});
+  assert.deepEqual(probe_types, ["holding_register", "input_register"]);  // FC03, FC04
+  assert.deepEqual(INTEGER_BOUNDS.address, [hard.slave_min, hard.slave_max]);
+  // Read from the contract file at build time, not copied (ADR 0005).
+  const source = readFileSync(new URL("../src/model.js", import.meta.url), "utf8");
+  assert.match(source, /import contract from "\.\.\/\.\.\/custom_components\/woow_esphome_modbus_scanner\/modbus_scan\/bridge_v2\/contract\.json" with \{type: "json"\}/);
+  for (const file of ["model.js", "woow-esphome-modbus-scanner-panel.js", "i18n.js"]) {
+    const text = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /\b(247|2000|600000)\b/, file);
+  }
 });

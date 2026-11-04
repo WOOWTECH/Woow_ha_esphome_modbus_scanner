@@ -4,11 +4,7 @@ import {
   DEFAULTS, GENERIC_PROFILE, SERVICES, boundsFor, profileLabel, safePreferences, sanitizePreferences,
   selectDeviceProfile, selectGateway, startPayload, testPayload, validateForm,
 } from "../src/model.js";
-
-const V2_GATEWAY = {
-  provider: "esphome", gateway_id: "esphome:aabbccddee01", name: "ESPHome Modbus DDEE01",
-  capabilities: ["bridge_v2", "holding_register", "input_register", "multi_register"], can_operate: true,
-};
+import {V2_GATEWAY} from "./gateways.js";
 // The shape list_device_profiles returns for an imported profile.
 const METER = {
   id: "acme-meter", name: "Acme Meter", vendor: "Acme", model: "M-100", version: "1.2.0",

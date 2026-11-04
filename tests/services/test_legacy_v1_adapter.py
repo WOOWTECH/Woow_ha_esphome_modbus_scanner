@@ -129,6 +129,19 @@ async def test_legacy_gateway_reports_its_limits_in_list_gateways(hass):
         "pause_normal_polling_required": True,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 2700,
+        # The frozen v1 firmware's defaults (ADR 0004); the panel keeps no copy of them.
+        "defaults": {
+            "start_id": 1,
+            "end_id": 3,
+            "address": 1,
+            "probe_type": "holding_register",
+            "register_address": 0x6201,
+            "register_count": 1,
+            "timeout_ms": 700,
+            "retries": 0,
+            "inter_request_delay_ms": 250,
+            "pause_normal_polling": True,
+        },
     }
 
 
