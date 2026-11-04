@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {MOCK_SCENARIOS, OUTCOMES, evidenceExport} from "../src/model.js";
+import {MOCK_SCENARIOS, OUTCOMES, evidenceExport, visibleOutcomes} from "../src/model.js";
 import {stringsFor} from "../src/i18n.js";
 
 // Story 52: the outcomes a 0.5.0 Scan reports. FC43 device identification is out of scope.
@@ -26,4 +26,17 @@ test("Mock Scenario descriptions never claim a device identification", () => {
 test("a 0.4.x Scan history row with an identified outcome is still exported as such", () => {
   const results = {provider: "mock", status: "completed", responders: [{address: 1, outcome: "identified", latency_ms: 5}]};
   assert.equal(evidenceExport({}, results).responders[0].outcome, "identified");
+});
+
+test("the counts strip of a 0.5.0 Scan shows only the spec outcomes", () => {
+  assert.deepEqual(visibleOutcomes({}), SPEC_OUTCOMES);
+  assert.deepEqual(visibleOutcomes({responded: 2, timeout: 1}), SPEC_OUTCOMES);
+  assert.deepEqual(visibleOutcomes({responded: 2, identified: 0}), SPEC_OUTCOMES);
+});
+
+test("the counts strip of a 0.4.x Scan also shows its identified count", () => {
+  assert.deepEqual(visibleOutcomes({responded: 1, identified: 3}), [...SPEC_OUTCOMES, "identified"]);
+  for (const hass of LANGUAGES) {
+    assert.ok(stringsFor(hass).outcomes.identified, `${hass.language} identified label`);
+  }
 });

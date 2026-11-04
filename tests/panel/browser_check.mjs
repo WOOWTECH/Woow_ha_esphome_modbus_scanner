@@ -142,6 +142,10 @@ try {
   await panel.getByText(/results loaded automatically/).waitFor({timeout:5000});
   check(await panel.locator("tbody tr").count() === 2, "automatic results rows missing");
   check(await panel.locator("th").filter({hasText:"Decoded value"}).count() === 0, "Generic results must show raw values only");
+  check(await panel.locator(".counts .count").count() === 5 && await panel.locator(".counts .count").filter({hasText:"identified"}).count() === 0, "a 0.5.0 Scan counts strip must show the five outcomes only");
+  const savedStatus = await page.evaluate(async () => { const saved = panel._status; panel._status = {...saved, outcome_counts:{responded:1, identified:2}}; await panel.updateComplete; return saved; });
+  check((await panel.locator(".counts .count").filter({hasText:"identified"}).textContent()).startsWith("2"), "a 0.4.x Scan counts strip hides its identified count");
+  await page.evaluate(async (saved) => { panel._status = saved; await panel.updateComplete; }, savedStatus);
   check(await page.evaluate(() => calls.every((call)=>call.returnResponse === true)), "a service omitted returnResponse");
   check(await panel.locator("th").first().getAttribute("aria-sort")==="ascending", "aria-sort missing");
   await panel.getByRole("button", {name:/Sort by Address/}).click();

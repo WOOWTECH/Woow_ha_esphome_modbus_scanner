@@ -92,6 +92,10 @@ const OUTCOMES = Object.freeze([
 ]);
 // Only Scan history stored by 0.4.x (FC43 device identification) holds these rows.
 const HISTORY_ONLY_OUTCOMES = Object.freeze(["identified"]);
+/** The counts strip: the spec outcomes, plus a history-only outcome a 0.4.x Scan actually counted. */
+function visibleOutcomes(counts) {
+  return [...OUTCOMES, ...HISTORY_ONLY_OUTCOMES.filter((name) => (counts?.[name] || 0) > 0)];
+}
 const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
 const DEFAULTS = Object.freeze({
   provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
@@ -1210,7 +1214,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <p><strong>${t.phase}:</strong> ${t.statuses[phase] || phase} ${this._status?.current_address ? b`· ${t.columns.address} ${this._status.current_address}` : A}<br><code>${this._chosenId() || t.noScanId}</code></p>
             <div class="progress" role="progressbar" aria-label=${t.progress} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${progress}><span style="width:${Math.min(100, Math.max(0, progress))}%"></span></div><small>${this._status?.completed_addresses || 0} / ${this._status?.total_addresses || 0} ${t.addresses} · ${progress}% · ${this._status?.responder_count || 0} ${t.responders}</small>
             ${this._status?.events?.length ? b`<section aria-label=${t.timeline}><strong>${t.timeline}</strong><ol>${this._status.events.slice(-8).map((event) => b`<li>${Math.round(event.elapsed_ms/1000)}s · ${t.operationStates[event.phase] || t.statuses[event.phase] || t.dash}</li>`)}</ol></section>` : A}
-            <div class="counts">${OUTCOMES.map((outcome) => b`<div class="count"><strong>${counts[outcome] || 0}</strong>${t.outcomes[outcome]}</div>`)}</div>
+            <div class="counts">${visibleOutcomes(counts).map((outcome) => b`<div class="count"><strong>${counts[outcome] || 0}</strong>${t.outcomes[outcome]}</div>`)}</div>
             ${this._status?.error ? b`<div class="notice failure"><strong>${t.terminalError}:</strong> ${this._localError(this._status.error)}</div>` : A}
             <div class="actions"><button class="secondary" @click=${this._refreshStatus} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshStatus}</button><button class="secondary" @click=${() => this._loadResults()} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:table-refresh"></ha-icon>${t.refreshResults}</button></div>
           </section>

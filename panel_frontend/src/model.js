@@ -22,6 +22,10 @@ export const OUTCOMES = Object.freeze([
 ]);
 // Only Scan history stored by 0.4.x (FC43 device identification) holds these rows.
 const HISTORY_ONLY_OUTCOMES = Object.freeze(["identified"]);
+/** The counts strip: the spec outcomes, plus a history-only outcome a 0.4.x Scan actually counted. */
+export function visibleOutcomes(counts) {
+  return [...OUTCOMES, ...HISTORY_ONLY_OUTCOMES.filter((name) => (counts?.[name] || 0) > 0)];
+}
 export const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
 export const DEFAULTS = Object.freeze({
   provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
