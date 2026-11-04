@@ -15,9 +15,9 @@ import math
 import re
 from typing import Any
 
-from .bridge_v2.contract import HARD_LIMITS
+from .bridge_v2.contract import HARD_LIMITS, LEASE_INTER_REQUEST_DELAY_MAX_MS
 from .limits import ProbeLimits
-from .models import MAX_INTER_REQUEST_DELAY_MS, MAX_REGISTER_ADDRESS, MAX_RETRIES, ProbeType
+from .models import MAX_REGISTER_ADDRESS, MAX_RETRIES, ProbeType
 
 SCHEMA_VERSION = 1
 GENERIC_PROFILE_ID = "generic"
@@ -30,6 +30,9 @@ MAX_FIELDS = 256
 SLAVE_MIN, SLAVE_MAX = HARD_LIMITS["slave_min"], HARD_LIMITS["slave_max"]
 COUNT_MIN, COUNT_MAX = HARD_LIMITS["count_min"], HARD_LIMITS["count_max"]
 TIMEOUT_MIN, TIMEOUT_MAX = HARD_LIMITS["timeout_ms_min"], HARD_LIMITS["timeout_ms_max"]
+# A default delay must work on every Gateway the profile may meet, so it stays below the Scan
+# Lease cap (ADR 0007). A caller can still pass a longer delay to a Legacy Gateway explicitly.
+DELAY_MAX = LEASE_INTER_REQUEST_DELAY_MAX_MS
 READ_FUNCTION_CODES = tuple(HARD_LIMITS["function_codes"])
 WRITE_FUNCTION_CODES = tuple(HARD_LIMITS["write_function_codes"])
 DATA_TYPES = ("u16", "s16")
@@ -323,7 +326,7 @@ def _defaults(
         "register": (0, MAX_REGISTER_ADDRESS),
         "count": (COUNT_MIN, COUNT_MAX),
         "timeout_ms": (TIMEOUT_MIN, TIMEOUT_MAX),
-        "inter_request_delay_ms": (0, MAX_INTER_REQUEST_DELAY_MS),
+        "inter_request_delay_ms": (0, DELAY_MAX),
         "retries": (0, MAX_RETRIES),
     }
     ok = {

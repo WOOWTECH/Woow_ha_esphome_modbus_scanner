@@ -58,8 +58,9 @@ of an HA-side `finally`. A physical adapter must:
 3. Use only holding-register (FC03) or input-register (FC04) read probes; FC43/14
    device identification is out of scope for 0.5.0. It must never write a
    register, change a Slave ID, or restart a node.
-4. Enforce the coordinator's one-scan-per-gateway key and avoid hidden parallel
-   requests inside the adapter.
+4. Enforce the coordinator's one-Scan-per-Bus key and avoid hidden parallel
+   requests inside the adapter. Scans on different Buses of one Gateway may run
+   at once but share the Gateway's single Probe slot.
 5. Apply timeout, retry, and inter-request delay bounds without extending work
    beyond the requested inclusive address range.
 6. If `pause_normal_polling` is supported, pause only the selected gateway and
