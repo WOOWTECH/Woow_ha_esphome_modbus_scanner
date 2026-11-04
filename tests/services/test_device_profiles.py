@@ -376,16 +376,36 @@ async def test_service_layer_enforces_the_selected_profile(hass, changes, messag
         )
 
 
-async def test_allowlist_rejection_gives_the_smallest_register_without_a_default(hass):
-    """Without a default register the example is the smallest allowed one, as in the panel."""
+async def test_allowlist_rejection_names_the_register_the_profile_default_would_use(hass):
+    """Without a default register the profile reads its first allowed one; the example agrees."""
     call = await _setup(hass)
-    unordered = {**METER, "id": "unordered", "allowed_registers": [32, 19, 18, 17, 16],
-                 "defaults": {k: v for k, v in METER["defaults"].items() if k != "register"}}
+    unordered = {**METER, "id": "unordered", "allowed_registers": [32, 16, 48],
+                 "fields": METER["fields"][:1],
+                 "defaults": {k: v for k, v in METER["defaults"].items()
+                              if k not in ("register", "count")}}
     await call("import_device_profile", {"profile": unordered})
-    with pytest.raises(ServiceValidationError, match=r"example: 16 \(0x0010\)$"):
+    with pytest.raises(ServiceValidationError, match=r"example: 32 \(0x0020\)$"):
         await call(
             "test_address", {"device_profile_id": "unordered", "address": 3, "register_address": 20}
         )
+    started = await call("test_address", {"device_profile_id": "unordered", "address": 3})
+    await _settle(hass)
+    [row] = (await call("get_scan_results", {"scan_id": started["scan_id"]}))["responders"]
+    assert row["register_address"] == 32
+
+
+async def test_allowlist_rejection_names_the_profile_default_register_when_it_has_one(hass):
+    call = await _setup(hass)
+    given = {**METER, "id": "given", "allowed_registers": [32, 16, 48],
+             "fields": METER["fields"][:1],
+             "defaults": {**METER["defaults"], "register": 48, "count": 1}}
+    await call("import_device_profile", {"profile": given})
+    with pytest.raises(ServiceValidationError, match=r"example: 48 \(0x0030\)$"):
+        await call(
+            "test_address", {"device_profile_id": "given", "address": 3, "register_address": 20}
+        )
+    listed = (await call("list_device_profiles"))["profiles"]
+    assert next(p for p in listed if p["id"] == "given")["limits"]["example_register"] == 48
 
 
 @pytest.mark.parametrize(

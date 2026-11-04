@@ -390,6 +390,7 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "probe_types": ["holding_register", "input_register"],
         "register_count_max": 4,
         "allowed_registers": None,
+        "example_register": None,
         "timeout_ms_min": 100,
         "timeout_ms_max": 2000,
         "inter_request_delay_ms_max": 3000,

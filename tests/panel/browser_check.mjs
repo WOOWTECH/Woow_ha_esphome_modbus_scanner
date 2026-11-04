@@ -7,7 +7,7 @@ import {resolve, sep} from "node:path";
 import {chromium} from "../../panel_frontend/node_modules/playwright/index.mjs";
 // A Legacy Gateway's limits as list_gateways reports them (the frozen bridge v1 profile, ADR 0004).
 const LEGACY_LIMITS = {slave_min:1,slave_max:32,probe_types:['holding_register'],register_count_max:1,
-  allowed_registers:[25089,25090,25091,25093,25094,24837,24833,24834,24835,24836,24838,24849,24850],timeout_ms_min:700,timeout_ms_max:700,
+  allowed_registers:[25089,25090,25091,25093,25094,24837,24833,24834,24835,24836,24838,24849,24850],example_register:25089,timeout_ms_min:700,timeout_ms_max:700,
   inter_request_delay_ms_max:5000,pause_normal_polling_required:true,pause_normal_polling_supported:true,attempt_overhead_ms:2700,
   defaults:{start_id:1,end_id:3,address:1,probe_type:'holding_register',register_address:25089,register_count:1,timeout_ms:700,retries:0,inter_request_delay_ms:250,pause_normal_polling:true}};
 
@@ -282,7 +282,7 @@ try {
   // The service's slave-range rejection is shown as the slave-range hint, not the probe help.
   const rangeError=await limitPage.evaluate(async()=>{await panel._action('start',async()=>{throw new Error('A Legacy Gateway supports slave IDs 1–32 only');});return panel._message;});
   check(rangeError==='This Legacy Gateway supports slave IDs 1–32, inclusive.', `slave-range rejection shows the wrong hint: ${rangeError}`);
-  await showGateway({...legacy,limits:{...LEGACY_LIMITS,slave_max:16,allowed_registers:[200,100,101,102],defaults:{...LEGACY_LIMITS.defaults,end_id:3,register_address:100}}});
+  await showGateway({...legacy,limits:{...LEGACY_LIMITS,slave_max:16,allowed_registers:[200,100,101,102],example_register:100,defaults:{...LEGACY_LIMITS.defaults,end_id:3,register_address:100}}});
   const rangeHint=await limited.locator('#start_id-help').textContent(), registerHint=await limited.locator('#register_address-help').textContent();
   check(rangeHint==='This Legacy Gateway supports slave IDs 1–16, inclusive.' && registerHint==='Enter decimal: 0x0064 = 100. Allowed: 100–102, 200.', `Legacy hints ignore the reported limits: ${rangeHint} / ${registerHint}`);
   await showGateway({...legacy,limits:{...LEGACY_LIMITS,timeout_ms_min:900,timeout_ms_max:900,defaults:{...LEGACY_LIMITS.defaults,timeout_ms:900}}});
@@ -294,7 +294,7 @@ try {
   check(await limited.getByText(attention).count()===1, 'Legacy Gateway without a Scan Lease hides unverified recovery');
   const v2={provider:'esphome',gateway_id:'esphome:aabbccddee03',name:'Pinned v2',simulated:false,can_operate:true,
     capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
-    limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:1,allowed_registers:null,timeout_ms_min:900,timeout_ms_max:900,
+    limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:1,allowed_registers:null,example_register:null,timeout_ms_min:900,timeout_ms_max:900,
       inter_request_delay_ms_max:3000,pause_normal_polling_required:false,pause_normal_polling_supported:true,attempt_overhead_ms:300,
       defaults:{probe_type:'holding_register',register_address:0,register_count:1,timeout_ms:900,retries:0,inter_request_delay_ms:100,pause_normal_polling:true}}};
   await showGateway(v2);

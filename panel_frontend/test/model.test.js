@@ -139,7 +139,7 @@ test("the selected Gateway's reported limits bound the form", () => {
   // The shape ProbeLimits.as_dict gives in list_gateways, narrowed below the contract's hard limits.
   const gateway = {provider: "esphome", gateway_id: "esphome:aabbccddee02", capabilities: ["bridge_v2"], limits: {
     slave_min: 1, slave_max: 10, probe_types: ["holding_register", "input_register"], register_count_max: 2,
-    allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000, inter_request_delay_ms_max: 3000,
+    allowed_registers: null, example_register: null, timeout_ms_min: 100, timeout_ms_max: 2000, inter_request_delay_ms_max: 3000,
     pause_normal_polling_required: false, pause_normal_polling_supported: true, attempt_overhead_ms: 300, defaults: {}}};
   const form = {...selectGateway(DEFAULTS, gateway), safety_confirmed: true};
   assert.deepEqual(boundsFor(form).address, [1, 10]);
@@ -151,7 +151,7 @@ test("the selected Gateway's reported limits bound the form", () => {
 
 test("selecting a Gateway fills the form from the defaults it reports", () => {
   const gateway = {provider: "esphome", gateway_id: "esphome:aabbccddee03", capabilities: [], limits: {
-    ...LEGACY_GATEWAY.limits, allowed_registers: [7, 8], defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 7, end_id: 5}}};
+    ...LEGACY_GATEWAY.limits, allowed_registers: [7, 8], example_register: 7, defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 7, end_id: 5}}};
   const form = selectGateway({...DEFAULTS, safety_confirmed: true}, gateway);
   assert.equal(form.register_address, 7);
   assert.equal(form.end_id, 5);

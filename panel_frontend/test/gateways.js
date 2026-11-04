@@ -8,7 +8,7 @@ export const LEGACY_GATEWAY = Object.freeze({
   supports_bus_selection: false, supports_scan_lease: false,
   limits: {
     slave_min: 1, slave_max: 32, probe_types: ["holding_register"], register_count_max: 1,
-    allowed_registers: LEGACY_REGISTERS, timeout_ms_min: 700, timeout_ms_max: 700, inter_request_delay_ms_max: 5000,
+    allowed_registers: LEGACY_REGISTERS, example_register: 25089, timeout_ms_min: 700, timeout_ms_max: 700, inter_request_delay_ms_max: 5000,
     pause_normal_polling_required: true, pause_normal_polling_supported: true, attempt_overhead_ms: 2700,
     defaults: {start_id: 1, end_id: 3, address: 1, probe_type: "holding_register", register_address: 25089,
       register_count: 1, timeout_ms: 700, retries: 0, inter_request_delay_ms: 250, pause_normal_polling: true},
@@ -20,7 +20,7 @@ export const V2_GATEWAY = Object.freeze({
   supports_bus_selection: true, supports_scan_lease: true,
   limits: {
     slave_min: 1, slave_max: 247, probe_types: ["holding_register", "input_register"], register_count_max: 4,
-    allowed_registers: null, timeout_ms_min: 100, timeout_ms_max: 2000, inter_request_delay_ms_max: 3000,
+    allowed_registers: null, example_register: null, timeout_ms_min: 100, timeout_ms_max: 2000, inter_request_delay_ms_max: 3000,
     pause_normal_polling_required: false, pause_normal_polling_supported: true, attempt_overhead_ms: 300,
     defaults: {probe_type: "holding_register", register_address: 0, register_count: 1, timeout_ms: 1000,
       retries: 0, inter_request_delay_ms: 100, pause_normal_polling: true},

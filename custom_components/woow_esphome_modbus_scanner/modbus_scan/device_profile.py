@@ -107,6 +107,7 @@ class DeviceProfile:
             allowed_registers=self.allowed_registers,
             timeout_ms_min=TIMEOUT_MIN,
             timeout_ms_max=TIMEOUT_MAX,
+            defaults=self.request_defaults,
         )
 
     @property

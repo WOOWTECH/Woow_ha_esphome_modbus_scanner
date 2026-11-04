@@ -79,14 +79,16 @@ class ProbeLimits:
 
     @property
     def example_register(self) -> int | None:
-        """The allowlist's example register: the default register if allowed, else the smallest.
+        """The register a request reads by default, so allowlist errors and hints name it.
 
-        The panel's register hint uses the same rule.
+        The default register if it is allowed, else the first allowed one in the order given
+        (what a Device Profile without a default register reads). The panel's register hint
+        reads it from ``as_dict``.
         """
         if not self.allowed_registers:
             return None
         preferred = self.defaults.get("register_address")
-        return preferred if preferred in self.allowed_registers else min(self.allowed_registers)
+        return preferred if preferred in self.allowed_registers else self.allowed_registers[0]
 
     def validate(self, request: ScanRequest) -> None:
         """Reject any request outside these limits with an actionable message."""
@@ -167,6 +169,7 @@ class ProbeLimits:
             "allowed_registers": (
                 list(self.allowed_registers) if self.allowed_registers is not None else None
             ),
+            "example_register": self.example_register,
             "timeout_ms_min": self.timeout_ms_min,
             "timeout_ms_max": self.timeout_ms_max,
             "inter_request_delay_ms_max": self.inter_request_delay_ms_max,

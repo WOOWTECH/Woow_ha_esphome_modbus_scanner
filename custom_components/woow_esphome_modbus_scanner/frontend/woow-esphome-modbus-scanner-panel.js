@@ -541,13 +541,12 @@ const registerList = (registers, comma) => {
   }
   return items.join(comma);
 };
-/** A Legacy Gateway's reported register allowlist, with its default register as the hex example, or "" before it reports one. */
+/** A Legacy Gateway's reported register allowlist, with its reported example register (ProbeLimits.example_register) in hex, or "" before it reports them. */
 const legacyRegisters = (words) => (given) => {
   const limits = reported(given);
   const allowed = Array.isArray(limits.allowed_registers) ? limits.allowed_registers.filter(Number.isInteger) : [];
-  if (!allowed.length) return "";
-  const preferred = limits.defaults?.register_address;
-  const example = allowed.includes(preferred) ? preferred : Math.min(...allowed);
+  const example = limits.example_register;
+  if (!allowed.length || !allowed.includes(example)) return "";
   const hex = `0x${example.toString(16).toUpperCase().padStart(4, "0")}`;
   return words.text(hex, example, registerList(allowed, words.comma));
 };

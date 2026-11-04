@@ -162,12 +162,13 @@ test("Legacy Gateway slave range and register hints describe the limits the Gate
     "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.");
   assert.equal(zh.physicalRegisters(LEGACY_GATEWAY.limits),
     "請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。");
+  // The example is the one the Gateway reports (ProbeLimits.example_register), never worked out here.
   const other = {...LEGACY_GATEWAY.limits, slave_min: 1, slave_max: 16, allowed_registers: [200, 100, 102, 101],
-    defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 100}};
+    example_register: 101, defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 100}};
   assert.equal(en.physicalRange(other), "This Legacy Gateway supports slave IDs 1–16, inclusive.");
   assert.equal(zh.physicalRange(other), "此舊版閘道支援從站 1–16，包含起訖位址。");
-  assert.equal(en.physicalRegisters(other), "Enter decimal: 0x0064 = 100. Allowed: 100–102, 200.");
-  assert.equal(zh.physicalRegisters(other), "請輸入十進位：0x0064 = 100。允許：100–102、200。");
+  assert.equal(en.physicalRegisters(other), "Enter decimal: 0x0065 = 101. Allowed: 100–102, 200.");
+  assert.equal(zh.physicalRegisters(other), "請輸入十進位：0x0065 = 101。允許：100–102、200。");
 });
 
 test("Legacy Gateway hints say nothing about limits the Gateway has not reported", () => {
