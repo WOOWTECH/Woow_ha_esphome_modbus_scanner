@@ -189,6 +189,11 @@ class ScanRequest:
         return self.end_id - self.start_id + 1
 
     @property
+    def attempt_count(self) -> int:
+        """Probe attempts this Scan sends at most: every address, each with its retries."""
+        return self.address_count * (self.retries + 1)
+
+    @property
     def gateway_key(self) -> tuple[str, str, str | None]:
         """Concurrency key used by the coordinator: one Scan at a time per Bus.
 
