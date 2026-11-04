@@ -6,6 +6,7 @@ import {
   reconcileGateway, selectGateway, startPayload, supportedGateway, testPayload, validateForm,
 } from "../src/model.js";
 import {LEGACY_GATEWAY, V2_GATEWAY} from "./gateways.js";
+import {stringsFor} from "../src/i18n.js";
 
 const contract = JSON.parse(readFileSync(new URL(
   "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json", import.meta.url,
@@ -136,4 +137,17 @@ test("before a Gateway reports limits, the panel's Generic Device Profile and sl
     const text = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
     assert.doesNotMatch(text, /\b(247|2000|600000)\b/, file);
   }
+});
+
+test("Legacy Gateway help describes the limits the Gateway reports, not a panel copy", () => {
+  const en = stringsFor({locale: {language: "en"}});
+  const zh = stringsFor({locale: {language: "zh-Hant"}});
+  assert.equal(en.physicalHelp(LEGACY_GATEWAY.limits),
+    "Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.");
+  assert.equal(zh.physicalHelp(LEGACY_GATEWAY.limits), "橋接協定 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。");
+  const reflashed = {...LEGACY_GATEWAY.limits, timeout_ms_min: 900, timeout_ms_max: 900};
+  assert.match(en.physicalHelp(reflashed), /fixed 900 ms timeout/);
+  assert.doesNotMatch(en.physicalHelp(reflashed), /700/);
+  assert.match(zh.physicalHelp(reflashed), /逾時固定 900 毫秒/);
+  assert.doesNotMatch(zh.physicalHelp(reflashed), /700/);
 });

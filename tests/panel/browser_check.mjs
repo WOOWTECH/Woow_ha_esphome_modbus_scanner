@@ -267,6 +267,37 @@ try {
   check(await restored.locator('#profile').inputValue()==='possible_collision','restored mock profile display disagrees with stored value');
   await restorePage.close();
 
+  // Fixed fields, Legacy help and recovery attention follow what a Gateway reports, not its Bridge Protocol name.
+  const limitPage=await browser.newPage({viewport:{width:800,height:1400}}); await limitPage.goto(base);
+  const limited=limitPage.locator('woow-esphome-modbus-scanner-panel'); await limited.getByText('1 gateway available.').waitFor();
+  const showGateway=(gateway)=>limitPage.evaluate(async (g)=>{panel._gateways=[...panel._gateways.filter((x)=>x.gateway_id!==g.gateway_id),g];await panel.updateComplete;panel._selectGateway(g.gateway_id);await panel.updateComplete;},gateway);
+  const readonly=async (id)=>(await limited.locator(`#${id}`).getAttribute('readonly'))!==null;
+  const legacy={provider:'esphome',gateway_id:'esphome:aabbccddeeff',name:'Legacy bench',simulated:false,can_operate:true,
+    capabilities:['holding_register','single_register','slave_1_32','timeout_700ms'],supports_bus_selection:false,supports_scan_lease:false,limits:LEGACY_LIMITS};
+  await showGateway(legacy);  // a physical Gateway opens the advanced fields
+  check(await readonly('register_count') && await readonly('timeout_ms') && !(await readonly('retries')), 'Legacy Gateway count and timeout not fixed');
+  check(await limited.locator('#timeout_ms-help').textContent()==='Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.', 'help for the frozen Legacy limits changed');
+  await showGateway({...legacy,limits:{...LEGACY_LIMITS,timeout_ms_min:900,timeout_ms_max:900,defaults:{...LEGACY_LIMITS.defaults,timeout_ms:900}}});
+  const legacyHelp=await limited.locator('#timeout_ms-help').textContent();
+  check(legacyHelp.includes('fixed 900 ms timeout') && !legacyHelp.includes('700'), `Legacy help ignores the reported timeout: ${legacyHelp}`);
+  const terminal=(gatewayId)=>limitPage.evaluate(async (id)=>{panel._status={scan_id:fixture.uuid,status:'failed',phase:'failed',provider:'esphome',gateway_id:id,recovery_status:'unknown'};await panel.updateComplete;},gatewayId);
+  const attention='Probe processing ended; normal polling recovery is not verified. Inspect the recovery status before another operation.';
+  await terminal(legacy.gateway_id);
+  check(await limited.getByText(attention).count()===1, 'Legacy Gateway without a Scan Lease hides unverified recovery');
+  const v2={provider:'esphome',gateway_id:'esphome:aabbccddee03',name:'Pinned v2',simulated:false,can_operate:true,
+    capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
+    limits:{slave_min:1,slave_max:247,probe_types:['holding_register','input_register'],register_count_max:1,allowed_registers:null,timeout_ms_min:900,timeout_ms_max:900,
+      inter_request_delay_ms_max:3000,pause_normal_polling_required:false,pause_normal_polling_supported:true,attempt_overhead_ms:300,
+      defaults:{probe_type:'holding_register',register_address:0,register_count:1,timeout_ms:900,retries:0,inter_request_delay_ms:100,pause_normal_polling:true}}};
+  await showGateway(v2);
+  check(await readonly('register_count') && await readonly('timeout_ms') && !(await readonly('retries')), 'fields the v2 Gateway pins are editable');
+  await terminal(v2.gateway_id);
+  check(await limited.getByText(attention).count()===0, 'Scan Lease Gateway shows the unverified-recovery notice');
+  await showGateway({...v2,supports_scan_lease:false});
+  await terminal(v2.gateway_id);
+  check(await limited.getByText(attention).count()===1, 'v2 Gateway without a Scan Lease hides unverified recovery');
+  await limitPage.close();
+
   // Traditional Chinese is selected from hass.locale.language and English-only labels disappear.
   const zhPage=await browser.newPage({viewport:{width:800,height:700}}); await zhPage.goto(base+'?lang=zh-Hant');
   const zh=zhPage.locator('woow-esphome-modbus-scanner-panel'); await zh.getByText('有 1 個閘道可用。').waitFor();

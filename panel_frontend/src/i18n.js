@@ -4,11 +4,25 @@ import contract from "../../custom_components/woow_esphome_modbus_scanner/modbus
 const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
 const IDLE_S = contract.lease.idle_ms / 1000;
 const HARD_LIMIT_MIN = contract.lease.hard_limit_ms / 60000;
+/** A Legacy Gateway's limits as it reports them (ProbeLimits.as_dict), in one language's words; the panel keeps no copy. */
+const legacyHelp = (words) => (limits) => {
+  const l = limits && typeof limits === "object" ? limits : {};
+  const parts = [];
+  const probes = Array.isArray(l.probe_types) ? l.probe_types.map((probe) => words.probes[probe]).filter(Boolean) : [];
+  if (probes.length) parts.push(probes.join(words.or));
+  if (Number.isInteger(l.register_count_max)) parts.push(words.count(l.register_count_max));
+  if (Number.isInteger(l.timeout_ms_min) && Number.isInteger(l.timeout_ms_max)) parts.push(words.timeout(l.timeout_ms_min, l.timeout_ms_max));
+  if (l.pause_normal_polling_required === true) parts.push(words.pause);
+  return `${words.prefix}${parts.join(words.comma)}${words.end}`;
+};
 const en = {
   title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
   physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
   physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
-  physicalHelp: "Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
+  physicalHelp: legacyHelp({prefix: "Bridge Protocol v1: ", comma: ", ", or: " or ", end: ".",
+    probes: {holding_register: "FC03 holding register", input_register: "FC04 input register"},
+    count: (max) => max === 1 ? "count 1" : `count 1–${max}`,
+    timeout: (min, max) => min === max ? `fixed ${min} ms timeout` : `${min}–${max} ms timeout`, pause: "polling pause required"}),
   physicalRange: "This Legacy Gateway supports slave IDs 1–32, inclusive.",
   v2Help: `Bridge Protocol v2: FC03 or FC04, any register, ${COUNT_MIN}–${COUNT_MAX} registers, ${TIMEOUT_MIN}–${TIMEOUT_MAX} ms timeout.`,
   v2Pause: `The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, ${IDLE_S} s without a probe or after ${HARD_LIMIT_MIN} minutes.`,
@@ -88,7 +102,10 @@ const zh = {
   ...en, title:"Modbus 掃描器",menu:"開啟 Home Assistant 選單",mock:"模擬模式 — 僅限模擬",
   physicalTitle:"實驗功能 — 實體 MODBUS",
   physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
-  physicalHelp:"橋接協定 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
+  physicalHelp:legacyHelp({prefix:"橋接協定 v1：",comma:"、",or:"或",end:"。",
+    probes:{holding_register:"FC03 保持暫存器",input_register:"FC04 輸入暫存器"},
+    count:(max)=>max === 1 ? "數量固定 1" : `數量 1–${max}`,
+    timeout:(min,max)=>min === max ? `逾時固定 ${min} 毫秒` : `逾時 ${min}–${max} 毫秒`,pause:"必須暫停輪詢"}),
   physicalRange:"此舊版閘道支援從站 1–32，包含起訖位址。",
   v2Help:`橋接協定 v2：FC03 或 FC04、任意暫存器、數量 ${COUNT_MIN}–${COUNT_MAX}、逾時 ${TIMEOUT_MIN}–${TIMEOUT_MAX} 毫秒。`,
   v2Pause:`掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、${IDLE_S} 秒無探測或 ${HARD_LIMIT_MIN} 分鐘後，閘道會自行恢復輪詢。`,

@@ -134,7 +134,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp;
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits);
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;
@@ -274,7 +274,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp(this._form.gateway_limits), v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -423,7 +423,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
   }
   _field(name, label, min, max, help) {
     [min, max] = boundsFor(this._form, this._profile)[name] || [min, max];
-    const fixed = isLegacyGatewayForm(this._form) && (name === "register_count" || name === "timeout_ms");
+    // A field whose bounds allow one value (as a Gateway or Device Profile reports them) is fixed.
+    const fixed = min === max;
     const invalid = Boolean(this._errors[name]);
     return html`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? html`<small class="error" id="${name}-error">${this._errors[name]}</small>` : nothing}</div>`;
   }
@@ -452,12 +453,14 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const progress = Number(this._status?.progress_percent || 0);
     const selectedScenario = this._form.mock_scenario;
     const physical = this._form.provider === "esphome";
-    // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
+    // A Legacy Gateway's help describes the limits it reports under its Bridge Protocol v1 name.
     const v1 = isLegacyGatewayForm(this._form);
-    // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
+    const legacyHelp = t.physicalHelp(this._form.gateway_limits);
+    // Under a Scan Lease, recovery is Gateway-owned; a Gateway that holds none leaves it for the operator to verify.
     const lease = leaseNotice(this._status);
     const resultsEndedAfter = leaseNotice(this._results)?.endedAfter ?? null;
-    const v2Status = Boolean(lease) || (physical && !v1);
+    const statusGateway = this._gateways.find((g) => g.gateway_id === this._status?.gateway_id);
+    const v2Status = Boolean(lease) || supportsScanLease(statusGateway);
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     const compatible = supportedGateway(gateway);
@@ -486,8 +489,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           </div><div class="profiles" aria-label=${t.quickMockScenarios}>${MOCK_SCENARIOS.map((scenario) => { const selected = selectedScenario === scenario; return html`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", scenario)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.mockScenarioNames[scenario]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.mockScenarioNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.mockScenarioDetails[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? t.physicalHelp : physical ? t.v2Help : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? legacyHelp : physical ? t.v2Help : t.probeHelp}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? legacyHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? legacyHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? html`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : nothing}</div>

@@ -72,11 +72,25 @@ var contract = {"hard_limits":{"slave_min":1,"slave_max":247,"function_codes":[3
 const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX$1, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
 const IDLE_S = contract.lease.idle_ms / 1000;
 const HARD_LIMIT_MIN = contract.lease.hard_limit_ms / 60000;
+/** A Legacy Gateway's limits as it reports them (ProbeLimits.as_dict), in one language's words; the panel keeps no copy. */
+const legacyHelp = (words) => (limits) => {
+  const l = limits && typeof limits === "object" ? limits : {};
+  const parts = [];
+  const probes = Array.isArray(l.probe_types) ? l.probe_types.map((probe) => words.probes[probe]).filter(Boolean) : [];
+  if (probes.length) parts.push(probes.join(words.or));
+  if (Number.isInteger(l.register_count_max)) parts.push(words.count(l.register_count_max));
+  if (Number.isInteger(l.timeout_ms_min) && Number.isInteger(l.timeout_ms_max)) parts.push(words.timeout(l.timeout_ms_min, l.timeout_ms_max));
+  if (l.pause_normal_polling_required === true) parts.push(words.pause);
+  return `${words.prefix}${parts.join(words.comma)}${words.end}`;
+};
 const en = {
   title: "Modbus Scanner", menu: "Open Home Assistant menu", mock: "SIMULATION — MOCK ONLY",
   physicalTitle: "EXPERIMENTAL — PHYSICAL MODBUS",
   physicalBanner: "This gateway sends real read-only Modbus requests through ESPHome. Scanning pauses polling and can make normal entities temporarily stale. Test address also performs a real read; no registers are written.",
-  physicalHelp: "Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.",
+  physicalHelp: legacyHelp({prefix: "Bridge Protocol v1: ", comma: ", ", or: " or ", end: ".",
+    probes: {holding_register: "FC03 holding register", input_register: "FC04 input register"},
+    count: (max) => max === 1 ? "count 1" : `count 1–${max}`,
+    timeout: (min, max) => min === max ? `fixed ${min} ms timeout` : `${min}–${max} ms timeout`, pause: "polling pause required"}),
   physicalRange: "This Legacy Gateway supports slave IDs 1–32, inclusive.",
   v2Help: `Bridge Protocol v2: FC03 or FC04, any register, ${COUNT_MIN}–${COUNT_MAX} registers, ${TIMEOUT_MIN}–${TIMEOUT_MAX} ms timeout.`,
   v2Pause: `The Pausable Pollers checked under Gateway health are paused during the Scan; their entity values are stale until it ends. The Gateway resumes them by itself on completion, cancel, ${IDLE_S} s without a probe or after ${HARD_LIMIT_MIN} minutes.`,
@@ -156,7 +170,10 @@ const zh = {
   ...en, title:"Modbus 掃描器",menu:"開啟 Home Assistant 選單",mock:"模擬模式 — 僅限模擬",
   physicalTitle:"實驗功能 — 實體 MODBUS",
   physicalBanner:"目前會透過 ESPHome 發送真實的 Modbus 唯讀請求。掃描會暫停輪詢，可能使一般實體資料暫時過期。「測試位址」也會發出真實讀取；不寫入暫存器。",
-  physicalHelp:"橋接協定 v1：FC03 保持暫存器、數量固定 1、逾時固定 700 毫秒、必須暫停輪詢。",
+  physicalHelp:legacyHelp({prefix:"橋接協定 v1：",comma:"、",or:"或",end:"。",
+    probes:{holding_register:"FC03 保持暫存器",input_register:"FC04 輸入暫存器"},
+    count:(max)=>max === 1 ? "數量固定 1" : `數量 1–${max}`,
+    timeout:(min,max)=>min === max ? `逾時固定 ${min} 毫秒` : `逾時 ${min}–${max} 毫秒`,pause:"必須暫停輪詢"}),
   physicalRange:"此舊版閘道支援從站 1–32，包含起訖位址。",
   v2Help:`橋接協定 v2：FC03 或 FC04、任意暫存器、數量 ${COUNT_MIN}–${COUNT_MAX}、逾時 ${TIMEOUT_MIN}–${TIMEOUT_MAX} 毫秒。`,
   v2Pause:`掃描期間會暫停「閘道健康狀態」中勾選的可暫停輪詢元件，期間其實體數值為過期資料。完成、取消、${IDLE_S} 秒無探測或 ${HARD_LIMIT_MIN} 分鐘後，閘道會自行恢復輪詢。`,
@@ -313,7 +330,7 @@ function isBridgeV2(gateway) {
 const supportsScanLease = (gateway) => gateway?.supports_scan_lease === true;
 /** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
 const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
-/** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
+/** Whether a form targets a Legacy Gateway (Bridge Protocol v1), whose help names that protocol. */
 const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
 /** The gateway's bounds intersected with the selected Device Profile's limits. */
 function boundsFor(form, profile = GENERIC_PROFILE) {
@@ -529,8 +546,10 @@ function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE
     }
   }
   const limits = reportedLimits({limits: form.gateway_limits});
-  // The Gateway's own limits, as it reports them.
-  const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
+  // The Gateway's own limits, as it reports them: one that pins register count and timeout is
+  // described by those fixed limits, any other by its ranges.
+  const pinned = limits?.register_count_max === 1 && limits.timeout_ms_min === limits.timeout_ms_max;
+  const gatewayText = (pinned ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
   if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
   if (limits?.pause_normal_polling_required === true && form.pause_normal_polling !== true) errors.pause_normal_polling = gatewayText;
   if (limits?.pause_normal_polling_supported === false && form.pause_normal_polling === true) errors.pause_normal_polling = gatewayText;
@@ -784,7 +803,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp;
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits);
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;
@@ -924,7 +943,7 @@ class WoowEsphomeModbusScannerPanel extends i {
   async _start(single = false) {
     if (this._busy || this._status?.status === "running") return;
     const t = this._text;
-    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp, v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
+    const errors = validateForm(this._form, single, {integer:t.invalidInteger, order:t.orderError, safety:t.safetyError, gateway:t.gatewayError, physical:t.physicalHelp(this._form.gateway_limits), v2:t.v2Help, largeRange:t.largeRangeError, registerBlock:t.registerBlock, profileProbe:t.profileProbe, profileRegister:t.profileRegister}, this._profile);
     if (!this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider)) errors.gateway_id = t.missingGateway;
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     if (gateway && !supportedGateway(gateway)) errors.gateway_id = t.unsupportedProfile;
@@ -1073,7 +1092,8 @@ class WoowEsphomeModbusScannerPanel extends i {
   }
   _field(name, label, min, max, help) {
     [min, max] = boundsFor(this._form, this._profile)[name] || [min, max];
-    const fixed = isLegacyGatewayForm(this._form) && (name === "register_count" || name === "timeout_ms");
+    // A field whose bounds allow one value (as a Gateway or Device Profile reports them) is fixed.
+    const fixed = min === max;
     const invalid = Boolean(this._errors[name]);
     return b`<div class="field"><label for=${name}>${label}</label><input id=${name} type="number" min=${min} max=${max} ?readonly=${fixed} .value=${String(this._form[name])} @input=${(event) => this._set(name, event.target.value)} aria-describedby="${name}-help${invalid ? ` ${name}-error` : ""}" aria-invalid=${invalid ? "true" : "false"}><small id="${name}-help">${help}</small>${invalid ? b`<small class="error" id="${name}-error">${this._errors[name]}</small>` : A}</div>`;
   }
@@ -1102,12 +1122,14 @@ class WoowEsphomeModbusScannerPanel extends i {
     const progress = Number(this._status?.progress_percent || 0);
     const selectedScenario = this._form.mock_scenario;
     const physical = this._form.provider === "esphome";
-    // Bridge v2 Gateways take any register, FC03/FC04 and 1–4 registers; only bridge v1 is fixed.
+    // A Legacy Gateway's help describes the limits it reports under its Bridge Protocol v1 name.
     const v1 = isLegacyGatewayForm(this._form);
-    // A Scan Lease is reported only by bridge v2 Gateways; their recovery is Gateway-owned.
+    const legacyHelp = t.physicalHelp(this._form.gateway_limits);
+    // Under a Scan Lease, recovery is Gateway-owned; a Gateway that holds none leaves it for the operator to verify.
     const lease = leaseNotice(this._status);
     const resultsEndedAfter = leaseNotice(this._results)?.endedAfter ?? null;
-    const v2Status = Boolean(lease) || (physical && !v1);
+    const statusGateway = this._gateways.find((g) => g.gateway_id === this._status?.gateway_id);
+    const v2Status = Boolean(lease) || supportsScanLease(statusGateway);
     const gatewayAvailable = this._gateways.some((item) => item.gateway_id === this._form.gateway_id && item.provider === this._form.provider);
     const gateway = this._gateways.find((g) => g.gateway_id === this._form.gateway_id);
     const compatible = supportedGateway(gateway);
@@ -1136,8 +1158,8 @@ class WoowEsphomeModbusScannerPanel extends i {
           </div><div class="profiles" aria-label=${t.quickMockScenarios}>${MOCK_SCENARIOS.map((scenario) => { const selected = selectedScenario === scenario; return b`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", scenario)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.mockScenarioNames[scenario]}${selected ? b`<span class="sr-only">${t.selected}</span>` : A}</button>`; })}</div>
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.mockScenarioNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.mockScenarioDetails[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? t.physicalHelp : physical ? t.v2Help : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? t.physicalHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? t.physicalHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? legacyHelp : physical ? t.v2Help : t.probeHelp}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? legacyHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? legacyHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? b`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : A}</div>
