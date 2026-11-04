@@ -110,4 +110,4 @@ def test_error_messages_avoid_glossary_synonyms():
 def test_the_error_message_check_sees_the_gateway_limit_errors():
     texts = [text for _where, text in _error_messages()]
     assert " supports slave IDs " in texts
-    assert "Mock gateway" in texts
+    assert "A mock Gateway" in texts

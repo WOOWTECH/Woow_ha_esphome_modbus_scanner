@@ -78,7 +78,7 @@ _RESULT_MARGIN_S = 5
 _RELEASE_ANSWER_S = 1.0
 
 LIMITS = ProbeLimits(
-    "Bridge Protocol v2",
+    "A Bridge Protocol v2 Gateway",
     slave_min=HARD_LIMITS["slave_min"],
     slave_max=HARD_LIMITS["slave_max"],
     probe_types=tuple(

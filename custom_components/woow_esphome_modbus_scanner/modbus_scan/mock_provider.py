@@ -19,7 +19,7 @@ from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
 MOCK_MULTI_BUS_GATEWAY_ID = "mock:multi-bus-gateway"
-MOCK_LIMITS = ProbeLimits("Mock gateway")
+MOCK_LIMITS = ProbeLimits("A mock Gateway")
 
 
 def _bus(name: str, baud_rate: int, parity: str = "NONE") -> dict:
@@ -78,9 +78,9 @@ class MockGatewayProvider:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
         buses = [row["bus"] for row in MOCK_GATEWAYS[request.gateway_id][1]]
         if request.bus is None and len(buses) != 1:
-            raise ValueError(f"Mock gateway {request.gateway_id} needs a bus")
+            raise ValueError(f"The mock Gateway {request.gateway_id} needs a Bus")
         if request.bus is not None and request.bus not in buses:
-            raise ValueError(f"Mock gateway {request.gateway_id} has no Bus {request.bus}")
+            raise ValueError(f"The mock Gateway {request.gateway_id} has no Bus {request.bus}")
         if request.mock_scenario not in {item.value for item in MockScenario}:
             raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")
         delay_ms = max(self._step_delay_ms, request.inter_request_delay_ms)

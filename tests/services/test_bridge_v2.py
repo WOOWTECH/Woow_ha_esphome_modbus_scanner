@@ -577,12 +577,12 @@ async def test_more_than_one_bus_requires_bus_selection(hass, gateway):
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"register_count": 5}, "Bridge Protocol v2 requires register_count<=4"),
-        ({"timeout_ms": 99}, "Bridge Protocol v2 requires timeout_ms 100–2000"),
+        ({"register_count": 5}, "A Bridge Protocol v2 Gateway requires register_count<=4"),
+        ({"timeout_ms": 99}, "A Bridge Protocol v2 Gateway requires timeout_ms 100–2000"),
         # A Scan's own gap between Probes must never let the Gateway end its Scan Lease.
         (
             {"inter_request_delay_ms": 3001},
-            "Bridge Protocol v2 requires inter_request_delay_ms<=3000",
+            "A Bridge Protocol v2 Gateway requires inter_request_delay_ms<=3000",
         ),
     ],
 )
