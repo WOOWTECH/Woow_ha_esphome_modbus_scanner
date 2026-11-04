@@ -37,7 +37,9 @@ class HealthSession:
             != {"request_id": UserServiceArgType.STRING}
         ):
             raise GatewayProviderError(
-                "Invalid health bridge signature", code="BRIDGE_UNSUPPORTED", phase="verify_bridge"
+                "Invalid Bridge Protocol v1 health signature",
+                code="BRIDGE_UNSUPPORTED",
+                phase="verify_bridge",
             )
         return cls(client, sensors[0].key, actions[0])
 
@@ -130,7 +132,7 @@ class HealthSession:
                 current = await self.snapshot()
                 if current["boot"] != baseline["boot"]:
                     raise GatewayProviderError(
-                        "ESP restarted while checking recovery",
+                        "Gateway restarted while checking recovery",
                         code="DEVICE_RESTARTED",
                         phase="recovery",
                     )

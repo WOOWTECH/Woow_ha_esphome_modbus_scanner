@@ -202,12 +202,15 @@ async def test_legacy_gateway_keeps_its_frozen_inter_request_delay_cap(hass):
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"address": 33}, "Bridge v1 supports slave IDs 1–32 only"),
-        ({"probe_type": "input_register"}, "Bridge v1 requires probe_type"),
-        ({"register_count": 2}, "Bridge v1 requires register_count<=1"),
-        ({"register_address": 0}, r"Register 0 \(0x0000\) is not in the Bridge v1 read allowlist"),
-        ({"timeout_ms": 500}, "Bridge v1 requires timeout_ms=700"),
-        ({"pause_normal_polling": False}, "Bridge v1 requires pause_normal_polling=true"),
+        ({"address": 33}, "A Legacy Gateway supports slave IDs 1–32 only"),
+        ({"probe_type": "input_register"}, "A Legacy Gateway requires probe_type"),
+        ({"register_count": 2}, "A Legacy Gateway requires register_count<=1"),
+        (
+            {"register_address": 0},
+            r"A Legacy Gateway cannot read register 0 \(0x0000\): it is not in the read allowlist",
+        ),
+        ({"timeout_ms": 500}, "A Legacy Gateway requires timeout_ms=700"),
+        ({"pause_normal_polling": False}, "A Legacy Gateway requires pause_normal_polling=true"),
         ({"bus": "rs485"}, "does not support bus selection"),
     ],
 )

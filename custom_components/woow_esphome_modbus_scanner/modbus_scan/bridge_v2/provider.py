@@ -78,7 +78,7 @@ _RESULT_MARGIN_S = 5
 _RELEASE_ANSWER_S = 1.0
 
 LIMITS = ProbeLimits(
-    "Bridge v2",
+    "Bridge Protocol v2",
     slave_min=HARD_LIMITS["slave_min"],
     slave_max=HARD_LIMITS["slave_max"],
     probe_types=tuple(
@@ -463,7 +463,8 @@ class V2GatewayProvider:
             }
             if any(len(found) != 1 for found in (*actions.values(), *sensors.values())):
                 raise GatewayProviderError(
-                    "The modbus_scanner component (bridge v2) is not installed on this Gateway",
+                    "The modbus_scanner component (Bridge Protocol v2) is not installed on "
+                    "this Gateway",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
                     reason="scanner_missing",
@@ -472,7 +473,7 @@ class V2GatewayProvider:
             release_service = actions[RELEASE_ACTION][0]
             if not _signature(service, PROBE_ARGS) or not _signature(release_service, RELEASE_ARGS):
                 raise GatewayProviderError(
-                    "Unexpected bridge v2 action signature",
+                    "Unexpected Bridge Protocol v2 action signature",
                     code="BRIDGE_UNSUPPORTED",
                     phase=phase,
                     reason="bridge_mismatch",
@@ -496,7 +497,7 @@ class V2GatewayProvider:
             info = await _bounded(asyncio.shield(session.info), 5, cancelled)
         except TimeoutError:
             raise GatewayProviderError(
-                "Gateway did not publish its bridge v2 info",
+                "Gateway did not publish its Bridge Protocol v2 info",
                 code="BRIDGE_UNSUPPORTED",
                 phase="verify_bridge",
                 reason="bridge_mismatch",

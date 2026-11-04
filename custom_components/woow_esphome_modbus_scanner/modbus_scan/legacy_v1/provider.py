@@ -29,7 +29,7 @@ from .health import HealthSession
 
 SERVICE = "modbus_scanner_probe_v1"
 LIMITS = ProbeLimits(
-    "Bridge v1",
+    "A Legacy Gateway",
     slave_min=PROFILE["limits"]["slave_min"],
     slave_max=PROFILE["limits"]["slave_max"],
     probe_types=(ProbeType.HOLDING_REGISTER,),

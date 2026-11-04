@@ -93,7 +93,7 @@ async def test_a_legacy_gateway_keeps_scanning_within_legacy_limits_meanwhile(
         )
 
     target = {"provider": "esphome", "gateway_id": LEGACY_GATEWAY_ID}
-    with pytest.raises(ServiceValidationError, match="Bridge v1 supports slave IDs 1"):
+    with pytest.raises(ServiceValidationError, match="A Legacy Gateway supports slave IDs 1"):
         await call("test_address", {**target, "address": 33})
     started = await call("test_address", {**target, "address": 1})
     await asyncio.gather(*hass.data[DOMAIN][DATA_COORDINATOR]._tasks.values())

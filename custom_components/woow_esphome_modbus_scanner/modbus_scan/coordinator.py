@@ -159,7 +159,9 @@ class ModbusScanCoordinator:
     def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
         if self._selection_store is None:
-            raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
+            raise ValueError(
+                "Pausable Poller selection needs an enrolled Bridge Protocol v2 Gateway"
+            )
         gateway = self._gateway("esphome", gateway_id)
         checklists = self._selection_store.choose(gateway, bus, indices)
         return {"gateway_id": gateway_id, "bus": bus, **checklists}
@@ -247,7 +249,9 @@ class ModbusScanCoordinator:
             gateway.limits.validate(request)
         profile.limits.validate(request)
         if request.pause_pollers is not None and not gateway.supports_scan_lease:
-            raise ValueError("pause_pollers needs a bridge v2 Gateway with Pausable Pollers")
+            raise ValueError(
+                "pause_pollers needs a Bridge Protocol v2 Gateway with Pausable Pollers"
+            )
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):
             raise GatewayBusyError(request.provider, request.gateway_id, existing, request.bus)

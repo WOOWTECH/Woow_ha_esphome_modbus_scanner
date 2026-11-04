@@ -783,7 +783,7 @@ class WoowEsphomeModbusScannerPanel extends i {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/Bridge v1 supports|ESPHome bridge v1/i.test(message)) return t.physicalHelp;
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp;
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;

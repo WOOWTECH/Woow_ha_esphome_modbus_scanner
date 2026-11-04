@@ -1,5 +1,6 @@
 """User-facing English text uses the GLOSSARY.md terms, not their _Avoid_ synonyms."""
 
+import ast
 import json
 from pathlib import Path
 import re
@@ -76,3 +77,37 @@ def test_the_check_reads_every_source():
         "i18n.js",
         "hardening-i18n.js",
     }
+
+
+def _error_messages():
+    """String literals of raised errors, and the Gateway labels that start limit errors."""
+    for path in sorted(INTEGRATION.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        nodes = [node.exc for node in ast.walk(tree) if isinstance(node, ast.Raise) and node.exc]
+        nodes += [
+            node.args[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "ProbeLimits"
+            and node.args
+        ]
+        for node in nodes:
+            for item in ast.walk(node):
+                if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                    yield f"{path.relative_to(INTEGRATION).as_posix()}:{item.lineno}", item.value
+
+
+def test_error_messages_avoid_glossary_synonyms():
+    offenders = [
+        f"{where} [{term}]: {text}"
+        for where, text in _error_messages()
+        for term, pattern in AVOIDED.items()
+        if pattern.search(text)
+    ]
+    assert not offenders, "\n".join(offenders)
+
+
+def test_the_error_message_check_sees_the_gateway_limit_errors():
+    texts = [text for _where, text in _error_messages()]
+    assert " supports slave IDs " in texts
+    assert "Mock gateway" in texts

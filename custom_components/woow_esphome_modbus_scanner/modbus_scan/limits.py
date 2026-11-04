@@ -94,8 +94,9 @@ class ProbeLimits:
             outside = next((reg for reg in block if reg not in self.allowed_registers), None)
             if outside is not None:
                 raise ValueError(
-                    f"Register {outside} (0x{outside:04X}) is not in the {self.label} read "
-                    f"allowlist; every register of the block must be allowed; example: "
+                    f"{self.label} cannot read register {outside} (0x{outside:04X}): it is "
+                    f"not in the read allowlist; every register of the block must be "
+                    f"allowed; example: "
                     f"{self.allowed_registers[0]} (0x{self.allowed_registers[0]:04X})"
                 )
         if not self.timeout_ms_min <= request.timeout_ms <= self.timeout_ms_max:

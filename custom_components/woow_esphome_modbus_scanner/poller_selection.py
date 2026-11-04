@@ -103,7 +103,9 @@ class PollerSelectionStore:
         Validated against the Bus's last known table; returns the Gateway's checklists after.
         """
         if gateway is None or not gateway.supports_scan_lease:
-            raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
+            raise ValueError(
+                "Pausable Poller selection needs an enrolled Bridge Protocol v2 Gateway"
+            )
         selection, _removed = self.revalidate(
             gateway.gateway_id, gateway.pausable_poller_tables, prune=False
         )

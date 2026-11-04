@@ -356,7 +356,7 @@ async def test_large_default_range_from_a_profile_still_needs_confirmation(hass)
     [
         ({"register_address": 20}, "read allowlist"),
         # The first register is allowed, the next one is not: the whole block is checked.
-        ({"register_address": 32, "register_count": 2}, r"Register 33 \(0x0021\) is not in"),
+        ({"register_address": 32, "register_count": 2}, r"cannot read register 33 \(0x0021\)"),
         ({"register_address": 16, "register_count": 4}, None),
         ({"probe_type": "holding_register"}, "requires probe_type in: input_register"),
         ({"probe_type": "device_identification"}, "requires probe_type"),
