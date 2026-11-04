@@ -38,15 +38,23 @@ class ScanTiming:
     attempt_budget_includes_timeout: bool = False
     cleanup_ms: int = 10_000
 
+    @staticmethod
+    def attempts(request: ScanRequest) -> int:
+        """Probe attempts a Scan sends at most: every address, each with its retries."""
+        return request.address_count * (request.retries + 1)
+
+    def attempt_ms(self, request: ScanRequest) -> int:
+        """Worst-case cost of one attempt: its timeout plus what the transport adds."""
+        return request.timeout_ms + self.attempt_overhead_ms
+
     def estimated_worst_case_ms(self, request: ScanRequest) -> int:
         """Conservative request duration estimate without pre-enqueuing work."""
-        attempts = request.address_count * (request.retries + 1)
         delays = max(0, request.address_count - 1) * request.inter_request_delay_ms
-        return attempts * (request.timeout_ms + self.attempt_overhead_ms) + delays
+        return self.attempts(request) * self.attempt_ms(request) + delays
 
     def execution_budget_ms(self, request: ScanRequest) -> int:
         """Operation ceiling: connect/discovery, every attempt's waits, delays and cleanup."""
-        attempts = request.address_count * (request.retries + 1)
+        attempts = self.attempts(request)
         per_attempt = self.attempt_budget_ms
         if not self.attempt_budget_includes_timeout:
             per_attempt += request.timeout_ms
@@ -129,9 +137,9 @@ class ProbeLimits:
         if self.concurrent_wait_max_ms is None or not running:
             return
         scans = [*running, request]
-        turn = [scan.timeout_ms + self.timing.attempt_overhead_ms for scan in scans]
+        turn = [self.timing.attempt_ms(scan) for scan in scans]
         for index, scan in enumerate(scans):
-            if not scan.pause_normal_polling or scan.address_count * (scan.retries + 1) == 1:
+            if not scan.pause_normal_polling or self.timing.attempts(scan) == 1:
                 continue  # no Scan Lease to keep, or no next Probe to wait for
             delay = scan.inter_request_delay_ms if scan.address_count > 1 else 0
             wait = delay + sum(turn) - turn[index]
