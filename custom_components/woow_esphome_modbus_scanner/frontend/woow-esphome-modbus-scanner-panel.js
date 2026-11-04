@@ -67,7 +67,7 @@ const hardeningText = {
   },
 };
 
-var contract = {"hard_limits":{"slave_min":1,"slave_max":247,"function_codes":[3,4],"count_min":1,"count_max":4,"timeout_ms_min":100,"timeout_ms_max":2000},"lease":{"idle_ms":5000,"hard_limit_ms":600000}};
+var contract = {"hard_limits":{"slave_min":1,"slave_max":247,"function_codes":[3,4],"count_min":1,"count_max":4,"timeout_ms_min":100,"timeout_ms_max":2000},"lease":{"idle_ms":5000,"hard_limit_ms":600000,"states":["active","ended","none"],"end_reasons":["released","idle","hard_limit","superseded"]}};
 
 const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX$1, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
 const IDLE_S = contract.lease.idle_ms / 1000;
@@ -429,10 +429,11 @@ function formatDecodedValues(row) {
 function hasDecodedValues(results) {
   return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
 }
-const LEASE_STATES = ["active", "ended", "unconfirmed"];
-const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
-/** Endings the Gateway decides by itself, possibly while the Scan still runs. */
-const EARLY_END_REASONS = ["idle", "hard_limit", "superseded"];
+/** Lease states the panel shows: the contract's, but "none" (no lease), plus HA's own "unconfirmed" (ADR 0007). */
+const LEASE_STATES = [...contract.lease.states.filter((state) => state !== "none"), "unconfirmed"];
+const LEASE_END_REASONS = contract.lease.end_reasons;
+/** Endings the Gateway decides by itself (all but HA's release), possibly while the Scan still runs. */
+const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
 /**
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
  * `stale` names the paused devices whose entity values are frozen while the lease may hold.

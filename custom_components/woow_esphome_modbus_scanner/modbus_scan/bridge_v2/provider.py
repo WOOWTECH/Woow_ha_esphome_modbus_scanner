@@ -33,6 +33,8 @@ from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
     GatewayInfo,
+    LeaseEndReason,
+    LeaseStatus,
     ProbeResult,
     ProbeType,
     ScanOutcome,
@@ -237,7 +239,9 @@ def _bus_rows(buses: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
     )
 
 
-def _parse_lease(state: str, bus: str, scan_id: str) -> tuple[str, str | None] | None:
+def _parse_lease(
+    state: str, bus: str, scan_id: str
+) -> tuple[LeaseStatus, LeaseEndReason | None] | None:
     """(state, end reason) of a lease message for this bus and scan; None for anything else."""
     try:
         lease = json.loads(state)
@@ -251,11 +255,11 @@ def _parse_lease(state: str, bus: str, scan_id: str) -> tuple[str, str | None] |
         or lease.get("state") not in LEASE_STATES
     ):
         return None
-    if lease["state"] != "ended":
-        return lease["state"], None
+    if lease["state"] != LeaseStatus.ENDED:
+        return LeaseStatus(lease["state"]), None
     if lease.get("reason") not in LEASE_END_REASONS:
         return None
-    return "ended", lease["reason"]
+    return LeaseStatus.ENDED, LeaseEndReason(lease["reason"])
 
 
 def _pause_selection(
@@ -596,7 +600,7 @@ class V2GatewayProvider:
         bus: str | None = None
         scan_id = uuid4().hex
         # Scan Lease as last reported by the Gateway for this bus and scan.
-        lease: dict[str, Any] = {"status": "none", "reason": None, "requested": False}
+        lease: dict[str, Any] = {"status": LeaseStatus.NONE, "reason": None, "requested": False}
         lease_answer: asyncio.Future | None = None
         disconnected = False
 
@@ -609,7 +613,8 @@ class V2GatewayProvider:
             if parsed is None:
                 return  # foreign, stale or malformed lease messages are never evidence
             report_lease(*parsed)
-            if lease_answer is not None and not lease_answer.done() and parsed[0] != "active":
+            ended = parsed[0] != LeaseStatus.ACTIVE
+            if lease_answer is not None and not lease_answer.done() and ended:
                 lease_answer.set_result(parsed)
 
         def on_state(state):
@@ -744,8 +749,8 @@ class V2GatewayProvider:
                             released = await self._release(
                                 client, session, bus, scan_id, lease_answer
                             )
-                    if not released and lease["status"] != "ended":
-                        report_lease("unconfirmed")
+                    if not released and lease["status"] != LeaseStatus.ENDED:
+                        report_lease(LeaseStatus.UNCONFIRMED)
             finally:
                 await self._disconnect(client, gateway.gateway_id)
             progress({"cleanup_status": self.health[gateway.gateway_id].get("cleanup_status")})

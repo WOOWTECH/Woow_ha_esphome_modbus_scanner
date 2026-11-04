@@ -14,8 +14,18 @@ from homeassistant.core import HomeAssistant
 
 from .device_profile import GENERIC_DEVICE_PROFILE, DeviceProfile
 from .limits import ScanTiming
-from .models import GatewayInfo, ProbeResult, ProbeType, ScanOutcome, ScanPhase, ScanRequest
-from .pollers import choose
+from .models import (
+    EARLY_LEASE_END_REASONS,
+    GatewayInfo,
+    LeaseEndReason,
+    LeaseStatus,
+    ProbeResult,
+    ProbeType,
+    ScanOutcome,
+    ScanPhase,
+    ScanRequest,
+)
+from .pollers import POLLER_KEYS, choose
 from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
@@ -50,10 +60,6 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-# The contract's lease.end_reasons; all but "released" are decided by the Gateway itself,
-# possibly before the Scan finishes.
-_EARLY_LEASE_END_REASONS = frozenset({"idle", "hard_limit", "superseded"})
-_LEASE_END_REASONS = _EARLY_LEASE_END_REASONS | {"released"}
 
 @dataclass(slots=True)
 class _ScanState:
@@ -81,9 +87,9 @@ class _ScanState:
     recovery_status: str = "unknown"
     recovery_error_code: str | None = None
     cleanup_status: str = "unknown"
-    # Scan Lease as reported by the Gateway: none, active, ended or unconfirmed.
-    lease_status: str = "none"
-    lease_end_reason: str | None = None
+    # Scan Lease as reported by the Gateway, or unconfirmed when HA could not tell.
+    lease_status: LeaseStatus = LeaseStatus.NONE
+    lease_end_reason: LeaseEndReason | None = None
     # Last Slave ID finished when the Gateway ended the lease before the Scan did; later
     # Probes ran with Normal Polling resumed.
     lease_ended_after_address: int | None = None
@@ -475,7 +481,7 @@ class ModbusScanCoordinator:
                 },
                 "recovery_status": {"unknown", "pending", "verified", "failed"},
                 "cleanup_status": {"unknown", "pending", "closed", "forced", "failed"},
-                "lease_status": {"none", "active", "ended", "unconfirmed"},
+                "lease_status": set(LeaseStatus),
             }.items():
                 if update.get(key) in choices:
                     if key == "operation_phase" and update[key] != state.operation_phase:
@@ -485,15 +491,16 @@ class ModbusScanCoordinator:
                                 "elapsed_ms": int((monotonic() - state.started_clock) * 1000),
                             }
                         )
-                    setattr(state, key, update[key])
+                    value = update[key]
+                    setattr(state, key, LeaseStatus(value) if key == "lease_status" else value)
             reason = update.get("lease_end_reason")
             if update.get("lease_status") == state.lease_status and (
-                reason is None or reason in _LEASE_END_REASONS
+                reason is None or reason in set(LeaseEndReason)
             ):
-                state.lease_end_reason = reason
+                state.lease_end_reason = None if reason is None else LeaseEndReason(reason)
             if (
-                state.lease_status == "ended"
-                and state.lease_end_reason in _EARLY_LEASE_END_REASONS
+                state.lease_status == LeaseStatus.ENDED
+                and state.lease_end_reason in EARLY_LEASE_END_REASONS
                 and state.phase == ScanPhase.RUNNING
                 and state.lease_ended_after_address is None
                 # Ended after the last address: no Probe ran without the lease.
@@ -512,7 +519,7 @@ class ModbusScanCoordinator:
                         state,
                         key,
                         [
-                            {name: poller.get(name) for name in ("index", "name", "address")}
+                            {name: poller.get(name) for name in POLLER_KEYS}
                             for poller in update[key]
                             if isinstance(poller, dict) and "index" in poller
                         ],

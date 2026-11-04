@@ -209,10 +209,11 @@ export function formatDecodedValues(row) {
 export function hasDecodedValues(results) {
   return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
 }
-const LEASE_STATES = ["active", "ended", "unconfirmed"];
-const LEASE_END_REASONS = ["released", "idle", "hard_limit", "superseded"];
-/** Endings the Gateway decides by itself, possibly while the Scan still runs. */
-const EARLY_END_REASONS = ["idle", "hard_limit", "superseded"];
+/** Lease states the panel shows: the contract's, but "none" (no lease), plus HA's own "unconfirmed" (ADR 0007). */
+const LEASE_STATES = [...contract.lease.states.filter((state) => state !== "none"), "unconfirmed"];
+const LEASE_END_REASONS = contract.lease.end_reasons;
+/** Endings the Gateway decides by itself (all but HA's release), possibly while the Scan still runs. */
+const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
 /**
  * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
  * `stale` names the paused devices whose entity values are frozen while the lease may hold.

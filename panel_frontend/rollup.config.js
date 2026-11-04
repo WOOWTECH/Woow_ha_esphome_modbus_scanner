@@ -7,7 +7,7 @@ const contractJson = {
   load(id) {
     if (!id.replaceAll("\\", "/").endsWith("/modbus_scan/bridge_v2/contract.json")) return null;
     const {hard_limits, lease} = JSON.parse(readFileSync(id, "utf8"));
-    const used = {hard_limits, lease: {idle_ms: lease.idle_ms, hard_limit_ms: lease.hard_limit_ms}};
+    const used = {hard_limits, lease: {idle_ms: lease.idle_ms, hard_limit_ms: lease.hard_limit_ms, states: lease.states, end_reasons: lease.end_reasons}};
     return `export default ${JSON.stringify(used)};`;
   },
 };

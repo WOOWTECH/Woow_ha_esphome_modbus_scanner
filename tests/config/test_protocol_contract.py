@@ -126,3 +126,33 @@ def test_inter_request_delay_cap_leaves_the_lease_idle_time_for_round_trips():
     lease = contract.CONTRACT["lease"]
     assert lease["inter_request_delay_max_ms"] == LIMITS.inter_request_delay_ms_max == 3000
     assert lease["idle_ms"] - lease["inter_request_delay_max_ms"] >= 2000
+
+
+def test_ha_scan_lease_vocabulary_is_the_contracts_plus_unconfirmed():
+    """HA adds only ``unconfirmed`` (ADR 0007): a release the Gateway never answered."""
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
+        EARLY_LEASE_END_REASONS,
+        LeaseEndReason,
+        LeaseStatus,
+    )
+
+    lease = contract.CONTRACT["lease"]
+    assert [reason.value for reason in LeaseEndReason] == lease["end_reasons"]
+    assert {status.value for status in LeaseStatus} == {*lease["states"], "unconfirmed"}
+    # Every ending but HA's own release is decided by the Gateway, possibly mid-Scan.
+    assert EARLY_LEASE_END_REASONS == set(LeaseEndReason) - {LeaseEndReason.RELEASED}
+
+
+def test_panel_derives_its_scan_lease_vocabulary_from_the_contract():
+    panel_model = (ROOT / "panel_frontend/src/model.js").read_text(encoding="utf-8")
+    assert "contract.lease.states" in panel_model
+    assert "contract.lease.end_reasons" in panel_model
+    # Only HA's own "released" is named in the panel (it never marks rows probed without lease).
+    for reason in set(contract.CONTRACT["lease"]["end_reasons"]) - {"released"}:
+        assert f'"{reason}"' not in panel_model, f"model.js hand-copies lease end reason {reason}"
+
+
+def test_pausable_poller_rows_carry_the_contracts_poller_fields():
+    from custom_components.woow_esphome_modbus_scanner.modbus_scan.pollers import POLLER_KEYS
+
+    assert POLLER_KEYS == tuple(contract.CONTRACT["info"]["poller_fields"])

@@ -64,6 +64,32 @@ class ScanPhase(StrEnum):
     FAILED = "failed"
 
 
+class LeaseStatus(StrEnum):
+    """Scan Lease state in Scan status and results: the contract's states plus HA's own."""
+
+    ACTIVE = "active"
+    ENDED = "ended"
+    NONE = "none"
+    # HA could not confirm the ending (no answer to the release); the Gateway's idle expiry
+    # resumes Normal Polling by itself (ADR 0007).
+    UNCONFIRMED = "unconfirmed"
+
+
+class LeaseEndReason(StrEnum):
+    """Why a Scan Lease ended: the bridge v2 contract's lease.end_reasons."""
+
+    RELEASED = "released"
+    IDLE = "idle"
+    HARD_LIMIT = "hard_limit"
+    SUPERSEDED = "superseded"
+
+
+# Endings the Gateway decides by itself, possibly before the Scan finishes.
+EARLY_LEASE_END_REASONS = frozenset(
+    {LeaseEndReason.IDLE, LeaseEndReason.HARD_LIMIT, LeaseEndReason.SUPERSEDED}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GatewayInfo:
     """A provider-owned gateway advertised to Home Assistant."""
