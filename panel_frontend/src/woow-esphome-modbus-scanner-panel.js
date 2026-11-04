@@ -134,7 +134,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits);
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits) || message;
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;
@@ -455,7 +455,11 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const physical = this._form.provider === "esphome";
     // A Legacy Gateway's help describes the limits it reports under its Bridge Protocol v1 name.
     const v1 = isLegacyGatewayForm(this._form);
-    const legacyHelp = t.physicalHelp(this._form.gateway_limits);
+    // Until the Gateway reports its limits (a restored selection before the reload) a hint is "", so the generic help shows.
+    const limits = this._form.gateway_limits;
+    const legacyHelpText = t.physicalHelp(limits);
+    const rangeHelp = (generic) => (v1 && t.physicalRange(limits)) || generic;
+    const limitsHelp = (generic) => (v1 ? legacyHelpText || generic : physical ? t.v2Help : generic);
     // Under a Scan Lease, recovery is Gateway-owned; a Gateway that holds none leaves it for the operator to verify.
     const lease = leaseNotice(this._status);
     const resultsEndedAfter = leaseNotice(this._results)?.endedAfter ?? null;
@@ -484,13 +488,13 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
           ${supportsScanLease(gateway) && gatewayAvailable ? html`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : nothing}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => html`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
-            ${this._field("start_id", t.startId, ...INTEGER_BOUNDS.start_id, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, ...INTEGER_BOUNDS.end_id, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, ...INTEGER_BOUNDS.address, v1 ? t.physicalRange : t.addressHelp)}
+            ${this._field("start_id", t.startId, ...INTEGER_BOUNDS.start_id, rangeHelp(t.startHelp))}${this._field("end_id", t.endId, ...INTEGER_BOUNDS.end_id, rangeHelp(t.endHelp))}${this._field("address", t.address, ...INTEGER_BOUNDS.address, rangeHelp(t.addressHelp))}
             <div class="field"><label for="profile">${t.mockScenario}</label><select id="profile" ?disabled=${physical} .value=${selectedScenario} @change=${(event) => this._set("mock_scenario", event.target.value)} aria-describedby="profile-help">${MOCK_SCENARIOS.map((scenario) => html`<option value=${scenario} .selected=${scenario === selectedScenario}>${t.mockScenarioNames[scenario]}</option>`)}</select><small id="profile-help">${physical ? t.physicalProfiles : t.mockScenarioHelp}</small></div>
           </div><div class="profiles" aria-label=${t.quickMockScenarios}>${MOCK_SCENARIOS.map((scenario) => { const selected = selectedScenario === scenario; return html`<button class="secondary ${selected ? "selected" : ""}" ?disabled=${physical} @click=${() => this._set("mock_scenario", scenario)} aria-pressed=${selected}><ha-icon icon=${selected ? "mdi:check-circle" : "mdi:circle-outline"}></ha-icon>${t.mockScenarioNames[scenario]}${selected ? html`<span class="sr-only">${t.selected}</span>` : nothing}</button>`; })}</div>
           <div class="profile-description" role="note"><strong>${physical ? t.physicalTitle : t.mockScenarioNames[selectedScenario]}</strong><p>${physical ? t.physicalProfiles : t.mockScenarioDetails[selectedScenario]}</p></div>
           <details ?open=${this._advancedOpen} @toggle=${(event) => { this._advancedOpen = event.target.open; this._persist(); }}><summary>${t.advanced}</summary><div class="fields">
-            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${v1 ? legacyHelp : physical ? t.v2Help : t.probeHelp}</small></div>
-            ${this._field("register_address", t.registerAddress, 0, 65535, v1 ? t.physicalRegisters : t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, v1 ? legacyHelp : physical ? t.v2Help : t.registerCountHelp)}${this._field("timeout_ms", t.timeout, 10, 10000, v1 ? legacyHelp : physical ? t.v2Help : t.timeoutHelp)}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
+            <div class="field full"><label for="probe">${t.probe}</label><select id="probe" .value=${this._form.probe_type} @change=${(event) => this._set("probe_type", event.target.value)}><option value="holding_register">${t.holdingRegister}</option><option value="input_register" ?disabled=${v1}>${t.inputRegister}</option></select><small>${limitsHelp(t.probeHelp)}</small></div>
+            ${this._field("register_address", t.registerAddress, 0, 65535, (v1 && t.physicalRegisters(limits)) || t.registerAddressHelp)}${this._field("register_count", t.registerCount, 1, 125, limitsHelp(t.registerCountHelp))}${this._field("timeout_ms", t.timeout, 10, 10000, limitsHelp(t.timeoutHelp))}${this._field("retries", t.retries, 0, 5, t.retriesHelp)}${this._field("inter_request_delay_ms", t.delay, 0, INTEGER_BOUNDS.inter_request_delay_ms[1], t.delayHelp)}
             <div class="field check"><label><input type="checkbox" ?disabled=${physical} .checked=${this._form.pause_normal_polling} @change=${(event) => this._set("pause_normal_polling", event.target.checked)}>${t.pause}</label><small>${v1 ? t.physicalPause : physical ? t.v2Pause : t.pauseHelp}</small></div>
           </div></details>
           <div class="field check"><label><input id="safety" type="checkbox" .checked=${this._form.safety_confirmed} @change=${(event) => this._set("safety_confirmed", event.target.checked)} aria-invalid=${this._errors.safety_confirmed ? "true" : "false"} aria-describedby="safety-help${this._errors.safety_confirmed ? " safety-error" : ""}">${t.safety}</label><small id="safety-help">${t.help.timeout}</small>${this._errors.safety_confirmed ? html`<small class="error" id="safety-error">${this._errors.safety_confirmed}</small>` : nothing}</div>

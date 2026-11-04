@@ -151,3 +151,44 @@ test("Legacy Gateway help describes the limits the Gateway reports, not a panel 
   assert.match(zh.physicalHelp(reflashed), /逾時固定 900 毫秒/);
   assert.doesNotMatch(zh.physicalHelp(reflashed), /700/);
 });
+
+test("Legacy Gateway slave range and register hints describe the limits the Gateway reports", () => {
+  const en = stringsFor({locale: {language: "en"}});
+  const zh = stringsFor({locale: {language: "zh-Hant"}});
+  // The frozen v1 limits keep today's wording.
+  assert.equal(en.physicalRange(LEGACY_GATEWAY.limits), "This Legacy Gateway supports slave IDs 1–32, inclusive.");
+  assert.equal(zh.physicalRange(LEGACY_GATEWAY.limits), "此舊版閘道支援從站 1–32，包含起訖位址。");
+  assert.equal(en.physicalRegisters(LEGACY_GATEWAY.limits),
+    "Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.");
+  assert.equal(zh.physicalRegisters(LEGACY_GATEWAY.limits),
+    "請輸入十進位：0x6201 = 25089。允許：24833–24838、24849、24850、25089–25091、25093、25094。");
+  const other = {...LEGACY_GATEWAY.limits, slave_min: 1, slave_max: 16, allowed_registers: [200, 100, 102, 101],
+    defaults: {...LEGACY_GATEWAY.limits.defaults, register_address: 100}};
+  assert.equal(en.physicalRange(other), "This Legacy Gateway supports slave IDs 1–16, inclusive.");
+  assert.equal(zh.physicalRange(other), "此舊版閘道支援從站 1–16，包含起訖位址。");
+  assert.equal(en.physicalRegisters(other), "Enter decimal: 0x0064 = 100. Allowed: 100–102, 200.");
+  assert.equal(zh.physicalRegisters(other), "請輸入十進位：0x0064 = 100。允許：100–102、200。");
+});
+
+test("Legacy Gateway hints say nothing about limits the Gateway has not reported", () => {
+  for (const language of ["en", "zh-Hant"]) {
+    const t = stringsFor({locale: {language}});
+    for (const limits of [undefined, null, {}]) {
+      for (const hint of [t.physicalHelp, t.physicalRange, t.physicalRegisters]) {
+        const text = hint(limits);
+        assert.doesNotMatch(text, /[:：]\s*[.。]?$|[:：]\s*[.。]/, `${language} ${JSON.stringify(limits)}: ${text}`);
+        assert.equal(text, "", `${language} ${JSON.stringify(limits)}`);
+      }
+    }
+  }
+});
+
+test("a Bridge Protocol v2 Gateway that pins count and timeout gets the v2 error text", () => {
+  const pinned = {...V2_GATEWAY, limits: {...V2_GATEWAY.limits, probe_types: ["holding_register"], register_count_max: 1,
+    timeout_ms_min: 900, timeout_ms_max: 900}};
+  const form = {...selectGateway(DEFAULTS, pinned), probe_type: "input_register"};
+  const errors = validateForm(form, true, {physical: "Bridge Protocol v1: …", v2: "Bridge Protocol v2: …"});
+  assert.equal(errors.probe_type, "Bridge Protocol v2: …");
+  const legacy = {...selectGateway(DEFAULTS, LEGACY_GATEWAY), probe_type: "input_register"};
+  assert.equal(validateForm(legacy, true, {physical: "Bridge Protocol v1: …", v2: "Bridge Protocol v2: …"}).probe_type, "Bridge Protocol v1: …");
+});

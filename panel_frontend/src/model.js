@@ -309,10 +309,8 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
     }
   }
   const limits = reportedLimits({limits: form.gateway_limits});
-  // The Gateway's own limits, as it reports them: one that pins register count and timeout is
-  // described by those fixed limits, any other by its ranges.
-  const pinned = limits?.register_count_max === 1 && limits.timeout_ms_min === limits.timeout_ms_max;
-  const gatewayText = (pinned ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
+  // The same rule that picks the help: a Legacy Gateway's text names Bridge Protocol v1, any other the v2 limits.
+  const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
   if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
   if (limits?.pause_normal_polling_required === true && form.pause_normal_polling !== true) errors.pause_normal_polling = gatewayText;
   if (limits?.pause_normal_polling_supported === false && form.pause_normal_polling === true) errors.pause_normal_polling = gatewayText;
