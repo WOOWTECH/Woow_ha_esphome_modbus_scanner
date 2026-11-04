@@ -66,3 +66,7 @@ pause.
   whose lease is still active: for example after an HA restart during a Scan, a
   second HA instance, or a native ESPHome action call. HA itself runs one Scan
   per Bus, so a normal Scan never supersedes another.
+- Scans of different Buses on one Gateway take turns for Probes, so a Scan also
+  waits one Probe of every other running Scan between its own Probes. HA refuses
+  a new Scan when that wait plus the inter-request delay would pass
+  `lease.inter_request_delay_max_ms` for any Scan that pauses Normal Polling.

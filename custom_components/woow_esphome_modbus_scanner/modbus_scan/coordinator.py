@@ -255,6 +255,15 @@ class ModbusScanCoordinator:
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):
             raise GatewayBusyError(request.provider, request.gateway_id, existing, request.bus)
+        if gateway.limits is not None:
+            gateway.limits.validate_alongside(
+                request,
+                [
+                    self._scans[scan_id].request
+                    for (p, g, _bus), scan_id in self._active.items()
+                    if p == request.provider and g == request.gateway_id
+                ],
+            )
 
         scan_id = str(uuid4())
         state = _ScanState(

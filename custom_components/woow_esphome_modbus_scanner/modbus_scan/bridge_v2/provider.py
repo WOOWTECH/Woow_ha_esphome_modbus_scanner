@@ -88,6 +88,9 @@ LIMITS = ProbeLimits(
     timeout_ms_min=HARD_LIMITS["timeout_ms_min"],
     timeout_ms_max=HARD_LIMITS["timeout_ms_max"],
     inter_request_delay_ms_max=LEASE_INTER_REQUEST_DELAY_MAX_MS,
+    # Buses share the Gateway's one Probe slot (see _probe_slots), so a Scan also waits for
+    # the other Buses' Probes; together they must stay within the lease's delay cap.
+    concurrent_wait_max_ms=LEASE_INTER_REQUEST_DELAY_MAX_MS,
     defaults={
         "probe_type": ProbeType.HOLDING_REGISTER,
         "register_address": 0,

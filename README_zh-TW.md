@@ -224,7 +224,12 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 
 **多條 Bus：**同一 Gateway 不同 Bus 的 Scan 可同時進行，每條 Bus 一次一個 Scan。
 它們的 Probe 輪流送出，所以每個 Gateway 一次只有一個 Probe 在途：所有 Bus 共用
-節點的結果感測器，否則 ESPHome API 可能丟掉同時發布的兩筆結果之一。
+節點的結果感測器，否則 ESPHome API 可能丟掉同時發布的兩筆結果之一。因此一個 Scan
+在兩個 Probe 之間，要等自己的 `inter_request_delay_ms`，再加上同一 Gateway 每個其他
+執行中 Scan 的一個 Probe（`timeout_ms` + 約 300 ms）。若任何會暫停 Normal Polling 的
+Scan 這段等待會超過 3000 ms，新的 Scan 會在開始時被拒絕，因為更長的間隔可能讓它的
+Scan Lease 因閒置而結束。預設值（間隔 100 ms、逾時 1000 ms）下可同時掃描三條 Bus；
+要再多，請調低 `timeout_ms` 或 `inter_request_delay_ms`，或等其他 Scan 結束。
 
 ## 公開動作
 

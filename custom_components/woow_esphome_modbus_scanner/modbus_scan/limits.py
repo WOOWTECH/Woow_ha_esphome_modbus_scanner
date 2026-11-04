@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -68,6 +69,9 @@ class ProbeLimits:
     inter_request_delay_ms_max: int = MAX_INTER_REQUEST_DELAY_MS
     pause_normal_polling_required: bool = False
     pause_normal_polling_supported: bool = True
+    # Set when Scans of a Gateway's Buses take turns for one Probe slot: the longest a Scan
+    # that may hold a Scan Lease can wait between a Probe's result and its next Probe.
+    concurrent_wait_max_ms: int | None = None
     # Values the service layer fills in for omitted probe fields.
     defaults: dict[str, Any] = field(default_factory=dict, compare=False)
     timing: ScanTiming = field(default_factory=ScanTiming, compare=False)
@@ -115,6 +119,32 @@ class ProbeLimits:
             raise ValueError(
                 f"{self.label} cannot pause Normal Polling yet; set pause_normal_polling=false"
             )
+
+    def validate_alongside(self, request: ScanRequest, running: Sequence[ScanRequest]) -> None:
+        """Refuse a Scan whose Probe turns would make a pausing Scan wait past the limit.
+
+        Between two Probes a Scan waits its inter-request delay plus one Probe (timeout and
+        attempt overhead) of every other running Scan of the Gateway.
+        """
+        if self.concurrent_wait_max_ms is None or not running:
+            return
+        scans = [*running, request]
+        turn = [scan.timeout_ms + self.timing.attempt_overhead_ms for scan in scans]
+        for index, scan in enumerate(scans):
+            if not scan.pause_normal_polling or scan.address_count * (scan.retries + 1) == 1:
+                continue  # no Scan Lease to keep, or no next Probe to wait for
+            delay = scan.inter_request_delay_ms if scan.address_count > 1 else 0
+            wait = delay + sum(turn) - turn[index]
+            if wait > self.concurrent_wait_max_ms:
+                waiting = "this Scan" if scan is request else f"the Scan on Bus {scan.bus}"
+                raise ValueError(
+                    f"{self.label} cannot start this Scan on Bus {request.bus} now: the "
+                    f"Buses of a Gateway take turns for Probes, so {waiting} would wait up "
+                    f"to {wait} ms between Probes, more than the "
+                    f"{self.concurrent_wait_max_ms} ms that stays within the Scan Lease idle "
+                    f"limit; lower timeout_ms or inter_request_delay_ms, or wait for the "
+                    f"other Scan to finish"
+                )
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""

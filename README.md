@@ -255,7 +255,13 @@ up to one of its `update_interval`s. Scan status reports `lease_status`
 **Multiple Buses:** Scans of different Buses on one Gateway run side by side,
 one Scan per Bus. Their Probes take turns, so there is one Probe in flight per
 Gateway at a time: all Buses share the node's result sensor, and ESPHome's API
-would otherwise drop one of two results published together.
+would otherwise drop one of two results published together. Between two Probes a
+Scan therefore waits its own `inter_request_delay_ms` plus one Probe
+(`timeout_ms` + about 300 ms) of every other running Scan of the Gateway. A Scan
+is refused at start when that wait would pass 3000 ms for any Scan that pauses
+Normal Polling, since a longer gap could end its Scan Lease as idle. At the
+defaults (100 ms delay, 1000 ms timeout) three Buses scan together; lower
+`timeout_ms` or `inter_request_delay_ms` to add more, or wait for the other Scan.
 
 ## Public services
 

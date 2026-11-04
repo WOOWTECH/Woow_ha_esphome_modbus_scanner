@@ -254,6 +254,129 @@ async def test_concurrent_buses_lose_no_result_to_esphome_state_batching(
     assert len(gateway.probes) == 12
 
 
+# ---- Concurrent Scans and the Scan Lease idle limit ----
+# Probes of a Gateway's Buses take turns, so between two Probes a Scan waits its own
+# inter-request delay plus one Probe of every other Scan. The contract caps that wait at
+# lease.inter_request_delay_max_ms (3000 ms of the 5000 ms idle time), so a Scan whose
+# waits would pass it is refused before any Probe.
+
+
+def _hold_first_probe_of_line_a(gateway):
+    """Keep line_a's first Probe on the wire; every other Scan waits for the Probe slot."""
+    held = []
+
+    def hold(data):
+        if data["bus"] == "line_a" and not held:
+            held.append(data)
+            return None
+        return gateway.firmware_result(data)
+
+    gateway.result_override = hold
+    return held
+
+
+async def _release_held(hass, gateway, held):
+    gateway.publish(RESULT_KEY, gateway.firmware_result(held[0]))
+    await _settle(hass)
+
+
+async def test_a_scan_whose_waits_would_end_a_running_scans_lease_is_refused(hass, gateway):
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(gateway)
+    scan_a = await _start(call, bus="line_a", inter_request_delay_ms=3000, timeout_ms=2000)
+    await _first_probe_on(gateway, "line_a")
+
+    # Scan A would wait its 3000 ms delay plus a 2000 ms line_b Probe between Probes.
+    with pytest.raises(ServiceValidationError, match="Scan Lease idle limit"):
+        await _start(call, bus="line_b", timeout_ms=2000)
+
+    await _release_held(hass, gateway, held)
+    a = await call("get_scan_results", {"scan_id": scan_a["scan_id"]})
+    assert a["status"] == "completed"
+    assert (a["lease_status"], a["lease_end_reason"]) == ("ended", "released")
+    assert {probe["bus"] for probe in gateway.probes} == {"line_a"}
+
+
+async def test_a_scan_whose_own_waits_would_end_its_lease_is_refused(hass, gateway):
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(gateway)
+    scan_a = await _start(call, bus="line_a", inter_request_delay_ms=100)
+    await _first_probe_on(gateway, "line_a")
+
+    # The new Scan would wait 2500 ms plus a 1000 ms line_a Probe between its Probes.
+    with pytest.raises(ServiceValidationError, match="Scan Lease idle limit"):
+        await _start(call, bus="line_b", inter_request_delay_ms=2500)
+
+    await _release_held(hass, gateway, held)
+    a = await call("get_scan_status", {"scan_id": scan_a["scan_id"]})
+    assert a["status"] == "completed"
+    assert {probe["bus"] for probe in gateway.probes} == {"line_a"}
+
+
+async def test_test_address_is_refused_like_start_scan(hass, gateway):
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(gateway)
+    await _start(call, bus="line_a", inter_request_delay_ms=3000, timeout_ms=2000)
+    await _first_probe_on(gateway, "line_a")
+
+    with pytest.raises(ServiceValidationError, match="Scan Lease idle limit"):
+        await call(
+            "test_address",
+            {"provider": "esphome", "gateway_id": GATEWAY_ID, "bus": "line_b", "address": 3},
+        )
+
+    await _release_held(hass, gateway, held)
+    assert {probe["bus"] for probe in gateway.probes} == {"line_a"}
+
+
+async def test_scans_without_a_scan_lease_have_no_idle_limit_to_keep(hass, gateway):
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(gateway)
+    fields = {"inter_request_delay_ms": 3000, "timeout_ms": 2000, "pause_normal_polling": False}
+    scan_a = await _start(call, bus="line_a", **fields)
+    await _first_probe_on(gateway, "line_a")
+
+    scan_b = await _start(call, bus="line_b", **fields)
+
+    assert scan_b["status"] == "running"
+    await _release_held(hass, gateway, held)
+    for scan in (scan_a, scan_b):
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed"
+
+
+async def test_three_buses_scan_together_at_the_defaults_and_a_fourth_is_refused(hass, gateway):
+    gateway.buses = ["line_a", "line_b", "line_c", "line_d"]
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(gateway)
+
+    # Gateway defaults: 100 ms delay and 1000 ms timeout. Three Scans wait 100 ms plus two
+    # Probes of the others; a fourth would add a third Probe and pass 3000 ms.
+    scans = [
+        await call(
+            "start_scan",
+            {
+                "provider": "esphome",
+                "gateway_id": GATEWAY_ID,
+                "bus": bus,
+                "start_id": 2,
+                "end_id": 3,
+                "safety_confirmed": True,
+            },
+        )
+        for bus in ("line_a", "line_b", "line_c")
+    ]
+    await _first_probe_on(gateway, "line_a")
+    with pytest.raises(ServiceValidationError, match="Scan Lease idle limit"):
+        await _start(call, bus="line_d", start_id=2, end_id=3, inter_request_delay_ms=100)
+
+    await _release_held(hass, gateway, held)
+    for scan in scans:
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed", status["error_info"]
+    assert "line_d" not in {probe["bus"] for probe in gateway.probes}
+
+
 # ---- The mock provider: one single-Bus and one multi-Bus simulated Gateway ----
 
 MOCK_MULTI = "mock:multi-bus-gateway"
