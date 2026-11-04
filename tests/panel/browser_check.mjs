@@ -279,6 +279,9 @@ try {
   check(await limited.locator('#timeout_ms-help').textContent()==='Bridge Protocol v1: FC03 holding register, count 1, fixed 700 ms timeout, polling pause required.', 'help for the frozen Legacy limits changed');
   check(await limited.locator('#start_id-help').textContent()==='This Legacy Gateway supports slave IDs 1–32, inclusive.', 'slave range hint for the frozen Legacy limits changed');
   check(await limited.locator('#register_address-help').textContent()==='Enter decimal: 0x6201 = 25089. Allowed: 24833–24838, 24849, 24850, 25089–25091, 25093, 25094.', 'register hint for the frozen Legacy limits changed');
+  // The service's slave-range rejection is shown as the slave-range hint, not the probe help.
+  const rangeError=await limitPage.evaluate(async()=>{await panel._action('start',async()=>{throw new Error('A Legacy Gateway supports slave IDs 1–32 only');});return panel._message;});
+  check(rangeError==='This Legacy Gateway supports slave IDs 1–32, inclusive.', `slave-range rejection shows the wrong hint: ${rangeError}`);
   await showGateway({...legacy,limits:{...LEGACY_LIMITS,slave_max:16,allowed_registers:[200,100,101,102],defaults:{...LEGACY_LIMITS.defaults,end_id:3,register_address:100}}});
   const rangeHint=await limited.locator('#start_id-help').textContent(), registerHint=await limited.locator('#register_address-help').textContent();
   check(rangeHint==='This Legacy Gateway supports slave IDs 1–16, inclusive.' && registerHint==='Enter decimal: 0x0064 = 100. Allowed: 100–102, 200.', `Legacy hints ignore the reported limits: ${rangeHint} / ${registerHint}`);

@@ -1,14 +1,15 @@
 import {hardeningText} from "./hardening-i18n.js";
+import {reportedLimits} from "./model.js";
 // Bridge Protocol v2 limits and Scan Lease timers are the contract's (ADR 0005), never copied here.
 import contract from "../../custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json" with {type: "json"};
 const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
 const IDLE_S = contract.lease.idle_ms / 1000;
 const HARD_LIMIT_MIN = contract.lease.hard_limit_ms / 60000;
 /** A Gateway's reported limits (ProbeLimits.as_dict), or an empty object when it has reported none. */
-const reported = (limits) => limits && typeof limits === "object" && !Array.isArray(limits) ? limits : {};
+const reported = (limits) => reportedLimits(limits) || {};
 /** A Legacy Gateway's limits as it reports them (ProbeLimits.as_dict), in one language's words; the panel keeps no copy. */
-const legacyHelp = (words) => (reportedLimits) => {
-  const limits = reported(reportedLimits);
+const legacyHelp = (words) => (given) => {
+  const limits = reported(given);
   const parts = [];
   const probes = Array.isArray(limits.probe_types) ? limits.probe_types.map((probe) => words.probes[probe]).filter(Boolean) : [];
   if (probes.length) parts.push(probes.join(words.or));
@@ -19,8 +20,8 @@ const legacyHelp = (words) => (reportedLimits) => {
   return parts.length ? `${words.prefix}${parts.join(words.comma)}${words.end}` : "";
 };
 /** A Legacy Gateway's reported slave ID range, or "" before it reports one. */
-const legacyRange = (words) => (reportedLimits) => {
-  const {slave_min: min, slave_max: max} = reported(reportedLimits);
+const legacyRange = (words) => (given) => {
+  const {slave_min: min, slave_max: max} = reported(given);
   return Number.isInteger(min) && Number.isInteger(max) ? words(min, max) : "";
 };
 /** Ascending registers, a run of three or more consecutive ones shortened to "first–last". */
@@ -37,8 +38,8 @@ const registerList = (registers, comma) => {
   return items.join(comma);
 };
 /** A Legacy Gateway's reported register allowlist, with its default register as the hex example, or "" before it reports one. */
-const legacyRegisters = (words) => (reportedLimits) => {
-  const limits = reported(reportedLimits);
+const legacyRegisters = (words) => (given) => {
+  const limits = reported(given);
   const allowed = Array.isArray(limits.allowed_registers) ? limits.allowed_registers.filter(Number.isInteger) : [];
   if (!allowed.length) return "";
   const preferred = limits.defaults?.register_address;

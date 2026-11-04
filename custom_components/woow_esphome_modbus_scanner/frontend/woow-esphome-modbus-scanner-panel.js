@@ -69,14 +69,451 @@ const hardeningText = {
 
 var contract = {"hard_limits":{"slave_min":1,"slave_max":247,"function_codes":[3,4],"count_min":1,"count_max":4,"timeout_ms_min":100,"timeout_ms_max":2000},"lease":{"idle_ms":5000,"hard_limit_ms":600000,"states":["active","ended","none"],"end_reasons":["released","idle","hard_limit","superseded"]}};
 
-const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX$1, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
+// The Bridge Protocol v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
+const HARD = contract.hard_limits;
+const SLAVE_MAX$1 = HARD.slave_max;
+const DOMAIN = "woow_esphome_modbus_scanner";
+const SERVICES = Object.freeze([
+  "check_gateway", "get_history",
+  "list_gateways", "set_pausable_pollers",
+  "start_scan",
+  "get_scan_status",
+  "get_scan_results",
+  "cancel_scan",
+  "test_address",
+  "list_device_profiles", "import_device_profile", "export_device_profile", "delete_device_profile",
+]);
+const MOCK_SCENARIOS = Object.freeze([
+  "found_default", "all_offline", "partial_timeout", "modbus_exception",
+  "possible_collision", "gateway_disconnect",
+]);
+const OUTCOMES = Object.freeze([
+  "responded", "modbus_exception", "timeout", "possible_collision", "gateway_error",
+]);
+// Only Scan history stored by 0.4.x (FC43 device identification) holds these rows.
+const HISTORY_ONLY_OUTCOMES = Object.freeze(["identified"]);
+const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
+const DEFAULTS = Object.freeze({
+  provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
+  address: 1, probe_type: "holding_register", register_address: 0,
+  register_count: 1, timeout_ms: 500, retries: 1,
+  inter_request_delay_ms: 100, pause_normal_polling: false,
+  mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
+  device_profile_id: "generic", bus: "",
+});
+/** A Bus name as Gateways report it (the Bridge Protocol v2 identifier charset). */
+const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
+const PARITIES = ["NONE", "EVEN", "ODD"];
+function serialLabel(serial) {
+  if (!serial || typeof serial !== "object") return "";
+  const {baud_rate: baud, parity, stop_bits: stop} = serial;
+  if (!Number.isInteger(baud) || baud < 1 || !PARITIES.includes(parity) || ![1, 2].includes(stop)) return "";
+  return ` (${baud} baud, parity ${parity}, ${stop} stop bit${stop === 2 ? "s" : ""})`;
+}
+/** The Buses a gateway reports, with their serial parameters, from untrusted response data. */
+function gatewayBuses(gateway) {
+  const rows = Array.isArray(gateway?.buses) ? gateway.buses : [];
+  return rows.filter((row) => row && typeof row === "object" && typeof row.bus === "string" && BUS_NAME.test(row.bus))
+    .map((row) => ({bus: row.bus, label: `${row.bus}${serialLabel(row.serial)}`}));
+}
+/** Choose the Bus a Scan targets; a Bus the gateway does not report is ignored. */
+function selectBus(form, gateway, bus) {
+  if (!gatewayBuses(gateway).some((row) => row.bus === bus)) return form;
+  return {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
+/** The Bus to keep for a gateway: none needed for one (or unknown) Bus, else the chosen or first one. */
+function initialBus(gateway, current = "") {
+  const buses = gatewayBuses(gateway);
+  if (buses.length < 2) return "";
+  return buses.some((row) => row.bus === current) ? current : buses[0].bus;
+}
+/** Revalidate the form's Bus once the gateway's Buses are (re)loaded. */
+function reconcileBus(form, gateway) {
+  if (!gateway) return form;
+  const bus = initialBus(gateway, form.bus);
+  return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+}
+const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
+/** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
+const GENERIC_PROFILE = Object.freeze({
+  id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
+  function_codes: [...HARD.function_codes], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
+  limits: Object.freeze({slave_min: HARD.slave_min, slave_max: HARD.slave_max,
+    probe_types: HARD.function_codes.map((code) => FUNCTION_CODE_PROBES[code]),
+    register_count_max: HARD.count_max, allowed_registers: null, timeout_ms_min: HARD.timeout_ms_min, timeout_ms_max: HARD.timeout_ms_max}),
+});
+const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
+const LARGE_RANGE_THRESHOLD = 32;
+/** Bounds until a Gateway reports its limits; the slave range is the contract's. */
+const INTEGER_BOUNDS = Object.freeze({
+  start_id: [HARD.slave_min, SLAVE_MAX$1], end_id: [HARD.slave_min, SLAVE_MAX$1], address: [HARD.slave_min, SLAVE_MAX$1],
+  register_address: [0, 65535], register_count: [1, 125],
+  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
+});
+const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
+/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
+function outlastsScanLease(estimateMs, gateway) {
+  return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
+}
+function isBridgeV2(gateway) {
+  return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
+}
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease, as HA publishes it. */
+const supportsScanLease = (gateway) => gateway?.supports_scan_lease === true;
+/** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
+const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
+/** Whether a form targets a Legacy Gateway (Bridge Protocol v1), whose help names that protocol. */
+const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
+/** The gateway's bounds intersected with the selected Device Profile's limits. */
+function boundsFor(form, profile = GENERIC_PROFILE) {
+  const gateway = gatewayBoundsFor(form);
+  const l = profile?.limits || GENERIC_PROFILE.limits;
+  return {...gateway,
+    start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),
+    address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
+    timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
+}
+/** A Gateway's reported limits (ProbeLimits.as_dict, as list_gateways gives them), or null when it has reported none. */
+const reportedLimits = (limits) => limits && typeof limits === "object" && !Array.isArray(limits) ? limits : null;
+const meet = ([low, high], min, max) => [Math.max(low, Number.isInteger(min) ? min : low), Math.min(high, Number.isInteger(max) ? max : high)];
+function gatewayBoundsFor(form) {
+  const reported = reportedLimits(form.gateway_limits);
+  if (reported) {
+    const slaves = meet(INTEGER_BOUNDS.address, reported.slave_min, reported.slave_max);
+    return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
+      register_count: meet(INTEGER_BOUNDS.register_count, 1, reported.register_count_max),
+      timeout_ms: meet(INTEGER_BOUNDS.timeout_ms, reported.timeout_ms_min, reported.timeout_ms_max),
+      inter_request_delay_ms: meet(INTEGER_BOUNDS.inter_request_delay_ms, 0, reported.inter_request_delay_ms_max)};
+  }
+  return INTEGER_BOUNDS;
+}
+/** The form fields a Gateway's reported defaults may set, checked like stored preferences. */
+function reportedDefaults(limits) {
+  const source = limits?.defaults && typeof limits.defaults === "object" ? limits.defaults : {};
+  const defaults = {};
+  for (const [name, [minimum, maximum]] of Object.entries(INTEGER_BOUNDS)) {
+    if (Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) defaults[name] = source[name];
+  }
+  if (PROBE_TYPES.includes(source.probe_type)) defaults.probe_type = source.probe_type;
+  if (typeof source.pause_normal_polling === "boolean") defaults.pause_normal_polling = source.pause_normal_polling;
+  return defaults;
+}
+/** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
+function selectDeviceProfile(form, profile) {
+  const d = profile?.defaults || {};
+  const next = {...form, device_profile_id: profile?.id || "generic", safety_confirmed: false, large_range_confirmed: false};
+  const mapping = {slave_start: "start_id", slave_end: "end_id", register: "register_address", count: "register_count",
+    timeout_ms: "timeout_ms", inter_request_delay_ms: "inter_request_delay_ms", retries: "retries"};
+  for (const [key, target] of Object.entries(mapping)) if (Number.isInteger(d[key])) next[target] = d[key];
+  if (FUNCTION_CODE_PROBES[d.function_code]) next.probe_type = FUNCTION_CODE_PROBES[d.function_code];
+  const probes = profile?.limits?.probe_types;
+  if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = probes[0];
+  const allowed = profile?.allowed_registers;
+  if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) next.register_address = allowed[0];
+  return next;
+}
+/** "Name version (id)" from a Scan status or result, or null when the Scan predates Device Profiles. */
+function profileLabel(record) {
+  const p = record?.device_profile;
+  if (!p || typeof p.id !== "string") return null;
+  return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
+}
+/** Target a Gateway: the limits it reports bound the form and the defaults it reports fill it. */
+function selectGateway(form, gateway) {
+  const limits = reportedLimits(gateway?.limits);
+  const bridge = isBridgeV2(gateway) ? "v2" : gateway.provider === "esphome" ? "v1" : "";
+  return {...form, ...(gateway.provider === "mock" ? DEFAULTS : {}), ...reportedDefaults(limits), provider:gateway.provider,
+    gateway_id:gateway.gateway_id, bridge, bus:initialBus(gateway), gateway_limits:limits, safety_confirmed:false};
+}
+/**
+ * Revalidate a restored or kept form once its gateway is (re)loaded: when the limits the Gateway
+ * reports are new to the form, values outside them fall back to its defaults; then the Bus is revalidated.
+ */
+function reconcileGateway(form, gateway) {
+  if (!gateway) return form;
+  const limits = reportedLimits(gateway?.limits);
+  const next = {...form, gateway_limits: limits};
+  if (limits && JSON.stringify(limits) !== JSON.stringify(form.gateway_limits ?? null)) {
+    const defaults = reportedDefaults(limits);
+    for (const [name, [minimum, maximum]] of Object.entries(gatewayBoundsFor(next))) {
+      const value = Number(next[name]);
+      if (wholeNumber(next[name]) && value >= minimum && value <= maximum) continue;
+      next[name] = name in defaults ? defaults[name] : Math.min(Math.max(Number.isInteger(value) ? value : minimum, minimum), maximum);
+    }
+    if (Number(next.start_id) > Number(next.end_id)) {
+      next.start_id = defaults.start_id ?? next.start_id;
+      next.end_id = defaults.end_id ?? next.start_id;
+    }
+    const probes = limits.probe_types;
+    if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = defaults.probe_type ?? probes[0];
+    const allowed = limits.allowed_registers;
+    if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) {
+      next.register_address = defaults.register_address ?? allowed[0];
+    }
+    // The panel offers no Normal Polling choice for physical Gateways; their defaults decide it.
+    if (next.provider === "esphome" && "pause_normal_polling" in defaults) next.pause_normal_polling = defaults.pause_normal_polling;
+    if (limits.pause_normal_polling_required === true) next.pause_normal_polling = true;
+    if (Object.keys(DEFAULTS).some((key) => next[key] !== form[key])) Object.assign(next, {safety_confirmed: false, large_range_confirmed: false});
+  }
+  return reconcileBus(next, gateway);
+}
+/** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
+function formatRawValues(row) {
+  const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
+  const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
+  return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
+}
+/** Device Profile decoded values, e.g. "Voltage = 230.1 V; Current = -1.36 A", or null. */
+function formatDecodedValues(row) {
+  const entries = Array.isArray(row?.decoded) ? row.decoded : [];
+  const shown = entries
+    .filter((entry) => entry && typeof entry.name === "string" && typeof entry.value === "number" && Number.isFinite(entry.value))
+    .map((entry) => {
+      const unit = typeof entry.unit === "string" && entry.unit ? ` ${entry.unit.slice(0, 16)}` : "";
+      return `${entry.name.slice(0, 64)} = ${entry.value}${unit}`;
+    });
+  return shown.length ? shown.join("; ") : null;
+}
+/** Whether any Responder carries decoded values (the Generic Device Profile never does). */
+function hasDecodedValues(results) {
+  return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
+}
+/** Lease states the panel shows: the contract's, but "none" (no lease), plus HA's own "unconfirmed" (ADR 0007). */
+const LEASE_STATES = [...contract.lease.states.filter((state) => state !== "none"), "unconfirmed"];
+const LEASE_END_REASONS = contract.lease.end_reasons;
+/** Endings the Gateway decides by itself (all but HA's release), possibly while the Scan still runs. */
+const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
+/**
+ * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
+ * `stale` names the paused Pausable Pollers whose entity values are frozen while the lease may hold.
+ */
+/** "name (slave address)" of a Pausable Poller from untrusted response data. */
+function pollerLabel(poller) {
+  const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
+  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= SLAVE_MAX$1 ? `${name} (${poller.address})` : name;
+}
+const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) => poller && typeof poller === "object") : [];
+function leaseNotice(status) {
+  const state = status?.lease_status;
+  if (!LEASE_STATES.includes(state)) return null;
+  const reason = state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null;
+  return {
+    state,
+    reason,
+    stale: state === "ended" ? [] : pollerObjects(status.paused_pollers).map(pollerLabel),
+    endedAfter: leaseEndedAfter(status, reason),
+  };
+}
+/**
+ * The last Slave ID finished under the Scan Lease when the Gateway ended it before the Scan
+ * did; later Probes ran with Normal Polling resumed. Null when the lease held to the end.
+ */
+function leaseEndedAfter(status, reason) {
+  const after = status?.lease_ended_after_address;
+  return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= SLAVE_MAX$1 ? after : null;
+}
+/** Whether a Responder row was probed after the Scan Lease ended early at `endedAfter` (leaseNotice). */
+function probedWithoutLease(endedAfter, row) {
+  return Number.isInteger(endedAfter) && Number.isInteger(row?.address) && row.address > endedAfter;
+}
+/** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
+function removedPollers(status) {
+  return pollerObjects(status?.removed_pollers).map(pollerLabel);
+}
+/**
+ * The Pausable Poller checklist of each Bus of a Gateway with Scan Lease support, as saved in HA and
+ * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
+ */
+function pollerChecklists(gateway, bus = "") {
+  if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
+    bus,
+    pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
+      .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
+    removed: pollerObjects(gateway.removed_pollers?.[bus]).map(pollerLabel),
+  }));
+}
+/** set_pausable_pollers data after checking (paused=true) or unchecking one poller, or "all". */
+function selectionPayload(gatewayId, bus, pollers, index, paused) {
+  const chosen = pollers.filter((poller) => index === "all" ? paused : poller.index === index ? paused : poller.paused);
+  return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
+}
+const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
+/**
+ * Estimated range-scan duration, the service's estimated_worst_case_ms formula: IDs x attempts x
+ * (timeout + the gateway's reported per-attempt overhead) + (IDs - 1) x delay; null for an invalid range.
+ */
+function estimatedDurationMs(form, gateway = null) {
+  const fields = [form.start_id, form.end_id, form.timeout_ms, form.retries, form.inter_request_delay_ms];
+  if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
+  const reported = gateway?.limits?.attempt_overhead_ms;
+  const overhead = Number.isInteger(reported) && reported >= 0 ? reported : 0;
+  const ids = Number(form.end_id) - Number(form.start_id) + 1;
+  return ids * (Number(form.retries) + 1) * (Number(form.timeout_ms) + overhead) + (ids - 1) * Number(form.inter_request_delay_ms);
+}
+function needsLargeRangeConfirmation(form) {
+  return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;
+}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function normalizeResponse(value) {
+  if (value && typeof value === "object" && value.response && typeof value.response === "object") return value.response;
+  return value;
+}
+
+function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE) {
+  const errors = {};
+  const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
+  for (const name of names) {
+    const number = Number(form[name]);
+    const [minimum, maximum] = boundsFor(form, profile)[name];
+    const raw = form[name];
+    const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
+    if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
+      errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
+    }
+  }
+  const limits = reportedLimits(form.gateway_limits);
+  // The same rule that picks the help: a Legacy Gateway's text names Bridge Protocol v1, any other the v2 limits.
+  const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
+  if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
+  if (limits?.pause_normal_polling_required === true && form.pause_normal_polling !== true) errors.pause_normal_polling = gatewayText;
+  if (limits?.pause_normal_polling_supported === false && form.pause_normal_polling === true) errors.pause_normal_polling = gatewayText;
+  if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
+    errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
+  }
+  const probes = profile?.limits?.probe_types;
+  if (!errors.probe_type && Array.isArray(probes) && !probes.includes(form.probe_type)) {
+    errors.probe_type = text.profileProbe || "The selected Device Profile does not allow this probe type.";
+  }
+  const allowed = profile?.allowed_registers;
+  // Every register of the block is read, so every one must be allowed.
+  const block = Array.from({length: Math.max(1, Number(form.register_count) || 1)}, (_, i) => Number(form.register_address) + i);
+  const gatewayAllowed = limits?.allowed_registers;
+  if (!errors.register_address && !errors.register_count && Array.isArray(gatewayAllowed) && block.some((reg) => !gatewayAllowed.includes(reg))) {
+    errors.register_address = gatewayText;
+  }
+  if (!errors.register_address && !errors.register_count && Array.isArray(allowed) && block.some((reg) => !allowed.includes(reg))) {
+    errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
+  }
+  if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
+  if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
+    errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
+  }
+  if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
+  if (!form.gateway_id) errors.gateway_id = text.gateway || "Select an available gateway.";
+  return errors;
+}
+
+function sharedPayload(form) {
+  return {
+    provider: form.provider, gateway_id: form.gateway_id,
+    ...(typeof form.bus === "string" && BUS_NAME.test(form.bus) ? {bus: form.bus} : {}),
+    probe_type: form.probe_type,
+    register_address: Number(form.register_address), register_count: Number(form.register_count),
+    timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
+    inter_request_delay_ms: Number(form.inter_request_delay_ms),
+    pause_normal_polling: form.pause_normal_polling === true,
+    ...(form.provider === "mock" ? {mock_scenario: form.mock_scenario} : {}),
+    ...(form.device_profile_id && form.device_profile_id !== "generic" ? {device_profile_id: form.device_profile_id} : {}),
+  };
+}
+function startPayload(form) {
+  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true,
+    ...(needsLargeRangeConfirmation(form) ? {large_range_confirmed: true} : {})};
+}
+function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
+function supportedGateway(gateway) {
+  // A Legacy Gateway is usable once HA reports its limits; the panel keeps no copy of them.
+  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && reportedLimits(gateway?.limits) !== null);
+}
+function serviceYaml(form, profile = GENERIC_PROFILE) {
+  if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
+  const lines = Object.entries(startPayload(form)).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`);
+  return `action: ${DOMAIN}.start_scan\ndata:\n${lines.join("\n")}\n`;
+}
+
+/** Deliberately excludes gateway identity, vendor strings, free text and credentials. */
+function evidenceExport(status, results) {
+  const integer = (value, max) => Number.isInteger(value) && value >= 0 && value <= max ? value : null;
+  return {
+    schema_version:1, source:DOMAIN, best_effort:true, uniqueness_guaranteed:false,
+    provider:["mock","esphome"].includes(results?.provider) ? results.provider : "unknown",
+    status:["running","completed","cancelled","failed"].includes(results?.status) ? results.status : "unknown",
+    recovery_status:["unknown","pending","verified","failed"].includes(status?.recovery_status) ? status.recovery_status : "unknown",
+    outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],SLAVE_MAX$1) ?? 0])),
+    responders:(results?.responders || []).slice(0,SLAVE_MAX$1).map((row) => ({
+      address:integer(row.address,SLAVE_MAX$1), outcome:[...OUTCOMES, ...HISTORY_ONLY_OUTCOMES].includes(row.outcome) ? row.outcome : "unknown",
+      latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
+      register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
+      raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,
+      attempts:integer(row.attempts,6),
+    })),
+    privacy:"Identities and free-text fields omitted; numeric register evidence retained.",
+  };
+}
+
+/** Return only validated, non-secret preferences from untrusted browser storage. */
+function sanitizePreferences(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {form: {...DEFAULTS}, advancedOpen: false};
+  const source = value.form;
+  if (!source || typeof source !== "object" || Array.isArray(source) || Object.getPrototypeOf(source) !== Object.prototype) {
+    return {form: {...DEFAULTS}, advancedOpen: value.advancedOpen === true};
+  }
+  const form = {...DEFAULTS};
+  for (const [name, [minimum, maximum]] of Object.entries(INTEGER_BOUNDS)) {
+    if (typeof source[name] === "number" && Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) form[name] = source[name];
+  }
+  if (PROBE_TYPES.includes(source.probe_type)) form.probe_type = source.probe_type;
+  // mock_profile is the deprecated pre-0.5 key for the same Mock Scenario.
+  const mockScenario = source.mock_scenario ?? source.mock_profile;
+  if (MOCK_SCENARIOS.includes(mockScenario)) form.mock_scenario = mockScenario;
+  if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
+  // Checked against the loaded profile list later; an unknown id falls back to Generic there.
+  if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
+  // Checked against the gateway's reported Buses when the gateway list loads.
+  if (typeof source.bus === "string" && BUS_NAME.test(source.bus)) form.bus = source.bus;
+  // A stored acknowledgement is not consent for a new browser session.
+  form.safety_confirmed = false;
+  form.large_range_confirmed = false;
+  // Checked against the limits the gateway reports once the gateway list loads (reconcileGateway).
+  if (source.provider === "esphome") {
+    form.provider = "esphome";
+    form.bridge = isBridgeV2Form(source) ? "v2" : "v1";
+    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
+  }
+  return {form, advancedOpen: value.advancedOpen === true};
+}
+
+function sanitizeRecent(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item) => typeof item === "string" && UUID.test(item)))].slice(0, 10);
+}
+
+function safePreferences(form, advancedOpen = false) {
+  const values = Object.fromEntries(Object.keys(DEFAULTS).map((key) => {
+    const value = form[key];
+    return [key, key in INTEGER_BOUNDS && typeof value === "string" && /^[+-]?\d+$/.test(value) ? Number(value) : value];
+  }));
+  return sanitizePreferences({form: values, advancedOpen});
+}
+
+function errorMessage(error) {
+  if (!error) return "Unknown error.";
+  if (typeof error === "string") return error;
+  return error.message || error.body?.message || error.error?.message || "Home Assistant did not return a usable response.";
+}
+
+const {slave_min: SLAVE_MIN, slave_max: SLAVE_MAX, count_min: COUNT_MIN, count_max: COUNT_MAX, timeout_ms_min: TIMEOUT_MIN, timeout_ms_max: TIMEOUT_MAX} = contract.hard_limits;
 const IDLE_S = contract.lease.idle_ms / 1000;
 const HARD_LIMIT_MIN = contract.lease.hard_limit_ms / 60000;
 /** A Gateway's reported limits (ProbeLimits.as_dict), or an empty object when it has reported none. */
-const reported = (limits) => limits && typeof limits === "object" && !Array.isArray(limits) ? limits : {};
+const reported = (limits) => reportedLimits(limits) || {};
 /** A Legacy Gateway's limits as it reports them (ProbeLimits.as_dict), in one language's words; the panel keeps no copy. */
-const legacyHelp = (words) => (reportedLimits) => {
-  const limits = reported(reportedLimits);
+const legacyHelp = (words) => (given) => {
+  const limits = reported(given);
   const parts = [];
   const probes = Array.isArray(limits.probe_types) ? limits.probe_types.map((probe) => words.probes[probe]).filter(Boolean) : [];
   if (probes.length) parts.push(probes.join(words.or));
@@ -87,8 +524,8 @@ const legacyHelp = (words) => (reportedLimits) => {
   return parts.length ? `${words.prefix}${parts.join(words.comma)}${words.end}` : "";
 };
 /** A Legacy Gateway's reported slave ID range, or "" before it reports one. */
-const legacyRange = (words) => (reportedLimits) => {
-  const {slave_min: min, slave_max: max} = reported(reportedLimits);
+const legacyRange = (words) => (given) => {
+  const {slave_min: min, slave_max: max} = reported(given);
   return Number.isInteger(min) && Number.isInteger(max) ? words(min, max) : "";
 };
 /** Ascending registers, a run of three or more consecutive ones shortened to "first–last". */
@@ -105,8 +542,8 @@ const registerList = (registers, comma) => {
   return items.join(comma);
 };
 /** A Legacy Gateway's reported register allowlist, with its default register as the hex example, or "" before it reports one. */
-const legacyRegisters = (words) => (reportedLimits) => {
-  const limits = reported(reportedLimits);
+const legacyRegisters = (words) => (given) => {
+  const limits = reported(given);
   const allowed = Array.isArray(limits.allowed_registers) ? limits.allowed_registers.filter(Number.isInteger) : [];
   if (!allowed.length) return "";
   const preferred = limits.defaults?.register_address;
@@ -166,7 +603,7 @@ const en = {
   bus:"Bus", busHelp:"This gateway has several RS-485 Buses. A Scan runs on the chosen Bus; other Buses can scan at the same time, one Scan per Bus.",
 notRefreshed: "not refreshed", gatewayHelp:"Choose a simulated or enrolled physical gateway. A physical selection applies the Gateway's safe defaults and clears old results.", futureDevice: "Selected ESPHome gateway (read-only)", futureUnavailable: "Not applicable to the simulated gateway",
   futureHelp: "This identity summary is intentionally disabled; choose the transport using Available gateway above. The backend verifies the enrolled MAC before any read.", refreshGateways: "Refresh gateways",
-  scanRange: "Scan range", startId: "Start Slave ID", startHelp: `Inclusive; Modbus unicast addresses are ${SLAVE_MIN}–${SLAVE_MAX$1}.`, endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
+  scanRange: "Scan range", startId: "Start Slave ID", startHelp: `Inclusive; Modbus unicast addresses are ${SLAVE_MIN}–${SLAVE_MAX}.`, endId: "End Slave ID", endHelp: "Inclusive and not lower than Start ID.",
   address: "Single test address", addressHelp: "Used only by Test address.", mockScenario: "Mock scenario", mockScenarioHelp: "Choose a deterministic fixture. The selected scenario's addresses, outcomes, and terminal state are described below.", quickMockScenarios: "Mock quick scenarios",
   advanced: "Advanced read-only probe settings", probe: "Probe type", holdingRegister: "Holding register read", inputRegister: "Input register read",
   probeHelp: "In simulated mode the scenario fixes which IDs respond, and register reads return deterministic raw values.", registerAddress: "Register address", registerAddressHelp: "Zero-based; relevant to register probes only.", registerCount: "Register count", registerCountHelp: "Number of registers read.",
@@ -245,7 +682,7 @@ const zh = {
   resultGateway:"結果來源（可能與下一次掃描選擇不同）",
   banner:"目前選取的是模擬閘道，不會連線 ESPHome 或實體 Modbus。這些是訓練資料，不是設備清冊。若要真實讀取，請明確選擇已登錄的 ESPHome 閘道。",tutorial:"查看模擬版教學原始檔",download:"下載模擬版教學",tutorialLinks:"教學與下載連結",
   gateway:"閘道",availableGateway:"可用閘道",simulated:"模擬",simulatedGateway:"模擬 RS-485 閘道",simulatedMultiBus:"模擬雙匯流排閘道",bus:"匯流排",busHelp:"此閘道有多條 RS-485 匯流排。掃描在所選匯流排上執行；其他匯流排可同時掃描，每條匯流排一次一個掃描。",notRefreshed:"尚未重新整理",gatewayHelp:"選擇模擬或已登錄的實體閘道。選擇真機會帶入閘道的安全預設值並清除舊結果。",futureDevice:"已選 ESPHome 閘道（唯讀）",futureUnavailable:"模擬閘道不適用",futureHelp:"此處只顯示識別資訊，請在上方「可用閘道」選擇連線對象。後端會在讀取前核對登錄的 MAC。",refreshGateways:"重新整理閘道",
-  scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:`包含此值；Modbus 單播位址為 ${SLAVE_MIN}–${SLAVE_MAX$1}。`,endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",mockScenario:"模擬快速情境",mockScenarioHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickMockScenarios:"模擬快速情境",
+  scanRange:"掃描範圍",startId:"起始從站 ID",startHelp:`包含此值；Modbus 單播位址為 ${SLAVE_MIN}–${SLAVE_MAX}。`,endId:"結束從站 ID",endHelp:"包含此值，且不得小於起始 ID。",address:"單一測試位址",addressHelp:"僅供「測試位址」使用。",mockScenario:"模擬快速情境",mockScenarioHelp:"選擇固定測試情境；下方會詳述所選情境的位址、結果及預期終止狀態。",quickMockScenarios:"模擬快速情境",
   advanced:"進階唯讀探測設定",probe:"探測類型",holdingRegister:"讀取保持暫存器",inputRegister:"讀取輸入暫存器",probeHelp:"在模擬模式中，情境決定哪些站號回應，暫存器讀取會回傳固定的原始值。",registerAddress:"暫存器位址",registerAddressHelp:"從零起算；僅適用暫存器探測。",registerCount:"暫存器數量",registerCountHelp:"要讀取的暫存器數量。",timeout:"逾時（毫秒）",timeoutHelp:"每次嘗試的期限；模擬僅用於最壞時間估算。",retries:"重試次數",retriesHelp:"第一次之後的額外嘗試；模擬不會重試。",delay:"請求間隔（毫秒）",delayHelp:"要求的最短間隔；模擬內建至少 10 毫秒。",pause:"暫停一般輪詢",pauseHelp:"模擬模式沒有一般輪詢；實體模式必須自動暫停及恢復輪詢。",safety:"我了解掃描僅提供盡力而為的結果，且實體掃描可能干擾輪詢。",start:"開始掃描",test:"測試位址",cancel:"取消",
   statusTitle:"狀態與進度",recent:"最近掃描 ID（僅此瀏覽器）",storage:"偏好設定和 ID 保留在 localStorage。永不儲存權杖、主機、訊框、回覆或認證資料。",phase:"階段",noRecent:"沒有最近掃描",noScanId:"沒有掃描 ID",progress:"掃描進度",addresses:"個位址",responders:"個回應者",terminalError:"終止錯誤",refreshStatus:"重新整理狀態",refreshResults:"重新整理結果",
   evidence:"回應者證據",evidenceHelp:"逾時會計數但刻意不列入表格。收到回應並不能證明是唯一的實體裝置。",tableLabel:"可排序的回應者證據表格",noEvidence:"尚未載入回應者證據。",columns:{address:"位址",outcome:"結果",latency_ms:"延遲（毫秒）",exception_code:"例外",vendor:"廠商",product:"產品",detail:"詳細資料"},interpretation:"判讀與疑難排解",
@@ -265,446 +702,6 @@ function stringsFor(hass) {
   const base = language === "zh-Hant" ? zh : en;
   const additions = hardeningText[language];
   return {...base, ...additions, help:{...base.help, unknown:additions.historyHelp}};
-}
-
-// The Bridge Protocol v2 contract (ADR 0005): the fallback limits until a Gateway reports its own.
-const HARD = contract.hard_limits;
-const SLAVE_MAX = HARD.slave_max;
-const DOMAIN = "woow_esphome_modbus_scanner";
-const SERVICES = Object.freeze([
-  "check_gateway", "get_history",
-  "list_gateways", "set_pausable_pollers",
-  "start_scan",
-  "get_scan_status",
-  "get_scan_results",
-  "cancel_scan",
-  "test_address",
-  "list_device_profiles", "import_device_profile", "export_device_profile", "delete_device_profile",
-]);
-const MOCK_SCENARIOS = Object.freeze([
-  "found_default", "all_offline", "partial_timeout", "modbus_exception",
-  "possible_collision", "gateway_disconnect",
-]);
-const OUTCOMES = Object.freeze([
-  "responded", "modbus_exception", "timeout", "possible_collision", "gateway_error",
-]);
-// Only Scan history stored by 0.4.x (FC43 device identification) holds these rows.
-const HISTORY_ONLY_OUTCOMES = Object.freeze(["identified"]);
-const PROBE_TYPES = Object.freeze(["holding_register", "input_register"]);
-const DEFAULTS = Object.freeze({
-  provider: "mock", gateway_id: "mock:rs485-gateway", start_id: 1, end_id: 12,
-  address: 1, probe_type: "holding_register", register_address: 0,
-  register_count: 1, timeout_ms: 500, retries: 1,
-  inter_request_delay_ms: 100, pause_normal_polling: false,
-  mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
-  device_profile_id: "generic", bus: "",
-});
-/** A Bus name as Gateways report it (the Bridge Protocol v2 identifier charset). */
-const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
-const PARITIES = ["NONE", "EVEN", "ODD"];
-function serialLabel(serial) {
-  if (!serial || typeof serial !== "object") return "";
-  const {baud_rate: baud, parity, stop_bits: stop} = serial;
-  if (!Number.isInteger(baud) || baud < 1 || !PARITIES.includes(parity) || ![1, 2].includes(stop)) return "";
-  return ` (${baud} baud, parity ${parity}, ${stop} stop bit${stop === 2 ? "s" : ""})`;
-}
-/** The Buses a gateway reports, with their serial parameters, from untrusted response data. */
-function gatewayBuses(gateway) {
-  const rows = Array.isArray(gateway?.buses) ? gateway.buses : [];
-  return rows.filter((row) => row && typeof row === "object" && typeof row.bus === "string" && BUS_NAME.test(row.bus))
-    .map((row) => ({bus: row.bus, label: `${row.bus}${serialLabel(row.serial)}`}));
-}
-/** Choose the Bus a Scan targets; a Bus the gateway does not report is ignored. */
-function selectBus(form, gateway, bus) {
-  if (!gatewayBuses(gateway).some((row) => row.bus === bus)) return form;
-  return {...form, bus, safety_confirmed: false, large_range_confirmed: false};
-}
-/** The Bus to keep for a gateway: none needed for one (or unknown) Bus, else the chosen or first one. */
-function initialBus(gateway, current = "") {
-  const buses = gatewayBuses(gateway);
-  if (buses.length < 2) return "";
-  return buses.some((row) => row.bus === current) ? current : buses[0].bus;
-}
-/** Revalidate the form's Bus once the gateway's Buses are (re)loaded. */
-function reconcileBus(form, gateway) {
-  if (!gateway) return form;
-  const bus = initialBus(gateway, form.bus);
-  return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
-}
-const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
-/** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
-const GENERIC_PROFILE = Object.freeze({
-  id: "generic", name: "Generic Device Profile", vendor: "Generic", model: "Any Modbus RTU device", version: "1",
-  function_codes: [...HARD.function_codes], allowed_registers: null, defaults: {}, fields: [], builtin: true, deletable: false,
-  limits: Object.freeze({slave_min: HARD.slave_min, slave_max: HARD.slave_max,
-    probe_types: HARD.function_codes.map((code) => FUNCTION_CODE_PROBES[code]),
-    register_count_max: HARD.count_max, allowed_registers: null, timeout_ms_min: HARD.timeout_ms_min, timeout_ms_max: HARD.timeout_ms_max}),
-});
-const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-/** Ranges with more IDs than this need a second confirmation (the service requires large_range_confirmed). */
-const LARGE_RANGE_THRESHOLD = 32;
-/** Bounds until a Gateway reports its limits; the slave range is the contract's. */
-const INTEGER_BOUNDS = Object.freeze({
-  start_id: [HARD.slave_min, SLAVE_MAX], end_id: [HARD.slave_min, SLAVE_MAX], address: [HARD.slave_min, SLAVE_MAX],
-  register_address: [0, 65535], register_count: [1, 125],
-  timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
-});
-const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
-/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
-function outlastsScanLease(estimateMs, gateway) {
-  return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
-}
-function isBridgeV2(gateway) {
-  return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
-}
-/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease, as HA publishes it. */
-const supportsScanLease = (gateway) => gateway?.supports_scan_lease === true;
-/** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
-const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
-/** Whether a form targets a Legacy Gateway (Bridge Protocol v1), whose help names that protocol. */
-const isLegacyGatewayForm = (form) => form.provider === "esphome" && !isBridgeV2Form(form);
-/** The gateway's bounds intersected with the selected Device Profile's limits. */
-function boundsFor(form, profile = GENERIC_PROFILE) {
-  const gateway = gatewayBoundsFor(form);
-  const l = profile?.limits || GENERIC_PROFILE.limits;
-  return {...gateway,
-    start_id: meet(gateway.start_id, l.slave_min, l.slave_max), end_id: meet(gateway.end_id, l.slave_min, l.slave_max),
-    address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
-    timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
-}
-/** The limits a Gateway reports in list_gateways (ProbeLimits.as_dict), or null. */
-function reportedLimits(gateway) {
-  const limits = gateway?.limits;
-  return limits && typeof limits === "object" && !Array.isArray(limits) ? limits : null;
-}
-const meet = ([low, high], min, max) => [Math.max(low, Number.isInteger(min) ? min : low), Math.min(high, Number.isInteger(max) ? max : high)];
-function gatewayBoundsFor(form) {
-  const reported = reportedLimits({limits: form.gateway_limits});
-  if (reported) {
-    const slaves = meet(INTEGER_BOUNDS.address, reported.slave_min, reported.slave_max);
-    return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
-      register_count: meet(INTEGER_BOUNDS.register_count, 1, reported.register_count_max),
-      timeout_ms: meet(INTEGER_BOUNDS.timeout_ms, reported.timeout_ms_min, reported.timeout_ms_max),
-      inter_request_delay_ms: meet(INTEGER_BOUNDS.inter_request_delay_ms, 0, reported.inter_request_delay_ms_max)};
-  }
-  return INTEGER_BOUNDS;
-}
-/** The form fields a Gateway's reported defaults may set, checked like stored preferences. */
-function reportedDefaults(limits) {
-  const source = limits?.defaults && typeof limits.defaults === "object" ? limits.defaults : {};
-  const defaults = {};
-  for (const [name, [minimum, maximum]] of Object.entries(INTEGER_BOUNDS)) {
-    if (Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) defaults[name] = source[name];
-  }
-  if (PROBE_TYPES.includes(source.probe_type)) defaults.probe_type = source.probe_type;
-  if (typeof source.pause_normal_polling === "boolean") defaults.pause_normal_polling = source.pause_normal_polling;
-  return defaults;
-}
-/** Apply a Device Profile's defaults; values it does not define stay, unless the profile forbids them. */
-function selectDeviceProfile(form, profile) {
-  const d = profile?.defaults || {};
-  const next = {...form, device_profile_id: profile?.id || "generic", safety_confirmed: false, large_range_confirmed: false};
-  const mapping = {slave_start: "start_id", slave_end: "end_id", register: "register_address", count: "register_count",
-    timeout_ms: "timeout_ms", inter_request_delay_ms: "inter_request_delay_ms", retries: "retries"};
-  for (const [key, target] of Object.entries(mapping)) if (Number.isInteger(d[key])) next[target] = d[key];
-  if (FUNCTION_CODE_PROBES[d.function_code]) next.probe_type = FUNCTION_CODE_PROBES[d.function_code];
-  const probes = profile?.limits?.probe_types;
-  if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = probes[0];
-  const allowed = profile?.allowed_registers;
-  if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) next.register_address = allowed[0];
-  return next;
-}
-/** "Name version (id)" from a Scan status or result, or null when the Scan predates Device Profiles. */
-function profileLabel(record) {
-  const p = record?.device_profile;
-  if (!p || typeof p.id !== "string") return null;
-  return `${p.name || p.id}${p.version ? ` ${p.version}` : ""} (${p.id})`;
-}
-/** Target a Gateway: the limits it reports bound the form and the defaults it reports fill it. */
-function selectGateway(form, gateway) {
-  const limits = reportedLimits(gateway);
-  const bridge = isBridgeV2(gateway) ? "v2" : gateway.provider === "esphome" ? "v1" : "";
-  return {...form, ...(gateway.provider === "mock" ? DEFAULTS : {}), ...reportedDefaults(limits), provider:gateway.provider,
-    gateway_id:gateway.gateway_id, bridge, bus:initialBus(gateway), gateway_limits:limits, safety_confirmed:false};
-}
-/**
- * Revalidate a restored or kept form once its gateway is (re)loaded: when the limits the Gateway
- * reports are new to the form, values outside them fall back to its defaults; then the Bus is revalidated.
- */
-function reconcileGateway(form, gateway) {
-  if (!gateway) return form;
-  const limits = reportedLimits(gateway);
-  const next = {...form, gateway_limits: limits};
-  if (limits && JSON.stringify(limits) !== JSON.stringify(form.gateway_limits ?? null)) {
-    const defaults = reportedDefaults(limits);
-    for (const [name, [minimum, maximum]] of Object.entries(gatewayBoundsFor(next))) {
-      const value = Number(next[name]);
-      if (wholeNumber(next[name]) && value >= minimum && value <= maximum) continue;
-      next[name] = name in defaults ? defaults[name] : Math.min(Math.max(Number.isInteger(value) ? value : minimum, minimum), maximum);
-    }
-    if (Number(next.start_id) > Number(next.end_id)) {
-      next.start_id = defaults.start_id ?? next.start_id;
-      next.end_id = defaults.end_id ?? next.start_id;
-    }
-    const probes = limits.probe_types;
-    if (Array.isArray(probes) && probes.length && !probes.includes(next.probe_type)) next.probe_type = defaults.probe_type ?? probes[0];
-    const allowed = limits.allowed_registers;
-    if (Array.isArray(allowed) && allowed.length && !allowed.includes(Number(next.register_address))) {
-      next.register_address = defaults.register_address ?? allowed[0];
-    }
-    // The panel offers no Normal Polling choice for physical Gateways; their defaults decide it.
-    if (next.provider === "esphome" && "pause_normal_polling" in defaults) next.pause_normal_polling = defaults.pause_normal_polling;
-    if (limits.pause_normal_polling_required === true) next.pause_normal_polling = true;
-    if (Object.keys(DEFAULTS).some((key) => next[key] !== form[key])) Object.assign(next, {safety_confirmed: false, large_range_confirmed: false});
-  }
-  return reconcileBus(next, gateway);
-}
-/** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
-function formatRawValues(row) {
-  const values = Array.isArray(row?.raw_values) ? row.raw_values : Number.isInteger(row?.raw_value) ? [row.raw_value] : [];
-  const shown = values.filter((value) => Number.isInteger(value) && value >= 0 && value <= 65535);
-  return shown.length ? shown.map((value) => `${value} (0x${value.toString(16).toUpperCase().padStart(4, "0")})`).join(", ") : null;
-}
-/** Device Profile decoded values, e.g. "Voltage = 230.1 V; Current = -1.36 A", or null. */
-function formatDecodedValues(row) {
-  const entries = Array.isArray(row?.decoded) ? row.decoded : [];
-  const shown = entries
-    .filter((entry) => entry && typeof entry.name === "string" && typeof entry.value === "number" && Number.isFinite(entry.value))
-    .map((entry) => {
-      const unit = typeof entry.unit === "string" && entry.unit ? ` ${entry.unit.slice(0, 16)}` : "";
-      return `${entry.name.slice(0, 64)} = ${entry.value}${unit}`;
-    });
-  return shown.length ? shown.join("; ") : null;
-}
-/** Whether any Responder carries decoded values (the Generic Device Profile never does). */
-function hasDecodedValues(results) {
-  return Array.isArray(results?.responders) && results.responders.some((row) => formatDecodedValues(row) !== null);
-}
-/** Lease states the panel shows: the contract's, but "none" (no lease), plus HA's own "unconfirmed" (ADR 0007). */
-const LEASE_STATES = [...contract.lease.states.filter((state) => state !== "none"), "unconfirmed"];
-const LEASE_END_REASONS = contract.lease.end_reasons;
-/** Endings the Gateway decides by itself (all but HA's release), possibly while the Scan still runs. */
-const EARLY_END_REASONS = LEASE_END_REASONS.filter((reason) => reason !== "released");
-/**
- * What the panel shows about a Scan's Scan Lease, or null when no lease applies.
- * `stale` names the paused Pausable Pollers whose entity values are frozen while the lease may hold.
- */
-/** "name (slave address)" of a Pausable Poller from untrusted response data. */
-function pollerLabel(poller) {
-  const name = typeof poller.name === "string" ? poller.name.slice(0, 64) : `#${Number.isInteger(poller.index) ? poller.index : "?"}`;
-  return Number.isInteger(poller.address) && poller.address >= 1 && poller.address <= SLAVE_MAX ? `${name} (${poller.address})` : name;
-}
-const pollerObjects = (value) => Array.isArray(value) ? value.filter((poller) => poller && typeof poller === "object") : [];
-function leaseNotice(status) {
-  const state = status?.lease_status;
-  if (!LEASE_STATES.includes(state)) return null;
-  const reason = state === "ended" && LEASE_END_REASONS.includes(status.lease_end_reason) ? status.lease_end_reason : null;
-  return {
-    state,
-    reason,
-    stale: state === "ended" ? [] : pollerObjects(status.paused_pollers).map(pollerLabel),
-    endedAfter: leaseEndedAfter(status, reason),
-  };
-}
-/**
- * The last Slave ID finished under the Scan Lease when the Gateway ended it before the Scan
- * did; later Probes ran with Normal Polling resumed. Null when the lease held to the end.
- */
-function leaseEndedAfter(status, reason) {
-  const after = status?.lease_ended_after_address;
-  return EARLY_END_REASONS.includes(reason) && Number.isInteger(after) && after >= 0 && after <= SLAVE_MAX ? after : null;
-}
-/** Whether a Responder row was probed after the Scan Lease ended early at `endedAfter` (leaseNotice). */
-function probedWithoutLease(endedAfter, row) {
-  return Number.isInteger(endedAfter) && Number.isInteger(row?.address) && row.address > endedAfter;
-}
-/** Chosen Pausable Pollers a Scan did not pause because the firmware no longer has them. */
-function removedPollers(status) {
-  return pollerObjects(status?.removed_pollers).map(pollerLabel);
-}
-/**
- * The Pausable Poller checklist of each Bus of a Gateway with Scan Lease support, as saved in HA and
- * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
- * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
- */
-function pollerChecklists(gateway, bus = "") {
-  if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
-  return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
-    bus,
-    pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
-      .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
-    removed: pollerObjects(gateway.removed_pollers?.[bus]).map(pollerLabel),
-  }));
-}
-/** set_pausable_pollers data after checking (paused=true) or unchecking one poller, or "all". */
-function selectionPayload(gatewayId, bus, pollers, index, paused) {
-  const chosen = pollers.filter((poller) => index === "all" ? paused : poller.index === index ? paused : poller.paused);
-  return {gateway_id: gatewayId, bus, pause_pollers: chosen.map((poller) => poller.index)};
-}
-const wholeNumber = (value) => (typeof value === "number" || (typeof value === "string" && /^[+-]?\d+$/.test(value))) && Number.isInteger(Number(value));
-/**
- * Estimated range-scan duration, the service's estimated_worst_case_ms formula: IDs x attempts x
- * (timeout + the gateway's reported per-attempt overhead) + (IDs - 1) x delay; null for an invalid range.
- */
-function estimatedDurationMs(form, gateway = null) {
-  const fields = [form.start_id, form.end_id, form.timeout_ms, form.retries, form.inter_request_delay_ms];
-  if (!fields.every(wholeNumber) || Number(form.start_id) > Number(form.end_id)) return null;
-  const reported = gateway?.limits?.attempt_overhead_ms;
-  const overhead = Number.isInteger(reported) && reported >= 0 ? reported : 0;
-  const ids = Number(form.end_id) - Number(form.start_id) + 1;
-  return ids * (Number(form.retries) + 1) * (Number(form.timeout_ms) + overhead) + (ids - 1) * Number(form.inter_request_delay_ms);
-}
-function needsLargeRangeConfirmation(form) {
-  return wholeNumber(form.start_id) && wholeNumber(form.end_id) && Number(form.end_id) - Number(form.start_id) + 1 > LARGE_RANGE_THRESHOLD;
-}
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function normalizeResponse(value) {
-  if (value && typeof value === "object" && value.response && typeof value.response === "object") return value.response;
-  return value;
-}
-
-function validateForm(form, single = false, text = {}, profile = GENERIC_PROFILE) {
-  const errors = {};
-  const names = single ? ["address", "register_address", "register_count", "timeout_ms", "retries", "inter_request_delay_ms"] : Object.keys(INTEGER_BOUNDS).filter((name) => name !== "address");
-  for (const name of names) {
-    const number = Number(form[name]);
-    const [minimum, maximum] = boundsFor(form, profile)[name];
-    const raw = form[name];
-    const integer = typeof raw === "number" || (typeof raw === "string" && /^[+-]?\d+$/.test(raw));
-    if (!integer || !Number.isInteger(number) || number < minimum || number > maximum) {
-      errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
-    }
-  }
-  const limits = reportedLimits({limits: form.gateway_limits});
-  // The same rule that picks the help: a Legacy Gateway's text names Bridge Protocol v1, any other the v2 limits.
-  const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
-  if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
-  if (limits?.pause_normal_polling_required === true && form.pause_normal_polling !== true) errors.pause_normal_polling = gatewayText;
-  if (limits?.pause_normal_polling_supported === false && form.pause_normal_polling === true) errors.pause_normal_polling = gatewayText;
-  if (!errors.register_address && !errors.register_count && Number(form.register_address) + Number(form.register_count) - 1 > 65535) {
-    errors.register_count = text.registerBlock || "The register block must end at or before register 65535.";
-  }
-  const probes = profile?.limits?.probe_types;
-  if (!errors.probe_type && Array.isArray(probes) && !probes.includes(form.probe_type)) {
-    errors.probe_type = text.profileProbe || "The selected Device Profile does not allow this probe type.";
-  }
-  const allowed = profile?.allowed_registers;
-  // Every register of the block is read, so every one must be allowed.
-  const block = Array.from({length: Math.max(1, Number(form.register_count) || 1)}, (_, i) => Number(form.register_address) + i);
-  const gatewayAllowed = limits?.allowed_registers;
-  if (!errors.register_address && !errors.register_count && Array.isArray(gatewayAllowed) && block.some((reg) => !gatewayAllowed.includes(reg))) {
-    errors.register_address = gatewayText;
-  }
-  if (!errors.register_address && !errors.register_count && Array.isArray(allowed) && block.some((reg) => !allowed.includes(reg))) {
-    errors.register_address = text.profileRegister ? text.profileRegister(allowed.join(", ")) : `The selected Device Profile allows registers ${allowed.join(", ")} only.`;
-  }
-  if (!single && Number(form.start_id) > Number(form.end_id)) errors.end_id = text.order || "End ID must be at least Start ID.";
-  if (!single && !errors.start_id && !errors.end_id && needsLargeRangeConfirmation(form) && form.large_range_confirmed !== true) {
-    errors.large_range_confirmed = text.largeRange || `Confirm scanning more than ${LARGE_RANGE_THRESHOLD} IDs before starting.`;
-  }
-  if (!single && form.safety_confirmed !== true) errors.safety_confirmed = text.safety || "Confirm the best-effort scan warning before starting.";
-  if (!form.gateway_id) errors.gateway_id = text.gateway || "Select an available gateway.";
-  return errors;
-}
-
-function sharedPayload(form) {
-  return {
-    provider: form.provider, gateway_id: form.gateway_id,
-    ...(typeof form.bus === "string" && BUS_NAME.test(form.bus) ? {bus: form.bus} : {}),
-    probe_type: form.probe_type,
-    register_address: Number(form.register_address), register_count: Number(form.register_count),
-    timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
-    inter_request_delay_ms: Number(form.inter_request_delay_ms),
-    pause_normal_polling: form.pause_normal_polling === true,
-    ...(form.provider === "mock" ? {mock_scenario: form.mock_scenario} : {}),
-    ...(form.device_profile_id && form.device_profile_id !== "generic" ? {device_profile_id: form.device_profile_id} : {}),
-  };
-}
-function startPayload(form) {
-  return {...sharedPayload(form), start_id: Number(form.start_id), end_id: Number(form.end_id), safety_confirmed: true,
-    ...(needsLargeRangeConfirmation(form) ? {large_range_confirmed: true} : {})};
-}
-function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
-function supportedGateway(gateway) {
-  // A Legacy Gateway is usable once HA reports its limits; the panel keeps no copy of them.
-  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && reportedLimits(gateway) !== null);
-}
-function serviceYaml(form, profile = GENERIC_PROFILE) {
-  if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");
-  const lines = Object.entries(startPayload(form)).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`);
-  return `action: ${DOMAIN}.start_scan\ndata:\n${lines.join("\n")}\n`;
-}
-
-/** Deliberately excludes gateway identity, vendor strings, free text and credentials. */
-function evidenceExport(status, results) {
-  const integer = (value, max) => Number.isInteger(value) && value >= 0 && value <= max ? value : null;
-  return {
-    schema_version:1, source:DOMAIN, best_effort:true, uniqueness_guaranteed:false,
-    provider:["mock","esphome"].includes(results?.provider) ? results.provider : "unknown",
-    status:["running","completed","cancelled","failed"].includes(results?.status) ? results.status : "unknown",
-    recovery_status:["unknown","pending","verified","failed"].includes(status?.recovery_status) ? status.recovery_status : "unknown",
-    outcome_counts:Object.fromEntries(OUTCOMES.map((name) => [name,integer(results?.outcome_counts?.[name],SLAVE_MAX) ?? 0])),
-    responders:(results?.responders || []).slice(0,SLAVE_MAX).map((row) => ({
-      address:integer(row.address,SLAVE_MAX), outcome:[...OUTCOMES, ...HISTORY_ONLY_OUTCOMES].includes(row.outcome) ? row.outcome : "unknown",
-      latency_ms:integer(row.latency_ms,10000), exception_code:integer(row.exception_code,255),
-      register_address:integer(row.register_address,65535), raw_value:integer(row.raw_value,65535),
-      raw_values:Array.isArray(row.raw_values) ? row.raw_values.slice(0,4).map((value) => integer(value,65535)) : null,
-      attempts:integer(row.attempts,6),
-    })),
-    privacy:"Identities and free-text fields omitted; numeric register evidence retained.",
-  };
-}
-
-/** Return only validated, non-secret preferences from untrusted browser storage. */
-function sanitizePreferences(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {form: {...DEFAULTS}, advancedOpen: false};
-  const source = value.form;
-  if (!source || typeof source !== "object" || Array.isArray(source) || Object.getPrototypeOf(source) !== Object.prototype) {
-    return {form: {...DEFAULTS}, advancedOpen: value.advancedOpen === true};
-  }
-  const form = {...DEFAULTS};
-  for (const [name, [minimum, maximum]] of Object.entries(INTEGER_BOUNDS)) {
-    if (typeof source[name] === "number" && Number.isInteger(source[name]) && source[name] >= minimum && source[name] <= maximum) form[name] = source[name];
-  }
-  if (PROBE_TYPES.includes(source.probe_type)) form.probe_type = source.probe_type;
-  // mock_profile is the deprecated pre-0.5 key for the same Mock Scenario.
-  const mockScenario = source.mock_scenario ?? source.mock_profile;
-  if (MOCK_SCENARIOS.includes(mockScenario)) form.mock_scenario = mockScenario;
-  if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
-  // Checked against the loaded profile list later; an unknown id falls back to Generic there.
-  if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
-  // Checked against the gateway's reported Buses when the gateway list loads.
-  if (typeof source.bus === "string" && BUS_NAME.test(source.bus)) form.bus = source.bus;
-  // A stored acknowledgement is not consent for a new browser session.
-  form.safety_confirmed = false;
-  form.large_range_confirmed = false;
-  // Checked against the limits the gateway reports once the gateway list loads (reconcileGateway).
-  if (source.provider === "esphome") {
-    form.provider = "esphome";
-    form.bridge = isBridgeV2Form(source) ? "v2" : "v1";
-    form.gateway_id = typeof source.gateway_id === "string" && PHYSICAL_GATEWAY.test(source.gateway_id) ? source.gateway_id : "";
-  }
-  return {form, advancedOpen: value.advancedOpen === true};
-}
-
-function sanitizeRecent(value) {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item) => typeof item === "string" && UUID.test(item)))].slice(0, 10);
-}
-
-function safePreferences(form, advancedOpen = false) {
-  const values = Object.fromEntries(Object.keys(DEFAULTS).map((key) => {
-    const value = form[key];
-    return [key, key in INTEGER_BOUNDS && typeof value === "string" && /^[+-]?\d+$/.test(value) ? Number(value) : value];
-  }));
-  return sanitizePreferences({form: values, advancedOpen});
-}
-
-function errorMessage(error) {
-  if (!error) return "Unknown error.";
-  if (typeof error === "string") return error;
-  return error.message || error.body?.message || error.error?.message || "Home Assistant did not return a usable response.";
 }
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -832,7 +829,8 @@ class WoowEsphomeModbusScannerPanel extends i {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits) || message;
+    // The only "supports" rejection is the slave-range one (ProbeLimits.validate).
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalRange(this._form.gateway_limits) || message;
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;

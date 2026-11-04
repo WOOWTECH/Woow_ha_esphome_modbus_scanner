@@ -104,14 +104,11 @@ export function boundsFor(form, profile = GENERIC_PROFILE) {
     address: meet(gateway.address, l.slave_min, l.slave_max), register_count: meet(gateway.register_count, 1, l.register_count_max),
     timeout_ms: meet(gateway.timeout_ms, l.timeout_ms_min, l.timeout_ms_max)};
 }
-/** The limits a Gateway reports in list_gateways (ProbeLimits.as_dict), or null. */
-function reportedLimits(gateway) {
-  const limits = gateway?.limits;
-  return limits && typeof limits === "object" && !Array.isArray(limits) ? limits : null;
-}
+/** A Gateway's reported limits (ProbeLimits.as_dict, as list_gateways gives them), or null when it has reported none. */
+export const reportedLimits = (limits) => limits && typeof limits === "object" && !Array.isArray(limits) ? limits : null;
 const meet = ([low, high], min, max) => [Math.max(low, Number.isInteger(min) ? min : low), Math.min(high, Number.isInteger(max) ? max : high)];
 function gatewayBoundsFor(form) {
-  const reported = reportedLimits({limits: form.gateway_limits});
+  const reported = reportedLimits(form.gateway_limits);
   if (reported) {
     const slaves = meet(INTEGER_BOUNDS.address, reported.slave_min, reported.slave_max);
     return {...INTEGER_BOUNDS, start_id: slaves, end_id: slaves, address: slaves,
@@ -154,7 +151,7 @@ export function profileLabel(record) {
 }
 /** Target a Gateway: the limits it reports bound the form and the defaults it reports fill it. */
 export function selectGateway(form, gateway) {
-  const limits = reportedLimits(gateway);
+  const limits = reportedLimits(gateway?.limits);
   const bridge = isBridgeV2(gateway) ? "v2" : gateway.provider === "esphome" ? "v1" : "";
   return {...form, ...(gateway.provider === "mock" ? DEFAULTS : {}), ...reportedDefaults(limits), provider:gateway.provider,
     gateway_id:gateway.gateway_id, bridge, bus:initialBus(gateway), gateway_limits:limits, safety_confirmed:false};
@@ -165,7 +162,7 @@ export function selectGateway(form, gateway) {
  */
 export function reconcileGateway(form, gateway) {
   if (!gateway) return form;
-  const limits = reportedLimits(gateway);
+  const limits = reportedLimits(gateway?.limits);
   const next = {...form, gateway_limits: limits};
   if (limits && JSON.stringify(limits) !== JSON.stringify(form.gateway_limits ?? null)) {
     const defaults = reportedDefaults(limits);
@@ -308,7 +305,7 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
       errors[name] = text.integer ? text.integer(minimum, maximum) : `Enter a whole number from ${minimum} to ${maximum}.`;
     }
   }
-  const limits = reportedLimits({limits: form.gateway_limits});
+  const limits = reportedLimits(form.gateway_limits);
   // The same rule that picks the help: a Legacy Gateway's text names Bridge Protocol v1, any other the v2 limits.
   const gatewayText = (isLegacyGatewayForm(form) ? text.physical : text.v2) || "The selected Gateway does not allow this value.";
   if (Array.isArray(limits?.probe_types) && !limits.probe_types.includes(form.probe_type)) errors.probe_type = gatewayText;
@@ -360,7 +357,7 @@ export function startPayload(form) {
 export function testPayload(form) { return {...sharedPayload(form), address: Number(form.address)}; }
 export function supportedGateway(gateway) {
   // A Legacy Gateway is usable once HA reports its limits; the panel keeps no copy of them.
-  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && reportedLimits(gateway) !== null);
+  return gateway?.provider === "mock" || isBridgeV2(gateway) || (gateway?.provider === "esphome" && reportedLimits(gateway?.limits) !== null);
 }
 export function serviceYaml(form, profile = GENERIC_PROFILE) {
   if (Object.keys(validateForm(form, false, {}, profile)).length) throw new Error("Confirm the warning and correct the scan parameters first.");

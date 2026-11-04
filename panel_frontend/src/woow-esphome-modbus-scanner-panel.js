@@ -134,7 +134,8 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     const message = errorMessage(error);
     const t = this._text;
     if (/unauthorized|permission denied/i.test(message)) return t.readOnly;
-    if (/A Legacy Gateway supports/i.test(message)) return t.physicalHelp(this._form.gateway_limits) || message;
+    // The only "supports" rejection is the slave-range one (ProbeLimits.validate).
+    if (/A Legacy Gateway supports/i.test(message)) return t.physicalRange(this._form.gateway_limits) || message;
     if (/connection lost/i.test(message)) return `${t.networkHeading}: ${t.help.network}`;
     if (/unknown scan id/i.test(message)) return t.unknownState;
     if (/simulated gateway disconnected| is busy/i.test(message)) return t.help.gateway_error;
