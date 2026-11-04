@@ -18,6 +18,7 @@ from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.poller_selection import PollerSelectionStore
 
 INTEGRATION = "custom_components.woow_esphome_modbus_scanner"
 
@@ -159,6 +160,31 @@ async def test_scan_revalidates_the_saved_selection_and_reports_removals(hass, g
     listed = _listed(await call("list_gateways"))
     assert listed["poller_selection"] == {"rs485": [_row(0, False), _row(1)]}
     assert listed["removed_pollers"] == {"rs485": []}
+
+
+async def test_a_failing_selection_store_never_changes_a_finished_scan(
+    hass, gateway, monkeypatch
+):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    await _choose(call, [1, 2])
+    gateway.pollers = {"rs485": [("meter", 1), ("inverter", 2)]}
+
+    def broken_save(*_args, **_kwargs):
+        raise RuntimeError("config entry options could not be written")
+
+    # The end-of-Scan prune of the removed chiller is the only write left.
+    monkeypatch.setattr(PollerSelectionStore, "save", broken_save)
+    status = await _scan(hass, call)
+
+    assert (status["status"], status["error"]) == ("completed", None)
+    assert status["removed_pollers"] == [{"index": 2, "name": "chiller", "address": 5}]
+    results = await call("get_scan_results", {"scan_id": status["scan_id"]})
+    assert (results["status"], results["completed_addresses"]) == ("completed", 2)
+    history = await call("get_history")
+    assert [(scan["scan_id"], scan["status"]) for scan in history["scans"]] == [
+        (status["scan_id"], "completed")
+    ]
 
 
 async def test_unchecking_every_poller_scans_without_a_lease(hass, gateway):

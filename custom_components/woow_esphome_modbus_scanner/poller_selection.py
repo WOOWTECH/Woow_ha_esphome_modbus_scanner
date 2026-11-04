@@ -11,6 +11,8 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .modbus_scan.models import GatewayInfo
+from .modbus_scan.pollers import choose as choose_pollers
 from .modbus_scan.pollers import reconcile
 
 OPTION_KEY = "pausable_poller_selection"
@@ -81,3 +83,38 @@ class PollerSelectionStore:
         if prune and any(removed.values()):
             self.save(gateway_id, {bus: selection[bus] for bus in saved if bus in tables})
         return selection, removed
+
+    def for_gateway(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
+        """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known.
+
+        Empty for a Gateway without Scan Lease support. With ``prune`` the saved rows the
+        firmware no longer has are dropped (see ``revalidate``).
+        """
+        if not gateway.supports_scan_lease:
+            return {}
+        selection, removed = self.revalidate(
+            gateway.gateway_id, gateway.pausable_poller_tables, prune=prune
+        )
+        return {"poller_selection": selection, "removed_pollers": removed}
+
+    def choose(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
+        """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table).
+
+        Validated against the Bus's last known table; returns the Gateway's checklists after.
+        """
+        if gateway is None or not gateway.supports_scan_lease:
+            raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
+        selection, _removed = self.revalidate(
+            gateway.gateway_id, gateway.pausable_poller_tables, prune=False
+        )
+        if bus not in selection:
+            raise ValueError(
+                f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
+            )
+        checklist, unknown = choose_pollers(selection[bus], indices)
+        if unknown:
+            raise ValueError(f"Bus {bus} has no Pausable Poller with index {unknown}")
+        saved = self.saved(gateway.gateway_id)
+        saved[bus] = checklist
+        self.save(gateway.gateway_id, saved)
+        return self.for_gateway(gateway, prune=False)

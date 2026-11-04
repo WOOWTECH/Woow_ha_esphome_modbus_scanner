@@ -25,7 +25,7 @@ from .models import (
     ScanPhase,
     ScanRequest,
 )
-from .pollers import POLLER_KEYS, choose
+from .pollers import POLLER_KEYS
 from .provider import GatewayProvider, GatewayProviderError
 
 SHUTDOWN_GRACE_SECONDS = 35
@@ -119,7 +119,7 @@ class ModbusScanCoordinator:
         self._max_history = max_history
         self._history = history
         self._issue_callback = issue_callback
-        # Saved Pausable Poller checklists (PollerSelectionStore), revalidated here.
+        # Saved Pausable Poller checklists (PollerSelectionStore), revalidated by the store.
         self._selection_store = selection_store
         self._issues_failed = False
         self._scans: dict[str, _ScanState] = {}
@@ -140,12 +140,9 @@ class ModbusScanCoordinator:
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known."""
-        if self._selection_store is None or not gateway.supports_scan_lease:
+        if self._selection_store is None:
             return {}
-        selection, removed = self._selection_store.revalidate(
-            gateway.gateway_id, gateway.pausable_poller_tables, prune=prune
-        )
-        return {"poller_selection": selection, "removed_pollers": removed}
+        return self._selection_store.for_gateway(gateway, prune=prune)
 
     def _gateway(self, provider_id: str, gateway_id: str) -> GatewayInfo | None:
         provider = self._providers.get(provider_id)
@@ -161,31 +158,11 @@ class ModbusScanCoordinator:
 
     def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
-        gateway = self._gateway("esphome", gateway_id)
-        if (
-            gateway is None
-            or self._selection_store is None
-            or not gateway.supports_scan_lease
-        ):
+        if self._selection_store is None:
             raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
-        selection, _removed = self._selection_store.revalidate(
-            gateway_id, gateway.pausable_poller_tables, prune=False
-        )
-        if bus not in selection:
-            raise ValueError(
-                f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
-            )
-        checklist, unknown = choose(selection[bus], indices)
-        if unknown:
-            raise ValueError(f"Bus {bus} has no Pausable Poller with index {unknown}")
-        saved = self._selection_store.saved(gateway_id)
-        saved[bus] = checklist
-        self._selection_store.save(gateway_id, saved)
-        return {
-            "gateway_id": gateway_id,
-            "bus": bus,
-            **self._poller_selection(gateway, prune=False),
-        }
+        gateway = self._gateway("esphome", gateway_id)
+        checklists = self._selection_store.choose(gateway, bus, indices)
+        return {"gateway_id": gateway_id, "bus": bus, **checklists}
 
     def request_defaults(
         self,
