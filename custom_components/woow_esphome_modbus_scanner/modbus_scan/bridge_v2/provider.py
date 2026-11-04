@@ -353,6 +353,8 @@ class V2GatewayProvider:
                 health=deepcopy(self.health[g.gateway_id]),
                 limits=LIMITS,
                 buses=deepcopy(self._buses.get(g.gateway_id, ())),
+                supports_bus_selection=True,
+                supports_scan_lease=True,
             )
             for g in self.gateways.values()
         ]

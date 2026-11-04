@@ -6,7 +6,7 @@ import {
   safePreferences, sanitizePreferences, sanitizeRecent, startPayload, testPayload, validateForm,
   selectGateway, boundsFor, supportedGateway, serviceYaml, evidenceExport, formatRawValues, formatDecodedValues, hasDecodedValues, leaseNotice,
   estimatedDurationMs, needsLargeRangeConfirmation, outlastsScanLease, probedWithoutLease, GENERIC_PROFILE, selectDeviceProfile, profileLabel,
-  isBridgeV2, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileGateway, INTEGER_BOUNDS, isLegacyGatewayForm,
+  holdsScanLease, pollerChecklists, removedPollers, selectionPayload, gatewayBuses, selectBus, reconcileGateway, INTEGER_BOUNDS, isLegacyGatewayForm,
 } from "./model.js";
 
 const STORAGE_KEY = "woow-esphome-modbus-scanner.preferences.v1";
@@ -478,7 +478,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           ${physical ? html`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? html`<p class="notice failure" role="status">${t.firmwareFault}</p>` : nothing}${!compatible ? html`<p class="notice failure">${t.unsupportedProfile}</p>` : nothing}${!canOperate ? html`<p class="notice">${t.readOnly}</p>` : nothing}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : nothing}
-          ${isBridgeV2(gateway) && gatewayAvailable ? html`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : nothing}
+          ${holdsScanLease(gateway) && gatewayAvailable ? html`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : nothing}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => html`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
             ${this._field("start_id", t.startId, ...INTEGER_BOUNDS.start_id, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, ...INTEGER_BOUNDS.end_id, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, ...INTEGER_BOUNDS.address, v1 ? t.physicalRange : t.addressHelp)}

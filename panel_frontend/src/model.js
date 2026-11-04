@@ -81,13 +81,15 @@ export const INTEGER_BOUNDS = Object.freeze({
   timeout_ms: [10, 10000], retries: [0, 5], inter_request_delay_ms: [0, 5000],
 });
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
-/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a bridge v2 Gateway (the contract's hard limit). */
+/** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
 export function outlastsScanLease(estimateMs, gateway) {
-  return isBridgeV2(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
+  return holdsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (bridge v2 only). */
+export const holdsScanLease = (gateway) => isBridgeV2(gateway);
 /** Whether a form (or stored preferences) targets a bridge v2 Gateway. */
 export const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 /** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
@@ -257,7 +259,7 @@ export function removedPollers(status) {
  * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
 export function pollerChecklists(gateway, bus = "") {
-  if (!isBridgeV2(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  if (!holdsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
   return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)

@@ -139,12 +139,11 @@ class ModbusScanCoordinator:
         return {"gateways": gateways}
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
-        """Pausable Poller checklist per Bus of a bridge v2 Gateway, revalidated if known."""
-        if self._selection_store is None or not gateway.is_bridge_v2:
+        """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known."""
+        if self._selection_store is None or not gateway.supports_scan_lease:
             return {}
-        tables = (gateway.health or {}).get("pausable_pollers")
         selection, removed = self._selection_store.revalidate(
-            gateway.gateway_id, tables, prune=prune
+            gateway.gateway_id, gateway.pausable_poller_tables, prune=prune
         )
         return {"poller_selection": selection, "removed_pollers": removed}
 
@@ -166,11 +165,12 @@ class ModbusScanCoordinator:
         if (
             gateway is None
             or self._selection_store is None
-            or not gateway.is_bridge_v2
+            or not gateway.supports_scan_lease
         ):
             raise ValueError("Pausable Poller selection needs an enrolled bridge v2 Gateway")
-        tables = (gateway.health or {}).get("pausable_pollers")
-        selection, _removed = self._selection_store.revalidate(gateway_id, tables, prune=False)
+        selection, _removed = self._selection_store.revalidate(
+            gateway_id, gateway.pausable_poller_tables, prune=False
+        )
         if bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
@@ -227,8 +227,9 @@ class ModbusScanCoordinator:
     def _target_bus(request: ScanRequest, gateway: GatewayInfo) -> ScanRequest:
         """Resolve and check the Scan's Bus against the Buses the Gateway reports.
 
-        A Gateway with one known Bus needs no ``bus``. While a bridge v2 Gateway's Buses are
-        not known yet (never checked), the provider resolves the Bus when it connects.
+        A Gateway with one known Bus needs no ``bus``. While the Buses of a Gateway that
+        supports Bus selection are not known yet (a bridge v2 Gateway never checked), the
+        provider resolves the Bus when it connects.
         """
         names = [row["bus"] for row in gateway.buses]
         if request.bus is not None:
@@ -237,7 +238,7 @@ class ModbusScanCoordinator:
                     f"Gateway {request.gateway_id} has no Bus {request.bus}; "
                     f"its Buses are {', '.join(names)}"
                 )
-            if not names and not gateway.is_bridge_v2:
+            if not names and not gateway.supports_bus_selection:
                 raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
             return request
         if len(names) == 1:
@@ -268,7 +269,7 @@ class ModbusScanCoordinator:
         if gateway.limits is not None:
             gateway.limits.validate(request)
         profile.limits.validate(request)
-        if request.pause_pollers is not None and not gateway.is_bridge_v2:
+        if request.pause_pollers is not None and not gateway.supports_scan_lease:
             raise ValueError("pause_pollers needs a bridge v2 Gateway with Pausable Pollers")
         request = self._target_bus(request, gateway)
         if existing := self._running_on(request.provider, request.gateway_id, request.bus):

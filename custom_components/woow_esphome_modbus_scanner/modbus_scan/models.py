@@ -104,11 +104,16 @@ class GatewayInfo:
     limits: Any = None  # ProbeLimits reported by the provider adapter
     # The Gateway's Buses as {"bus", "serial"} rows; empty while the provider does not know.
     buses: tuple[dict[str, Any], ...] = ()
+    # A Scan may target one of several Buses, even before the provider knows them.
+    supports_bus_selection: bool = False
+    # A Scan may hold the Bus's chosen Pausable Pollers paused under a Scan Lease.
+    supports_scan_lease: bool = False
 
     @property
-    def is_bridge_v2(self) -> bool:
-        """Whether the Gateway speaks Bridge Protocol v2 (Buses, Pausable Pollers, Scan Lease)."""
-        return "bridge_v2" in self.capabilities
+    def pausable_poller_tables(self) -> dict[str, list[dict[str, Any]]] | None:
+        """The Gateway's Pausable Poller table per Bus as last read, or None while unknown."""
+        tables = (self.health or {}).get("pausable_pollers")
+        return tables if self.supports_scan_lease else None
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for a Home Assistant service response."""

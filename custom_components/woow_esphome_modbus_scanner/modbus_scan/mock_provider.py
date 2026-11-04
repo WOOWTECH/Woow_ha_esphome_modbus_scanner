@@ -59,6 +59,7 @@ class MockGatewayProvider:
                 mock_scenarios=tuple(scenario.value for scenario in MockScenario),
                 limits=MOCK_LIMITS,
                 buses=deepcopy(buses),
+                supports_bus_selection=True,
             )
             for gateway_id, (name, buses) in MOCK_GATEWAYS.items()
         )
