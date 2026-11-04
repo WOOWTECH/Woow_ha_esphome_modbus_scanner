@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import inspect
 import json
 import re
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 from aioesphomeapi import (
@@ -36,6 +36,7 @@ from ..models import (
     LeaseEndReason,
     LeaseStatus,
     ProbeResult,
+    ProbeSlots,
     ProbeType,
     ScanOutcome,
     ScanRequest,
@@ -90,7 +91,7 @@ LIMITS = ProbeLimits(
     timeout_ms_min=HARD_LIMITS["timeout_ms_min"],
     timeout_ms_max=HARD_LIMITS["timeout_ms_max"],
     inter_request_delay_ms_max=LEASE_INTER_REQUEST_DELAY_MAX_MS,
-    # In the shared-slot fallback the Buses share the Gateway's one Probe slot (see
+    # In the shared-slot fallback the Buses share the Gateway's one Probe Slot (see
     # _probe_slot), so a Scan also waits for the other Buses' Probes; together they must stay
     # within the lease's delay cap. PER_BUS_LIMITS drops this for per-Bus mode.
     concurrent_wait_max_ms=LEASE_INTER_REQUEST_DELAY_MAX_MS,
@@ -118,12 +119,9 @@ LIMITS = ProbeLimits(
 )
 
 
-# Per-Bus mode (ADR 0010): every Bus has its own Probe slot, so a Scan waits only for its own
+# Per-Bus mode (ADR 0010): every Bus has its own Probe Slot, so a Scan waits only for its own
 # inter-request delay.
 PER_BUS_LIMITS = replace(LIMITS, concurrent_wait_max_ms=None)
-
-PROBE_SLOTS_PER_BUS = "per_bus"
-PROBE_SLOTS_SHARED = "shared"
 
 
 def _now() -> str:
@@ -174,6 +172,13 @@ class V2Gateway:
 EndpointResolver = Callable[[str], dict[str, Any] | None]
 
 
+class BusSensorKeys(NamedTuple):
+    """Keys of the result and lease text sensors a Session reads for one Bus."""
+
+    result: int
+    lease: int
+
+
 @dataclass(slots=True)
 class _Session:
     """One verified API connection: the probe action, sensor keys and bus table."""
@@ -186,26 +191,30 @@ class _Session:
     info: asyncio.Future
     text_sensors: list[Any] = field(default_factory=list)
     buses: list[dict[str, Any]] = field(default_factory=list)
-    # Per-Bus mode: (result key, lease key) of every Bus's own sensors; None in the
-    # shared-slot fallback.
-    bus_keys: dict[str, tuple[int, int]] | None = None
+    # Per-Bus mode: the keys of every Bus's own sensors; None in the shared-slot fallback.
+    bus_keys: dict[str, BusSensorKeys] | None = None
 
-    def sensor_keys(self, bus: str) -> tuple[int, int]:
-        """(result key, lease key) this Session reads for a Bus."""
+    @property
+    def per_bus(self) -> bool:
+        """Whether this Session's info put the Gateway in per-Bus mode (ADR 0010)."""
+        return self.bus_keys is not None
+
+    def sensor_keys(self, bus: str) -> BusSensorKeys:
+        """The sensors this Session reads for a Bus."""
         if self.bus_keys is not None:
             return self.bus_keys[bus]
-        return self.result_key, self.lease_key
+        return BusSensorKeys(self.result_key, self.lease_key)
 
 
 def _resolve_bus_sensors(
     buses: list[dict[str, Any]], text_sensors: list[Any]
-) -> dict[str, tuple[int, int]] | None:
-    """Every Bus's own (result, lease) sensor keys, or None unless every name resolves.
+) -> dict[str, BusSensorKeys] | None:
+    """Every Bus's own result and lease sensor keys, or None unless every name resolves.
 
     All or nothing (ADR 0010): one Bus without both names, or a name that matches no text
-    sensor or several, keeps the whole Gateway on the shared sensors and one Probe slot.
+    sensor or several, keeps the whole Gateway on the shared sensors and one Probe Slot.
     """
-    keys: dict[str, tuple[int, int]] = {}
+    keys: dict[str, BusSensorKeys] = {}
     for bus in buses:
         found = []
         for name in (bus.get(INFO_BUS_RESULT_SENSOR), bus.get(INFO_BUS_LEASE_SENSOR)):
@@ -213,7 +222,7 @@ def _resolve_bus_sensors(
             if len(matches) != 1:
                 return None
             found.append(matches[0])
-        keys[bus["bus"]] = (found[0], found[1])
+        keys[bus["bus"]] = BusSensorKeys(*found)
     return keys or None
 
 
@@ -372,12 +381,14 @@ class V2GatewayProvider:
         # Held by a check; a Scan waits for it, a check refuses while any Scan runs.
         self._locks = {key: asyncio.Lock() for key in self.gateways}
         self._scans = dict.fromkeys(self.gateways, 0)
-        # One Probe (or lease release) in flight per Probe slot: per Bus when every Bus has its
+        # One Probe (or lease release) in flight per Probe Slot: per Bus when every Bus has its
         # own result and lease sensor, else per Gateway across all its Buses' Scans. ESPHome
         # batches text sensor states and sends only the latest state of an entity per batch,
         # so two results published close together on one sensor would lose the first one.
         self._probe_slots: dict[tuple[str, str | None], asyncio.Lock] = {}
-        # Whether the Gateway's last read info put it in per-Bus mode (ADR 0010).
+        # Whether the Gateway's last read info put it in per-Bus mode (ADR 0010). It decides
+        # the limits Scans are admitted under, and it is kept until the next info read: a
+        # Scan that reads info from a Gateway reflashed meanwhile still takes the shared slot.
         self._per_bus = dict.fromkeys(self.gateways, False)
         self._buses: dict[str, tuple[dict[str, Any], ...]] = {}
         self.health = {
@@ -552,10 +563,10 @@ class V2GatewayProvider:
             ) from None
         session.buses = info["buses"]
         session.bus_keys = _resolve_bus_sensors(session.buses, session.text_sensors)
-        self._per_bus[gateway_id] = session.bus_keys is not None
+        self._per_bus[gateway_id] = session.per_bus
         self._buses[gateway_id] = _bus_rows(session.buses)
         self.health[gateway_id].update(
-            probe_slots=PROBE_SLOTS_PER_BUS if session.bus_keys is not None else PROBE_SLOTS_SHARED,
+            probe_slots=ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED,
             api_status="verified",
             checked_at=_now(),
             bridge_status="v2_signature_verified",
@@ -582,7 +593,7 @@ class V2GatewayProvider:
 
     def _probe_slot(self, session: _Session, gateway_id: str, bus: str) -> asyncio.Lock:
         """The lock a Probe or lease release of this Bus holds while in flight."""
-        key = (gateway_id, bus if session.bus_keys is not None else None)
+        key = (gateway_id, bus if session.per_bus else None)
         return self._probe_slots.setdefault(key, asyncio.Lock())
 
     def validate_request(self, request: ScanRequest) -> None:
@@ -650,9 +661,6 @@ class V2GatewayProvider:
 
     async def _run(self, request, emit, cancelled, progress):
         gateway = self.gateways[request.gateway_id]
-        # The firmware may have changed since the mode was last read (a reflash): until this
-        # Scan reads the info again, Scans admitted alongside it assume the shared slot.
-        self._per_bus[gateway.gateway_id] = False
         self.health[gateway.gateway_id].update(cleanup_status="pending")
         client = self._client(gateway)
         session: _Session | None = None

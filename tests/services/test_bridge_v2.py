@@ -479,7 +479,7 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "pause_normal_polling_required": False,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 300,
-        "probes_take_turns": True,  # old v2 firmware: one shared Probe slot
+        "probes_take_turns": True,  # old v2 firmware: one shared Probe Slot
         # What the adapter fills in for omitted fields; the panel's form starts from them.
         "defaults": {
             "probe_type": "holding_register",

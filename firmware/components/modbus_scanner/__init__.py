@@ -103,7 +103,7 @@ _GATEWAY_SENSORS = {
     CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
 }
 _SENSORS_CLAIMED_KEY = "modbus_scanner_sensors_claimed"
-_ENTRY_COUNT_KEY = "modbus_scanner_entries"
+_NEXT_ENTRY_INDEX_KEY = "modbus_scanner_next_entry_index"
 
 
 def _gateway_sensors_on_first_entry(config):
@@ -127,8 +127,8 @@ def _gateway_sensors_on_first_entry(config):
                 "set it on the first modbus_scanner entry only",
                 path=[key],
             )
-    entry = CORE.data.get(_ENTRY_COUNT_KEY, 0)
-    CORE.data[_ENTRY_COUNT_KEY] = entry + 1
+    index = CORE.data.get(_NEXT_ENTRY_INDEX_KEY, 0)
+    CORE.data[_NEXT_ENTRY_INDEX_KEY] = index + 1
     for key in _BUS_SENSORS:
         if key in config:
             raise cv.Invalid(
@@ -137,7 +137,7 @@ def _gateway_sensors_on_first_entry(config):
             )
         # Named in to_code, once the default Bus name (from the hub's resolved id) is known;
         # until then an id of its own satisfies the entity schema.
-        config[key] = {CONF_ID: f"modbus_scanner_bus{entry}_{key.removeprefix('bus_')}"}
+        config[key] = {CONF_ID: f"modbus_scanner_bus{index}_{key.removeprefix('bus_')}"}
     return config
 
 

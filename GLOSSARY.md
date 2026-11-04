@@ -21,12 +21,16 @@ A Gateway still running Bridge Protocol v1, which keeps its fixed vendor limits 
 _Avoid_: Old gateway, v1 device
 
 **Bus**:
-One Modbus RTU line on a Gateway, served by exactly one scanner instance; the unit that Scans are serialized on.
+One Modbus RTU line on a Gateway, served by exactly one scanner instance; Scans of one Bus run one at a time.
 _Avoid_: Hub, line, channel, port
 
 **Probe**:
 One read-only request sent to a single slave ID on a Gateway's bus.
 _Avoid_: Ping, poll, read
+
+**Probe Slot**:
+The turn a Probe holds while it is in flight. In per-Bus mode every Bus has its own; in the shared-slot fallback (any Bus whose own result and lease sensors HA cannot resolve) the whole Gateway has one, and its Buses take turns for it.
+_Avoid_: Lock, channel, bus lock
 
 **Scan**:
 An ordered series of Probes over a range of slave IDs on one Bus.

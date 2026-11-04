@@ -262,7 +262,7 @@ async def test_concurrent_buses_lose_no_result_to_esphome_state_batching(
 
 
 def _hold_first_probe_of_line_a(gateway):
-    """Keep line_a's first Probe on the wire; every other Scan waits for the Probe slot."""
+    """Keep line_a's first Probe on the wire; every other Scan waits for the Probe Slot."""
     held = []
 
     def hold(data):

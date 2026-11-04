@@ -162,14 +162,14 @@ function outlastsScanLease(estimateMs, gateway) {
 }
 /**
  * Whether the Gateway's estimate leaves out other Scans' Probes: its Buses take turns for one
- * Probe slot (shared-slot fallback) and another Bus runs a Scan now. In per-Bus mode other Scans
+ * Probe Slot (shared-slot fallback) and another Bus runs a Scan now. In per-Bus mode other Scans
  * do not slow this one.
  */
 function estimateLeavesOutOtherScans(gateway, bus) {
   if (gateway?.limits?.probes_take_turns !== true || !Array.isArray(gateway.running_buses)) return false;
   // A form without a Bus targets a one-Bus Gateway's only Bus.
   const buses = gatewayBuses(gateway);
-  const own = bus || (buses.length === 1 ? buses[0].bus : bus);
+  const own = bus || (buses.length === 1 ? buses[0].bus : undefined);
   return gateway.running_buses.some((running) => running !== own);
 }
 function isBridgeV2(gateway) {

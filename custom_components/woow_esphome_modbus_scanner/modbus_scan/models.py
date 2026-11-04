@@ -82,6 +82,13 @@ class LeaseEndReason(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ProbeSlots(StrEnum):
+    """How a Gateway's Buses share Probe Slots (ADR 0010), as health.probe_slots reports."""
+
+    PER_BUS = "per_bus"
+    SHARED = "shared"
+
+
 # Endings the Gateway decides by itself, possibly before the Scan finishes.
 EARLY_LEASE_END_REASONS = frozenset(
     {LeaseEndReason.IDLE, LeaseEndReason.HARD_LIMIT, LeaseEndReason.SUPERSEDED}

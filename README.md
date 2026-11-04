@@ -279,7 +279,7 @@ active user (physical operations need an active user or an internal automation).
 
 | Service | Purpose |
 |---|---|
-| `list_gateways` | Gateways with provider, Buses, limits, health, Pausable Poller checklist and `can_operate` |
+| `list_gateways` | Gateways with provider, Buses, limits (`probes_take_turns`: whether the Buses take turns for one Probe Slot), health, Pausable Poller checklist, `running_buses` (Buses running a Scan now) and `can_operate` |
 | `check_gateway` | Verify one Gateway's MAC and Bridge Protocol signature and read its Buses and pollers, without a Modbus frame |
 | `set_pausable_pollers` | Save which Pausable Pollers of one Bus a Scan pauses (`gateway_id`, `bus`, `pause_pollers`) |
 | `start_scan` | Start a range Scan; returns its `scan_id` immediately |

@@ -248,7 +248,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 
 | 動作 | 用途 |
 |---|---|
-| `list_gateways` | 列出 Gateway：provider、Bus、限制、健康狀態、Pausable Poller 清單與 `can_operate` |
+| `list_gateways` | 列出 Gateway：provider、Bus、限制（`probes_take_turns`：各 Bus 是否輪流使用同一個 Probe Slot）、健康狀態、Pausable Poller 清單、`running_buses`（目前正在 Scan 的 Bus）與 `can_operate` |
 | `check_gateway` | 驗證一個 Gateway 的 MAC 與 Bridge Protocol 簽章並讀取其 Bus 與輪詢元件，不送 Modbus 封包 |
 | `set_pausable_pollers` | 儲存一條 Bus 的 Scan 要暫停哪些 Pausable Poller（`gateway_id`、`bus`、`pause_pollers`） |
 | `start_scan` | 開始範圍 Scan，立即回傳 `scan_id` |

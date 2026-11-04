@@ -2,13 +2,13 @@
 
 Current firmware gives every Bus its own result and lease text sensor and names them in its
 info entry. HA then keeps one Probe in flight per Bus. On any other v2 firmware, or when a
-name does not resolve, the whole Gateway keeps one shared Probe slot (test_multi_bus).
+name does not resolve, the whole Gateway keeps one shared Probe Slot (test_multi_bus).
 """
 
 import asyncio
 
 from aioesphomeapi import TextSensorInfo
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 from test_bridge_v2 import (
     GATEWAY_ID,
@@ -266,7 +266,47 @@ async def test_list_gateways_reports_the_buses_running_a_scan(hass, gateway):
     assert _listed(await call("list_gateways"))["running_buses"] == []
 
 
-async def test_a_gateway_reflashed_to_older_firmware_is_not_trusted_from_an_earlier_check(
+# ---- The mode Scans are admitted under: the last info read ----
+
+
+async def test_a_scan_started_while_another_bus_connects_is_not_limited_by_the_shared_slot(
+    hass, gateway
+):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    gate = asyncio.Event()
+    gateway.discovery_gate = gate  # line_a's Scan has not read the info yet
+    # With one shared slot this pair is refused: A would wait 3000 ms plus a 2000 ms Probe.
+    scan_a = await _start(
+        call, bus="line_a", start_id=2, end_id=3, inter_request_delay_ms=3000, timeout_ms=2000
+    )
+    await _until(lambda: gateway.discovering, "line_a's Scan to connect")
+
+    assert _listed(await call("list_gateways"))["limits"]["probes_take_turns"] is False
+    scan_b = await _start(call, bus="line_b", timeout_ms=2000)
+
+    gate.set()
+    await _settle(hass)
+    for scan in (scan_a, scan_b):
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed", status["error_info"]
+
+
+async def test_a_scan_that_ends_before_reading_the_info_keeps_the_per_bus_mode(hass, gateway):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    gate = asyncio.Event()
+    gateway.discovery_gate = gate
+    scan = await _start(call, bus="line_a")
+    await _until(lambda: gateway.discovering, "line_a's Scan to connect")
+
+    await call("cancel_scan", {"scan_id": scan["scan_id"]})
+    await _settle(hass)
+    assert (await call("get_scan_status", {"scan_id": scan["scan_id"]}))["status"] == "cancelled"
+    assert _listed(await call("list_gateways"))["limits"]["probes_take_turns"] is False
+
+
+async def test_a_gateway_reflashed_to_older_firmware_after_a_check_still_takes_the_shared_slot(
     hass, gateway
 ):
     call = await _setup(hass)
@@ -274,18 +314,18 @@ async def test_a_gateway_reflashed_to_older_firmware_is_not_trusted_from_an_earl
     # Reflashed with firmware without per-Bus sensors after the check.
     gateway.per_bus_sensors = False
     gate = asyncio.Event()
-    gateway.discovery_gate = gate  # the first Scan is still connecting
-    scan_a = await _start(
-        call, bus="line_a", start_id=2, end_id=3, inter_request_delay_ms=3000, timeout_ms=2000
-    )
-    await _until(lambda: gateway.discovering, "line_a's Scan to connect")
+    gateway.discovery_gate = gate
+    scans = [await _start(call, bus=bus, start_id=1, end_id=4) for bus in ("line_a", "line_b")]
+    await _until(lambda: gateway.discovering == 2, "both Scans to connect")
 
-    # Until a Scan reads the Gateway's info again, HA assumes the Buses take turns.
-    with pytest.raises(ServiceValidationError, match="Scan Lease idle limit"):
-        await _start(call, bus="line_b", timeout_ms=2000)
-
+    # Admitted under the per-Bus limits of the earlier check (ADR 0010 accepts this) ...
     gate.set()
     await _settle(hass)
-    a = await call("get_scan_status", {"scan_id": scan_a["scan_id"]})
-    assert a["status"] == "completed", a["error_info"]
-    assert {probe["bus"] for probe in gateway.probes} == {"line_a"}
+    for scan in scans:
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed", status["error_info"]
+    # ... but each Scan read the info itself: the Buses took turns and no result was lost.
+    assert gateway.max_outstanding == 1
+    listed = _listed(await call("list_gateways"))
+    assert listed["health"]["probe_slots"] == "shared"
+    assert listed["limits"]["probes_take_turns"] is True
