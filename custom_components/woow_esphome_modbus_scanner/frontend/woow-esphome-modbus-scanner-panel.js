@@ -304,13 +304,13 @@ const INTEGER_BOUNDS = Object.freeze({
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 /** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
 function outlastsScanLease(estimateMs, gateway) {
-  return holdsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
+  return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
 function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
-/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (Bridge Protocol v2 only). */
-const holdsScanLease = (gateway) => isBridgeV2(gateway);
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease, as HA publishes it. */
+const supportsScanLease = (gateway) => gateway?.supports_scan_lease === true;
 /** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
 const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 /** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
@@ -475,12 +475,12 @@ function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The Pausable Poller checklist of each Bus of a Bridge Protocol v2 Gateway, as saved in HA and
+ * The Pausable Poller checklist of each Bus of a Gateway with Scan Lease support, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
  * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
 function pollerChecklists(gateway, bus = "") {
-  if (!holdsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
   return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
@@ -1128,7 +1128,7 @@ class WoowEsphomeModbusScannerPanel extends i {
             <div class="actions"><button class="secondary" @click=${this._loadGateways} ?disabled=${Boolean(this._busy)}><ha-icon icon="mdi:refresh"></ha-icon>${t.refreshGateways}</button></div>
           </section>
           ${physical ? b`<section class="card" aria-labelledby="health-title"><h2 id="health-title">${t.healthTitle}</h2><p>${t.apiOnly}</p><dl><dt>${t.apiEvidence}</dt><dd>${health.api_status || t.unchecked} · ${health.checked_at || t.dash}</dd><dt>${t.busEvidence}</dt><dd>${health.last_bus_response_at || t.unchecked}</dd><dt>${t.encryption}</dt><dd>${health.encrypted ? t.yes : t.no}</dd></dl>${transportFault ? b`<p class="notice failure" role="status">${t.firmwareFault}</p>` : A}${!compatible ? b`<p class="notice failure">${t.unsupportedProfile}</p>` : A}${!canOperate ? b`<p class="notice">${t.readOnly}</p>` : A}<button class="secondary" @click=${this._checkGateway} ?disabled=${Boolean(this._busy) || running || !canOperate || !gatewayAvailable}>${t.checkGateway}</button></section>` : A}
-          ${holdsScanLease(gateway) && gatewayAvailable ? b`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : A}
+          ${supportsScanLease(gateway) && gatewayAvailable ? b`<section class="card" aria-labelledby="pollers-title"><h2 id="pollers-title">${t.pollersTitle}</h2>${this._pollersCard(gateway, Boolean(this._busy) || running || !canOperate)}</section>` : A}
           <section class="card" aria-labelledby="scan-title"><h2 id="scan-title">${t.scanRange}</h2><div class="fields">
             <div class="field full"><label for="device-profile">${t.deviceProfile}</label><select id="device-profile" ?disabled=${Boolean(this._busy) || running} @change=${(event) => this._selectProfile(event.target.value)} aria-describedby="device-profile-help">${this._profiles.map((item) => b`<option value=${item.id} .selected=${item.id === this._profile.id}>${item.name} ${item.version || ""}${item.builtin ? ` (${t.builtin})` : ""}</option>`)}</select><small id="device-profile-help">${t.deviceProfileHelp}</small></div>
             ${this._field("start_id", t.startId, ...INTEGER_BOUNDS.start_id, v1 ? t.physicalRange : t.startHelp)}${this._field("end_id", t.endId, ...INTEGER_BOUNDS.end_id, v1 ? t.physicalRange : t.endHelp)}${this._field("address", t.address, ...INTEGER_BOUNDS.address, v1 ? t.physicalRange : t.addressHelp)}

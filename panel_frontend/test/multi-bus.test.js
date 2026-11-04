@@ -8,6 +8,7 @@ import {
 const TWO_BUSES = {
   provider: "esphome", gateway_id: "esphome:aabbccddee01",
   capabilities: ["bridge_v2", "holding_register", "input_register", "multi_register"],
+  supports_bus_selection: true, supports_scan_lease: true,
   buses: [
     {bus: "line_a", serial: {baud_rate: 9600, parity: "NONE", stop_bits: 1}},
     {bus: "line_b", serial: {baud_rate: 19200, parity: "EVEN", stop_bits: 2}},

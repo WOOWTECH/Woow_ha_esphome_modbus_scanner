@@ -743,6 +743,7 @@ class ModbusScanCoordinator:
         response = {"gateway_id": gateway_id, "health": health}
         if gateway := self._gateway("esphome", gateway_id):
             response["buses"] = [dict(row) for row in gateway.buses]
+            response.update(gateway.support_flags())
             response.update(self._poller_selection(gateway, prune=True))
         return response
 

@@ -84,13 +84,13 @@ export const INTEGER_BOUNDS = Object.freeze({
 const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 /** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
 export function outlastsScanLease(estimateMs, gateway) {
-  return holdsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
+  return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
-/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease (Bridge Protocol v2 only). */
-export const holdsScanLease = (gateway) => isBridgeV2(gateway);
+/** Whether a Scan of this Gateway may hold its chosen Pausable Pollers paused under a Scan Lease, as HA publishes it. */
+export const supportsScanLease = (gateway) => gateway?.supports_scan_lease === true;
 /** Whether a form (or stored preferences) targets a Bridge Protocol v2 Gateway. */
 export const isBridgeV2Form = (form) => form.provider === "esphome" && form.bridge === "v2";
 /** Whether a form targets a Legacy Gateway (Bridge Protocol v1, fixed count and timeout). */
@@ -255,12 +255,12 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The Pausable Poller checklist of each Bus of a Bridge Protocol v2 Gateway, as saved in HA and
+ * The Pausable Poller checklist of each Bus of a Gateway with Scan Lease support, as saved in HA and
  * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
  * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
  */
 export function pollerChecklists(gateway, bus = "") {
-  if (!holdsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
+  if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
   return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)

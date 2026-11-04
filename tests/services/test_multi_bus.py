@@ -405,6 +405,15 @@ async def test_mock_gateways_report_their_buses(hass):
     assert gateways[MOCK_MULTI]["simulated"] is True
 
 
+async def test_mock_gateways_publish_bus_selection_but_no_scan_lease_support(hass):
+    call = await _mock_setup(hass)
+    gateways = {g["gateway_id"]: g for g in (await call("list_gateways"))["gateways"]}
+
+    for gateway_id in ("mock:rs485-gateway", MOCK_MULTI):
+        assert gateways[gateway_id]["supports_bus_selection"] is True
+        assert gateways[gateway_id]["supports_scan_lease"] is False
+
+
 async def test_mock_single_bus_gateway_needs_no_bus(hass):
     call = await _mock_setup(hass)
     started = await call("start_scan", {"start_id": 1, "end_id": 3, "safety_confirmed": True})

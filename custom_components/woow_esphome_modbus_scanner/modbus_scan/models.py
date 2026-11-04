@@ -126,6 +126,14 @@ class GatewayInfo:
             **({"health": deepcopy(self.health)} if self.health is not None else {}),
             **({"limits": self.limits.as_dict()} if self.limits is not None else {}),
             "buses": deepcopy(list(self.buses)),
+            **self.support_flags(),
+        }
+
+    def support_flags(self) -> dict[str, bool]:
+        """What a Scan of this Gateway may ask for, published so callers need not infer it."""
+        return {
+            "supports_bus_selection": self.supports_bus_selection,
+            "supports_scan_lease": self.supports_scan_lease,
         }
 
 

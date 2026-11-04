@@ -606,6 +606,17 @@ async def test_check_gateway_verifies_v2_without_sending_a_probe(hass, gateway):
     assert gateway.probes == []
 
 
+async def test_v2_gateway_publishes_bus_selection_and_scan_lease_support(hass, gateway):
+    call = await _setup(hass)
+    listed = next(
+        g for g in (await call("list_gateways"))["gateways"] if g["gateway_id"] == GATEWAY_ID
+    )
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    for response in (listed, checked):
+        assert response["supports_bus_selection"] is True
+        assert response["supports_scan_lease"] is True
+
+
 async def test_check_gateway_reports_a_missing_scanner_component(hass, gateway):
     gateway.services = []
     call = await _setup(hass)

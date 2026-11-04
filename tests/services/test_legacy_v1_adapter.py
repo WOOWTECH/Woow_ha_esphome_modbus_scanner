@@ -128,6 +128,15 @@ async def _setup(hass):
     return call
 
 
+async def test_legacy_gateway_publishes_no_bus_selection_or_scan_lease_support(hass):
+    call = await _setup(hass)
+    gateway = next(
+        g for g in (await call("list_gateways"))["gateways"] if g["gateway_id"] == GATEWAY_ID
+    )
+    assert gateway["supports_bus_selection"] is False
+    assert gateway["supports_scan_lease"] is False
+
+
 async def test_legacy_gateway_reports_its_limits_in_list_gateways(hass):
     call = await _setup(hass)
     gateway = next(
