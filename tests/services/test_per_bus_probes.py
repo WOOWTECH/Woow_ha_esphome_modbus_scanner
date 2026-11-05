@@ -323,6 +323,28 @@ async def test_list_gateways_reports_the_buses_running_a_scan(hass, gateway):
     assert _listed(await call("list_gateways"))["running_buses"] == []
 
 
+async def test_a_scan_started_without_a_bus_lists_its_bus_once_it_connects(
+    hass, monkeypatch
+):
+    # A Gateway never checked: HA does not know its Bus, so the Scan names none and the
+    # provider resolves it when the Scan connects.
+    node = FakeV2Gateway(buses=("line_a",), per_bus_sensors=True)
+    FakeClient.gateway = node
+    FakeClient.instances = []
+    monkeypatch.setattr(v2_provider, "APIClient", FakeClient)
+    call = await _setup(hass)
+    held = _hold_first_probe_of_line_a(node)
+    scan = await _start(call)
+    await _until(lambda: held, "line_a's probe")
+
+    assert _listed(await call("list_gateways"))["running_buses"] == ["line_a"]
+
+    node.publish_result(node.firmware_result(held[0]))
+    await _settle(hass)
+    assert (await call("get_scan_status", {"scan_id": scan["scan_id"]}))["status"] == "completed"
+    assert _listed(await call("list_gateways"))["running_buses"] == []
+
+
 # ---- The mode Scans are admitted under: the last info read ----
 
 
