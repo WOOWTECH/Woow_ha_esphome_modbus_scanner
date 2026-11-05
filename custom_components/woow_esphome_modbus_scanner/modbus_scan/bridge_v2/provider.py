@@ -215,20 +215,23 @@ class _Session:
 
 
 def _resolve_bus_sensors(
-    buses: list[dict[str, Any]], text_sensors: list[Any]
+    buses: list[dict[str, Any]], text_sensors: list[Any], shared_keys: tuple[int, int]
 ) -> dict[str, BusSensorKeys] | None:
     """Every Bus's own result and lease sensor keys, or None unless every name resolves.
 
-    All or nothing (ADR 0010): one Bus without both names, or a name that matches no text
-    sensor or several, keeps the whole Gateway on the shared sensors and one Probe Slot.
+    All or nothing (ADR 0010): one Bus without both names, a name that matches no text
+    sensor or several, or a sensor that is shared or already named by another Bus keeps
+    the whole Gateway on the shared sensors and one Probe Slot.
     """
     keys: dict[str, BusSensorKeys] = {}
+    taken = set(shared_keys)
     for bus in buses:
         found = []
         for name in (bus.get(INFO_BUS_RESULT_SENSOR), bus.get(INFO_BUS_LEASE_SENSOR)):
             matches = [e.key for e in text_sensors if isinstance(name, str) and e.name == name]
-            if len(matches) != 1:
+            if len(matches) != 1 or matches[0] in taken:
                 return None
+            taken.add(matches[0])
             found.append(matches[0])
         keys[bus["bus"]] = BusSensorKeys(*found)
     return keys or None
@@ -583,7 +586,9 @@ class V2GatewayProvider:
                 reason="bridge_mismatch",
             ) from None
         session.buses = info["buses"]
-        session.bus_keys = _resolve_bus_sensors(session.buses, session.text_sensors)
+        session.bus_keys = _resolve_bus_sensors(
+            session.buses, session.text_sensors, (session.result_key, session.lease_key)
+        )
         mode = ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED_SLOT_FALLBACK
         self._per_bus[gateway_id] = session.per_bus
         if self._probe_slot_memory is not None:

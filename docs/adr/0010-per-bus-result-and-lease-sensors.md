@@ -23,7 +23,7 @@ only. This is an additive change within Bridge Protocol v2 (`bus_text_sensors` a
 HA has exactly two modes per Gateway, chosen each time it reads info. It never mixes them:
 
 - **Per-Bus mode**: every Bus in info names both sensors, and each name matches exactly
-  one text sensor. HA reads only the per-Bus sensors and ignores the shared mirrors. The
+  one text sensor that no other Bus names and that is not a shared sensor. HA reads only the per-Bus sensors and ignores the shared mirrors. The
   Probe Slot is keyed by (Gateway, Bus), and `concurrent_wait_max_ms` does not apply, so
   each Scan waits only for its own `inter_request_delay_ms`.
 - **Shared-slot fallback**: any other case, such as v2 firmware from before this change,

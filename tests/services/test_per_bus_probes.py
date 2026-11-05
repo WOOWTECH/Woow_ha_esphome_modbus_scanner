@@ -249,6 +249,14 @@ def _non_string_name(info):
     info["buses"][0]["lease_sensor"] = 7
 
 
+def _two_buses_name_one_result_sensor(info):
+    info["buses"][1]["result_sensor"] = info["buses"][0]["result_sensor"]
+
+
+def _bus_names_the_shared_lease_sensor(info):
+    info["buses"][0]["lease_sensor"] = "Modbus Scanner v2 Lease"
+
+
 @pytest.mark.parametrize(
     ("hook", "extra"),
     [
@@ -256,6 +264,8 @@ def _non_string_name(info):
         pytest.param(_drop_lease_sensor_of_line_b, None, id="one-bus-misses-a-field"),
         pytest.param(_rename_result_sensor_of_line_a, None, id="name-matches-no-entity"),
         pytest.param(_non_string_name, None, id="name-is-not-a-string"),
+        pytest.param(_two_buses_name_one_result_sensor, None, id="two-buses-name-one-sensor"),
+        pytest.param(_bus_names_the_shared_lease_sensor, None, id="bus-names-a-shared-sensor"),
         pytest.param(
             None,
             TextSensorInfo(key=999, name="Modbus Scanner v2 Lease line_b"),

@@ -33,7 +33,7 @@ The turn a Probe holds while it is in flight. In per-Bus mode every Bus has its 
 _Avoid_: Lock, channel, bus lock
 
 **Per-Bus mode**:
-How HA probes a Gateway when every Bus in its info names its own result and lease sensor and each name matches exactly one entity: every Bus has its own Probe Slot, so the Buses probe at the same time. HA picks the mode at each info read and keeps it until the next one, also across restarts.
+How HA probes a Gateway when every Bus in its info names its own result and lease sensor and each name matches exactly one text sensor that no other Bus names and that is not a shared sensor: every Bus has its own Probe Slot, so the Buses probe at the same time. HA picks the mode at each info read and keeps it until the next one, also across restarts.
 _Avoid_: Parallel mode, independent mode
 
 **Shared-slot fallback**:
