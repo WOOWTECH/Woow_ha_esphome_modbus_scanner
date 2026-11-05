@@ -55,11 +55,13 @@ def build_physical_provider(
     gateways: Sequence[dict[str, Any]],
     *,
     esphome_endpoint: Callable[[str], dict[str, Any] | None] | None = None,
+    probe_slot_memory=None,
 ):
     """Return the provider serving the enrolled physical gateways, if any.
 
     ``esphome_endpoint`` resolves a linked HA ESPHome entry to its current host, port and
-    key at connect time; without it each Gateway uses its stored copy.
+    key at connect time; without it each Gateway uses its stored copy. ``probe_slot_memory``
+    keeps each v2 Gateway's last read Probe Slot mode across restarts (ADR 0010).
     """
     if not gateways:
         return None
@@ -68,7 +70,11 @@ def build_physical_provider(
     if v2:
         from .bridge_v2 import build_provider as build_v2_provider
 
-        adapters.append(build_v2_provider(v2, endpoint=esphome_endpoint))
+        adapters.append(
+            build_v2_provider(
+                v2, endpoint=esphome_endpoint, probe_slot_memory=probe_slot_memory
+            )
+        )
     # Legacy bridge v1 registration: delete this block with ``legacy_v1/``.
     v1 = [
         {k: v for k, v in g.items() if k != "bridge"}

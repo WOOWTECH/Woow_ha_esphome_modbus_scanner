@@ -70,7 +70,7 @@ class ProbeLimits:
     inter_request_delay_ms_max: int = MAX_INTER_REQUEST_DELAY_MS
     pause_normal_polling_required: bool = False
     pause_normal_polling_supported: bool = True
-    # Set when Scans of a Gateway's Buses take turns for one Probe slot: the longest a Scan
+    # Set when Scans of a Gateway's Buses take turns for one Probe Slot: the longest a Scan
     # that may hold a Scan Lease can wait between a Probe's result and its next Probe.
     concurrent_wait_max_ms: int | None = None
     # Values the service layer fills in for omitted probe fields.
@@ -177,6 +177,8 @@ class ProbeLimits:
             "pause_normal_polling_supported": self.pause_normal_polling_supported,
             # The panel's duration estimate uses the same formula as the service's.
             "attempt_overhead_ms": self.timing.attempt_overhead_ms,
+            # The Buses' Scans take turns for Probes, and the estimate leaves out the others'.
+            "probes_take_turns": self.concurrent_wait_max_ms is not None,
             # The panel fills its form from these, so it keeps no per-Gateway copy.
             "defaults": {
                 key: str(value) if isinstance(value, ProbeType) else value

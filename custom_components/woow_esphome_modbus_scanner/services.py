@@ -19,6 +19,7 @@ from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
     DATA_DEVICE_PROFILES,
+    DATA_PROBE_SLOT_MODES,
     DATA_SERVICE_OWNER,
     DATA_SERVICES_AVAILABLE,
     DOMAIN,
@@ -256,7 +257,9 @@ def _coordinator(
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
         if entry is not None and (
             physical := build_physical_provider(
-                entry.data.get("gateways", ()), esphome_endpoint=_esphome_endpoint(hass)
+                entry.data.get("gateways", ()),
+                esphome_endpoint=_esphome_endpoint(hass),
+                probe_slot_memory=domain_data.get(DATA_PROBE_SLOT_MODES),
             )
         ):
             providers.append(physical)

@@ -90,6 +90,18 @@ const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 export function outlastsScanLease(estimateMs, gateway) {
   return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
+/**
+ * Whether the Gateway's estimate leaves out other Scans' Probes: its Buses take turns for one
+ * Probe Slot (shared-slot fallback) and another Bus runs a Scan now. In per-Bus mode other Scans
+ * do not slow this one.
+ */
+export function estimateLeavesOutOtherScans(gateway, bus) {
+  if (gateway?.limits?.probes_take_turns !== true || !Array.isArray(gateway.running_buses)) return false;
+  // A form without a Bus targets a one-Bus Gateway's only Bus.
+  const buses = gatewayBuses(gateway);
+  const own = bus || (buses.length === 1 ? buses[0].bus : undefined);
+  return gateway.running_buses.some((running) => running !== own);
+}
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }

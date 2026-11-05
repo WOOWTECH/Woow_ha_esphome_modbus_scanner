@@ -49,3 +49,11 @@ def test_multi_bus_example_has_one_scanner_per_hub():
     assert [entry["bus"] for entry in scanners] == ["line_a", "line_b"]
     # The Gateway's sensors are declared by the component, never per hub in YAML.
     assert all(set(entry) == {"modbus_id", "bus"} for entry in scanners)
+
+
+def test_codegen_names_each_bus_sensor_by_the_contract_pattern():
+    patterns = CONTRACT["bus_text_sensors"]
+    assert f'BUS_RESULT_SENSOR_PATTERN = "{patterns["result"]["name_pattern"]}"' in CODEGEN
+    assert f'BUS_LEASE_SENSOR_PATTERN = "{patterns["lease"]["name_pattern"]}"' in CODEGEN
+    # One name feeds both the entity and the Bus's info entry (set_own_sensors).
+    assert "cg.add(var.set_own_sensors(result, result_name, lease, lease_name))" in CODEGEN

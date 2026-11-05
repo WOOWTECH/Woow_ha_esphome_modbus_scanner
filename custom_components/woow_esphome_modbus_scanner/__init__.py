@@ -30,6 +30,7 @@ from .const import (
 from .device_profile_store import DeviceProfileStore
 from .history import ScanHistory
 from .issues import sync_legacy_bridge_issues
+from .probe_slot_modes import async_probe_slot_modes
 from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -110,6 +111,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 profiles = DeviceProfileStore(hass)
                 await profiles.async_load()
                 domain_data[DATA_DEVICE_PROFILES] = profiles
+            await async_probe_slot_modes(hass)
             await _async_register_panel(hass)
         except BaseException:
             if (

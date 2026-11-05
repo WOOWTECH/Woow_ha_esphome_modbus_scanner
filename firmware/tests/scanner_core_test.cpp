@@ -463,8 +463,8 @@ static void test_info_reports_each_bus_serial_parameters(const Value &contract) 
     parity_known = parity_known || parity.str() == serial["parity"].str();
   CHECK(parity_known);
   std::set<std::string> bus_keys = keys_of(contract["info"]["bus_fields"]);
-  for (const auto &key : keys_of(contract["info"]["optional_bus_fields"]))
-    bus_keys.insert(key);
+  CHECK(contract["info"]["optional_bus_fields"].has("serial"));
+  bus_keys.insert("serial");
   CHECK(keys_of(info["buses"][1]) == bus_keys);
 }
 
@@ -686,6 +686,147 @@ static void test_info_lists_the_pausable_poller_table(const Value &contract) {
   CHECK(rig.sink.results.empty());
 }
 
+// ---- Per-Bus Result and Lease sensors (ADR 0010) ----
+
+/// Two Buses, each with its own Result/Lease sensors and one Pausable Poller, on one Gateway
+/// whose shared sensors mirror every message.
+struct TwoBusRig {
+  FakeClock clock;
+  FakeSink shared, own_a, own_b;
+  FakePort port_a, port_b;
+  FakePoller meter{"meter"}, pump{"pump"};
+  core::Bus a{"line_a", port_a, 2000}, b{"line_b", port_b, 2000};
+  core::Gateway gateway{clock, shared};
+  TwoBusRig() {
+    a.set_own_sensors(&own_a, "Modbus Scanner v2 Result line_a", "Modbus Scanner v2 Lease line_a");
+    b.set_own_sensors(&own_b, "Modbus Scanner v2 Result line_b", "Modbus Scanner v2 Lease line_b");
+    a.add_poller("meter", 1, &meter);
+    b.add_poller("pump", 4, &pump);
+    gateway.add_bus(&a);
+    gateway.add_bus(&b);
+  }
+  void probe(const Value &contract, const char *bus, const char *request_id, const char *scan_id,
+             const char *pollers = "") {
+    core::ProbeRequest r = base_request(contract);
+    r.bus = bus;
+    r.request_id = request_id;
+    r.scan_id = scan_id;
+    r.pause_pollers = pollers;
+    gateway.probe(r);
+  }
+};
+
+static std::vector<std::string> field_of(const std::vector<std::string> &messages, const char *key) {
+  std::vector<std::string> out;
+  for (const auto &message : messages)
+    out.push_back(mini_json::parse(message)[key].str());
+  return out;
+}
+
+static void test_info_names_each_bus_own_sensors(const Value &contract) {
+  current_test = "info per-Bus sensors";
+  TwoBusRig rig;
+  Value info = mini_json::parse(rig.gateway.info_json());
+  std::set<std::string> bus_keys = keys_of(contract["info"]["bus_fields"]);
+  bus_keys.insert("result_sensor");
+  bus_keys.insert("lease_sensor");
+  for (const auto &bus : info["buses"].array) {
+    CHECK(keys_of(bus) == bus_keys);
+    // Both fields are optional bus fields of the contract (an additive v2 change).
+    CHECK(contract["info"]["optional_bus_fields"].has("result_sensor"));
+    CHECK(contract["info"]["optional_bus_fields"].has("lease_sensor"));
+  }
+  CHECK(info["buses"][0]["result_sensor"].str() == "Modbus Scanner v2 Result line_a");
+  CHECK(info["buses"][0]["lease_sensor"].str() == "Modbus Scanner v2 Lease line_a");
+  CHECK(info["buses"][1]["result_sensor"].str() == "Modbus Scanner v2 Result line_b");
+  CHECK(info["buses"][1]["lease_sensor"].str() == "Modbus Scanner v2 Lease line_b");
+  // The contract's naming pattern is what the codegen uses for these names.
+  const Value &names = contract["bus_text_sensors"];
+  CHECK(names["result"]["name_pattern"].str() == "Modbus Scanner v2 Result {bus}");
+  CHECK(names["lease"]["name_pattern"].str() == "Modbus Scanner v2 Lease {bus}");
+  CHECK(names["result"]["info_field"].str() == "result_sensor");
+  CHECK(names["lease"]["info_field"].str() == "lease_sensor");
+}
+
+static void test_each_bus_publishes_on_its_own_sensors_and_mirrors_to_the_shared_ones(const Value &contract) {
+  current_test = "per-Bus sensors and mirroring";
+  TwoBusRig rig;
+  rig.probe(contract, "line_a", "ra1", "scanA", "0");
+  rig.probe(contract, "line_b", "rb1", "scanB", "0");
+  // Both Buses have a probe in flight; each lease began on its own sensor.
+  CHECK(rig.a.busy() && rig.b.busy());
+  CHECK(field_of(rig.own_a.leases, "bus") == std::vector<std::string>{"line_a"});
+  CHECK(field_of(rig.own_b.leases, "bus") == std::vector<std::string>{"line_b"});
+  rig.b.on_sent();
+  rig.b.on_no_response();
+  rig.a.on_sent();
+  rig.a.on_no_response();
+  CHECK(field_of(rig.own_a.results, "id") == std::vector<std::string>{"ra1"});
+  CHECK(field_of(rig.own_b.results, "id") == std::vector<std::string>{"rb1"});
+  // A rejection of a known Bus goes to that Bus's sensor too.
+  rig.probe(contract, "line_a", "ra2", "scanA", "7");
+  CHECK(mini_json::parse(rig.own_a.results.back())["error"].str() == "invalid_poller");
+  CHECK(rig.own_b.results.size() == 1);
+  // Write refusal is checked before the Bus is looked up, but is still routed to its Bus.
+  core::ProbeRequest write = base_request(contract);
+  write.bus = "line_b";
+  write.request_id = "rb2";
+  write.function_code = 6;
+  rig.gateway.probe(write);
+  CHECK(mini_json::parse(rig.own_b.results.back())["error"].str() == "write_function_refused");
+  // An unknown Bus has no sensor of its own: only the shared one answers.
+  rig.probe(contract, "line_c", "rc1", "scanC");
+  CHECK(rig.own_a.results.size() == 2 && rig.own_b.results.size() == 2);
+  CHECK(mini_json::parse(rig.shared.results.back())["error"].str() == "unknown_bus");
+  // Release answers come on the Bus's own lease sensor.
+  rig.gateway.release("line_b", "scanB");
+  CHECK(mini_json::parse(rig.own_b.leases.back())["reason"].str() == "released");
+  CHECK(rig.own_a.leases.size() == 1);
+
+  // Every message is mirrored to the shared sensors, in order, for HA versions that read only them.
+  CHECK(field_of(rig.shared.results, "id") == (std::vector<std::string>{"rb1", "ra1", "ra2", "rb2", "rc1"}));
+  CHECK(rig.shared.leases.size() == 3);
+  std::vector<std::string> own_leases = rig.own_a.leases;
+  own_leases.insert(own_leases.end(), rig.own_b.leases.begin(), rig.own_b.leases.end());
+  CHECK(std::multiset<std::string>(rig.shared.leases.begin(), rig.shared.leases.end()) ==
+        std::multiset<std::string>(own_leases.begin(), own_leases.end()));
+}
+
+static void test_two_leases_ending_in_one_loop_reach_their_own_sensors(const Value &contract) {
+  current_test = "two leases end in one loop";
+  TwoBusRig rig;
+  rig.probe(contract, "line_a", "ra1", "scanA", "0");
+  rig.probe(contract, "line_b", "rb1", "scanB", "0");
+  rig.a.on_sent();
+  rig.a.on_no_response();
+  rig.b.on_sent();
+  rig.b.on_no_response();
+  rig.clock.now += kIdleMs(contract);
+  rig.gateway.loop();  // both Buses end their leases in the same loop()
+  CHECK(!rig.meter.paused && !rig.pump.paused);
+  // On one shared sensor the second message would replace the first within an API batch; on
+  // its own sensor each Bus's ending survives.
+  Value a = mini_json::parse(rig.own_a.leases.back()), b = mini_json::parse(rig.own_b.leases.back());
+  check_lease_shape(contract, a);
+  check_lease_shape(contract, b);
+  CHECK(a["scan"].str() == "scanA" && a["state"].str() == "ended" && a["reason"].str() == "idle");
+  CHECK(b["scan"].str() == "scanB" && b["state"].str() == "ended" && b["reason"].str() == "idle");
+  CHECK(rig.own_a.leases.size() == 2 && rig.own_b.leases.size() == 2);
+  CHECK(rig.shared.leases.size() == 4);
+}
+
+static void test_a_bus_without_own_sensors_reports_no_sensor_fields(const Value &contract) {
+  current_test = "no per-Bus sensors";
+  Rig rig;
+  Value info = mini_json::parse(rig.gateway.info_json());
+  CHECK(!info["buses"][0].has("result_sensor"));
+  CHECK(!info["buses"][0].has("lease_sensor"));
+  rig.gateway.probe(base_request(contract));
+  rig.bus.on_sent();
+  rig.bus.on_no_response();
+  CHECK(rig.sink.results.size() == 1);
+}
+
 int main(int argc, char **argv) {
   const char *path =
       argc > 1 ? argv[1] : "custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json";
@@ -710,6 +851,10 @@ int main(int argc, char **argv) {
   test_a_new_scan_supersedes_an_active_lease(contract);
   test_no_selection_and_rejected_probes_never_pause(contract);
   test_info_lists_the_pausable_poller_table(contract);
+  test_info_names_each_bus_own_sensors(contract);
+  test_each_bus_publishes_on_its_own_sensors_and_mirrors_to_the_shared_ones(contract);
+  test_two_leases_ending_in_one_loop_reach_their_own_sensors(contract);
+  test_a_bus_without_own_sensors_reports_no_sensor_fields(contract);
   if (failures) {
     std::fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

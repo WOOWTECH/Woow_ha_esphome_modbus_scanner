@@ -39,7 +39,7 @@ def bypass_panel_registration(monkeypatch):
 def _assert_unloaded(hass, coordinator):
     domain_data = hass.data[DOMAIN]
     # Stored history and Device Profiles outlive one config-entry generation.
-    assert set(domain_data) == {DATA_LIFECYCLE, "history", "device_profiles"}
+    assert set(domain_data) == {DATA_LIFECYCLE, "history", "device_profiles", "probe_slot_modes"}
     assert not domain_data["history"].pending
     assert domain_data[DATA_LIFECYCLE].owner_entry_id is None
     assert coordinator._tasks == {}

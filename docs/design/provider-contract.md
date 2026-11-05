@@ -60,7 +60,9 @@ of an HA-side `finally`. A physical adapter must:
    register, change a Slave ID, or restart a node.
 4. Enforce the coordinator's one-Scan-per-Bus key and avoid hidden parallel
    requests inside the adapter. Scans on different Buses of one Gateway may run
-   at once but share the Gateway's single Probe slot.
+   at once. Each Bus has its own Probe Slot when the Gateway gives every Bus its
+   own result and lease sensor; otherwise they share the Gateway's single Probe
+   Slot (ADR 0010).
 5. Apply timeout, retry, and inter-request delay bounds without extending work
    beyond the requested inclusive address range.
 6. If `pause_normal_polling` is supported, pause only the selected gateway and

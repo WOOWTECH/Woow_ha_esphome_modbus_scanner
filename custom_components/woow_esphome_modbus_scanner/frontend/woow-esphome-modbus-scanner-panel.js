@@ -160,6 +160,18 @@ const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 function outlastsScanLease(estimateMs, gateway) {
   return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
 }
+/**
+ * Whether the Gateway's estimate leaves out other Scans' Probes: its Buses take turns for one
+ * Probe Slot (shared-slot fallback) and another Bus runs a Scan now. In per-Bus mode other Scans
+ * do not slow this one.
+ */
+function estimateLeavesOutOtherScans(gateway, bus) {
+  if (gateway?.limits?.probes_take_turns !== true || !Array.isArray(gateway.running_buses)) return false;
+  // A form without a Bus targets a one-Bus Gateway's only Bus.
+  const buses = gatewayBuses(gateway);
+  const own = bus || (buses.length === 1 ? buses[0].bus : undefined);
+  return gateway.running_buses.some((running) => running !== own);
+}
 function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
 }
@@ -579,6 +591,7 @@ const en = {
   staleWarning: "Entity values of these paused Pausable Pollers are stale until the Scan ends:",
   largeRange: (count, seconds) => `I understand this scans ${count} IDs and can take about ${seconds} s (IDs x attempts x (timeout + gateway overhead) + delays).`,
   largeRangeError: "This range has more than 32 IDs. Confirm the estimated duration before starting.",
+  estimateLeavesOutOtherScans: "Another Bus of this Gateway is scanning now. Its Buses take turns for Probes (firmware without per-Bus sensors), so this estimate leaves out the other Scans' Probes and the Scan may take longer. Reflashing the Gateway with the current firmware lets each Bus probe on its own.",
   leaseLimitWarning: "This estimate is longer than the 10-minute Scan Lease limit. After 10 minutes the Gateway resumes Normal Polling, and the rest of the Scan shares the Bus with it. To keep Normal Polling paused for the full Scan, scan a smaller range or use a shorter timeout or fewer retries.",
   leaseEndedEarly: (after) => `The Gateway ended the Scan Lease before the Scan finished. ${after >= 1 ? `Probes after Slave ID ${after}` : "All Probes"} ran while Normal Polling was active, so a timeout or collision there can come from Normal Polling traffic.`,
   withoutLease: "Normal Polling active",
@@ -662,6 +675,7 @@ const zh = {
   staleWarning:"下列暫停中可暫停輪詢元件的實體數值在掃描結束前為過期資料：",
   largeRange:(count, seconds)=>`我了解這次會掃描 ${count} 個站號，預估約需 ${seconds} 秒（站號數 × 嘗試次數 ×（逾時 + Gateway 額外時間）+ 間隔）。`,
   largeRangeError:"此範圍超過 32 個站號。開始前請確認預估時間。",
+  estimateLeavesOutOtherScans:"此 Gateway 的另一條 Bus 正在掃描。這個 Gateway 的 Bus 輪流送出 Probe（firmware 沒有每條 Bus 的 sensor），所以預估未包含其他 Scan 的 Probe，實際可能更久。以目前版本的 firmware 重刷 Gateway 後，每條 Bus 可各自獨立送 Probe。",
   leaseLimitWarning:"預估時間超過 Scan Lease 的 10 分鐘上限。10 分鐘後 Gateway 會恢復一般輪詢，掃描的其餘部分會與一般輪詢共用匯流排。若要在整個掃描期間保持一般輪詢暫停，請縮小範圍，或縮短逾時、減少重試次數。",
   leaseEndedEarly:(after)=>`Gateway 在掃描結束前就結束了 Scan Lease。${after >= 1 ? `站號 ${after} 之後的探測` : "所有探測"}都是在一般輪詢進行中執行的，因此那些位址的逾時或衝突可能來自一般輪詢的流量。`,
   withoutLease:"一般輪詢進行中",
@@ -1135,7 +1149,8 @@ class WoowEsphomeModbusScannerPanel extends i {
     const estimate = estimatedDurationMs(this._form, gateway);
     const seconds = estimate === null ? "?" : (estimate / 1000).toFixed(1);
     const outlasts = outlastsScanLease(estimate, gateway);
-    return b`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : A}>${t.largeRange(count, seconds)}</label>${outlasts ? b`<small class="notice" id="lease-limit-warning" role="status">${t.leaseLimitWarning}</small>` : A}${invalid ? b`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : A}</div>`;
+    const othersLeftOut = estimateLeavesOutOtherScans(gateway, this._form.bus);
+    return b`<div class="field check"><label><input id="large-range" type="checkbox" .checked=${this._form.large_range_confirmed === true} @change=${(event) => this._set("large_range_confirmed", event.target.checked)} aria-invalid=${invalid ? "true" : "false"} aria-describedby=${invalid ? "large-range-error" : A}>${t.largeRange(count, seconds)}</label>${outlasts ? b`<small class="notice" id="lease-limit-warning" role="status">${t.leaseLimitWarning}</small>` : A}${othersLeftOut ? b`<small class="notice" id="estimate-other-scans" role="status">${t.estimateLeavesOutOtherScans}</small>` : A}${invalid ? b`<small class="error" id="large-range-error">${this._errors.large_range_confirmed}</small>` : A}</div>`;
   }
   _sortHeader(key, label) {
     const active = this._sort.key === key;

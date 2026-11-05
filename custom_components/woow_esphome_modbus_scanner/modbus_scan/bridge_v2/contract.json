@@ -34,6 +34,15 @@
     "result": {"name": "Modbus Scanner v2 Result"},
     "lease": {"name": "Modbus Scanner v2 Lease"}
   },
+  "bus_text_sensors": {
+    "notes": [
+      "Firmware may give every Bus its own result and lease text sensor, named by these patterns with {bus} replaced by the Bus name, and reports their exact entity names in the Bus's info entry (result_sensor, lease_sensor). Consumers use the names from info and never derive them.",
+      "Every result and lease message of a Bus is published on that Bus's own sensor and mirrored on the shared result or lease sensor, which always exist; a rejection for a Bus the Gateway does not have goes to the shared result sensor only.",
+      "A consumer reads the per-Bus sensors only when every Bus in info names both sensors and each name matches exactly one text sensor that no other Bus names and that is not a shared sensor; then it may keep one Probe in flight per Bus. Otherwise it reads the shared sensors with one Probe in flight per Gateway, because the API sends only the latest state of an entity per batch."
+    ],
+    "result": {"name_pattern": "Modbus Scanner v2 Result {bus}", "info_field": "result_sensor"},
+    "lease": {"name_pattern": "Modbus Scanner v2 Lease {bus}", "info_field": "lease_sensor"}
+  },
   "identifiers": {
     "request_id": {"min_length": 1, "max_length": 32, "charset": "0-9A-Za-z_-"},
     "scan_id": {"min_length": 1, "max_length": 32, "charset": "0-9A-Za-z_-"},
@@ -84,7 +93,7 @@
   ],
   "result": {
     "schema_version": 1,
-    "encoding": "One compact JSON object per result text sensor state. Every accepted or rejected probe action produces exactly one result. A request whose request_id is invalid is not published (it cannot be correlated).",
+    "encoding": "One compact JSON object per result text sensor state, on the Bus's own result sensor (if any) and mirrored on the shared one. Every accepted or rejected probe action produces exactly one result. A request whose request_id is invalid is not published (it cannot be correlated).",
     "common_fields": {
       "v": "int, result schema_version",
       "id": "string, request_id echoed",
@@ -117,7 +126,9 @@
       "pollers": "array of Pausable Poller objects (may be empty)"
     },
     "optional_bus_fields": {
-      "serial": "serial object: the hub UART's parameters as configured in YAML; absent when the firmware cannot tell"
+      "serial": "serial object: the hub UART's parameters as configured in YAML; absent when the firmware cannot tell",
+      "result_sensor": "string, exact entity name of this Bus's own result text sensor (see bus_text_sensors); absent on firmware without per-Bus sensors",
+      "lease_sensor": "string, exact entity name of this Bus's own lease text sensor (see bus_text_sensors); absent on firmware without per-Bus sensors"
     },
     "serial_fields": {
       "baud_rate": "int >= 1",
@@ -133,7 +144,7 @@
   },
   "lease": {
     "schema_version": 1,
-    "encoding": "Compact JSON published on the lease text sensor when a Scan Lease begins, when it ends, and in answer to every release action for a known bus.",
+    "encoding": "Compact JSON published on the Bus's own lease text sensor (if any) and mirrored on the shared one when a Scan Lease begins, when it ends, and in answer to every release action for a known bus.",
     "idle_ms": 5000,
     "inter_request_delay_max_ms": 3000,
     "hard_limit_ms": 600000,

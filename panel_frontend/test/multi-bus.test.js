@@ -70,3 +70,28 @@ test("a stored Bus survives a reload only when it is a valid Bus name", () => {
   assert.equal(stored("bad name"), "");
   assert.equal(stored(42), "");
 });
+
+test("the estimate leaves out other Scans' Probes only when the Buses take turns and another Bus is scanning", async () => {
+  const {estimateLeavesOutOtherScans} = await import("../src/model.js");
+  const shared = {...TWO_BUSES, limits: {probes_take_turns: true}, running_buses: ["line_b"]};
+  assert.equal(estimateLeavesOutOtherScans(shared, "line_a"), true);
+  // Its own Bus is not "another Scan"; nothing else runs.
+  assert.equal(estimateLeavesOutOtherScans({...shared, running_buses: ["line_a"]}, "line_a"), false);
+  assert.equal(estimateLeavesOutOtherScans({...shared, running_buses: []}, "line_a"), false);
+  // Per-Bus Probe slots: other Scans do not slow this one.
+  assert.equal(estimateLeavesOutOtherScans({...shared, limits: {probes_take_turns: false}}, "line_a"), false);
+  // Older HA without these fields, or no Gateway.
+  assert.equal(estimateLeavesOutOtherScans(TWO_BUSES, "line_a"), false);
+  assert.equal(estimateLeavesOutOtherScans(null, "line_a"), false);
+  // A one-Bus Gateway's form has no Bus; its only Bus scanning is not another Scan.
+  const single = {...ONE_BUS, limits: {probes_take_turns: true}, running_buses: ["line_a"]};
+  assert.equal(estimateLeavesOutOtherScans(single, ""), false);
+});
+
+test("the estimate caveat is translated", async () => {
+  const {stringsFor} = await import("../src/i18n.js");
+  const en = stringsFor({locale: {language: "en"}}).estimateLeavesOutOtherScans;
+  const zh = stringsFor({locale: {language: "zh-Hant"}}).estimateLeavesOutOtherScans;
+  assert.match(en, /leaves out/);
+  assert.match(zh, /未包含其他 Scan 的 Probe/);
+});

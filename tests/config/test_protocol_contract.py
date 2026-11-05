@@ -156,3 +156,11 @@ def test_pausable_poller_rows_carry_the_contracts_poller_fields():
     from custom_components.woow_esphome_modbus_scanner.modbus_scan.pollers import POLLER_KEYS
 
     assert POLLER_KEYS == tuple(contract.CONTRACT["info"]["poller_fields"])
+
+
+def test_per_bus_sensor_fields_are_an_additive_v2_change():
+    # Optional bus fields, so v2 consumers that ignore them (older HA) keep working.
+    optional = contract.CONTRACT["info"]["optional_bus_fields"]
+    assert {contract.INFO_BUS_RESULT_SENSOR, contract.INFO_BUS_LEASE_SENSOR} <= set(optional)
+    assert not {"result_sensor", "lease_sensor"} & set(contract.INFO_BUS_FIELDS)
+    assert contract.BRIDGE_VERSION == 2
