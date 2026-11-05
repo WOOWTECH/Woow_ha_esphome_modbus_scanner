@@ -38,7 +38,7 @@
     "notes": [
       "Firmware may give every Bus its own result and lease text sensor, named by these patterns with {bus} replaced by the Bus name, and reports their exact entity names in the Bus's info entry (result_sensor, lease_sensor). Consumers use the names from info and never derive them.",
       "Every result and lease message of a Bus is published on that Bus's own sensor and mirrored on the shared result or lease sensor, which always exist; a rejection for a Bus the Gateway does not have goes to the shared result sensor only.",
-      "A consumer reads the per-Bus sensors only when every Bus in info names both sensors and each name matches exactly one text sensor; then it may keep one Probe in flight per Bus. Otherwise it reads the shared sensors with one Probe in flight per Gateway, because the API sends only the latest state of an entity per batch."
+      "A consumer reads the per-Bus sensors only when every Bus in info names both sensors and each name matches exactly one text sensor that no other Bus names and that is not a shared sensor; then it may keep one Probe in flight per Bus. Otherwise it reads the shared sensors with one Probe in flight per Gateway, because the API sends only the latest state of an entity per batch."
     ],
     "result": {"name_pattern": "Modbus Scanner v2 Result {bus}", "info_field": "result_sensor"},
     "lease": {"name_pattern": "Modbus Scanner v2 Lease {bus}", "info_field": "lease_sensor"}
