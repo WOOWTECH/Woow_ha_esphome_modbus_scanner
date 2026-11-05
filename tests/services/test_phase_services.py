@@ -124,7 +124,7 @@ async def test_diagnostics_report_each_gateway_probe_slot_mode(hass, health, exp
         "gateway_id": secret,
         "host": secret,
         "name": secret,
-        "provider": "esphome_bridge_v2",
+        "provider": "esphome",
         "health": {**health, "buses": [secret], "error_info": {"code": "X", "message": secret}},
     }
     fake = SimpleNamespace(list_gateways=lambda: {"gateways": [gateway]})
