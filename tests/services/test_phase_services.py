@@ -106,3 +106,19 @@ async def test_diagnostics_omit_identity_keys_and_raw_error_details(hass):
     assert secret not in json.dumps(diagnostics)
     assert diagnostics["gateways"][0]["error_code"] == "API_AUTH_FAILED"
     assert diagnostics["gateways"][0]["encrypted"] is True
+
+
+async def test_diagnostics_report_no_probe_slot_mode_for_a_legacy_gateway(hass):
+    # A Legacy Gateway has no Probe Slot modes (ADR 0010 covers v2 only): it reports null.
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={"gateways": [{"host": "192.0.2.1", "mac": "AA:BB:CC:DD:EE:FF"}]}
+    )
+    entry.add_to_hass(hass)
+    async_register_services(hass, entry.entry_id)
+    router = hass.data[DOMAIN][DATA_COORDINATOR]._providers["esphome"]
+    assert isinstance(router._adapter("esphome:aabbccddeeff"), ESPHomeGatewayProvider)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    [legacy] = [g for g in diagnostics["gateways"] if g["provider"] == "esphome"]
+    assert legacy["probe_slots"] is None
+    assert "192.0.2.1" not in json.dumps(diagnostics)

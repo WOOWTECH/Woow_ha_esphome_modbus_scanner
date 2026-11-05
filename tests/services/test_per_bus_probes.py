@@ -6,6 +6,7 @@ name does not resolve, the whole Gateway keeps one shared Probe Slot (test_multi
 """
 
 import asyncio
+import json
 
 from aioesphomeapi import TextSensorInfo
 from homeassistant.exceptions import HomeAssistantError
@@ -20,6 +21,10 @@ from test_bridge_v2 import (
     _setup,
 )
 
+from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
+from custom_components.woow_esphome_modbus_scanner.diagnostics import (
+    async_get_config_entry_diagnostics,
+)
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
@@ -50,6 +55,15 @@ def gateway(monkeypatch):
 
 def _listed(gateways):
     return next(g for g in gateways["gateways"] if g["gateway_id"] == GATEWAY_ID)
+
+
+async def _diagnosed_probe_slots(hass):
+    """The Probe Slot mode HA's diagnostics download reports for the one v2 Gateway."""
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    diagnostics = json.loads(json.dumps(await async_get_config_entry_diagnostics(hass, entry)))
+    assert GATEWAY_ID not in json.dumps(diagnostics)  # still no Gateway identity
+    [gateway] = [g for g in diagnostics["gateways"] if g["provider"] == "esphome"]
+    return gateway["probe_slots"]
 
 
 async def _start(call, **fields):
@@ -92,6 +106,8 @@ def _hold_first_probe_of_line_a(gateway):
 async def test_check_reports_per_bus_probe_slots_and_no_concurrent_wait_limit(hass, gateway):
     call = await _setup(hass)
     before = _listed(await call("list_gateways"))
+    # Diagnostics report the mode of the last info read, not the assumed one: none yet.
+    assert await _diagnosed_probe_slots(hass) is None
     checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
     after = _listed(await call("list_gateways"))
 
@@ -99,6 +115,7 @@ async def test_check_reports_per_bus_probe_slots_and_no_concurrent_wait_limit(ha
     assert before["limits"]["probes_take_turns"] is True
     assert checked["health"]["probe_slots"] == "per_bus"
     assert after["limits"]["probes_take_turns"] is False
+    assert await _diagnosed_probe_slots(hass) == "per_bus"
 
 
 async def test_after_a_restart_concurrent_scans_are_admitted_under_the_stored_mode(
@@ -288,6 +305,7 @@ async def test_the_whole_gateway_falls_back_to_one_shared_slot(hass, monkeypatch
     checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
     assert checked["health"]["probe_slots"] == "shared_slot_fallback"
     assert _listed(await call("list_gateways"))["limits"]["probes_take_turns"] is True
+    assert await _diagnosed_probe_slots(hass) == "shared_slot_fallback"
 
     scans = [await _start(call, bus=bus, start_id=1, end_id=4) for bus in ("line_a", "line_b")]
     await _settle(hass)
@@ -408,3 +426,4 @@ async def test_a_gateway_reflashed_to_older_firmware_after_a_check_still_takes_t
     listed = _listed(await call("list_gateways"))
     assert listed["health"]["probe_slots"] == "shared_slot_fallback"
     assert listed["limits"]["probes_take_turns"] is True
+    assert await _diagnosed_probe_slots(hass) == "shared_slot_fallback"

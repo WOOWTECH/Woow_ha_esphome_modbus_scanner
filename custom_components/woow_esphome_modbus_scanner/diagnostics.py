@@ -20,6 +20,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
                 "api_status": health.get("api_status", "unchecked"),
                 "bridge_status": health.get("bridge_status", "unchecked"),
                 "bus_status": health.get("bus_status", "unverified"),
+                # The mode of the last info read, not a default: null means HA has not read
+                # this Gateway's info in this run, or it is a Legacy Gateway.
+                "probe_slots": health.get("probe_slots"),
                 "recovery_status": health.get("recovery_status", "unknown"),
                 "cleanup_status": health.get("cleanup_status", "unknown"),
                 "error_code": (health.get("error_info") or {}).get("code"),
