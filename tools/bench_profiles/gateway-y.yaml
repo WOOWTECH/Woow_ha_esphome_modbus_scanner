@@ -1,0 +1,75 @@
+# #16 bench Gateway Y: single-Bus ESP32 (guanjie-ind17 board pinout) wired through a
+# USB-to-RS-485 converter to line Y of tools/bench_profiles/bench.json.
+#
+# Steps 1-4 compile THIS file unchanged with both component versions (B1); only the
+# command-line substitutions differ:
+#   esphome -s components_path ../../../scanner-old/firmware/components -s fw_version 0.5.0.dev1 run gateway-y.yaml
+#   esphome -s components_path ../../../scanner-new/firmware/components -s fw_version 0.5.0.dev2 run gateway-y.yaml
+# Paths are relative to this file. secrets.yaml is local only, never committed.
+substitutions:
+  components_path: ../../firmware/components
+  fw_version: "0.5.0.dev2"
+
+esphome:
+  name: bench-gateway-y
+  min_version: 2026.9.0
+  project:
+    name: woowtech.modbus_scanner
+    version: ${fw_version}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key_y
+
+ota:
+  - platform: esphome
+
+external_components:
+  - source:
+      type: local
+      path: ${components_path}
+    components: [modbus_scanner]
+
+uart:
+  id: rs485_uart
+  tx_pin: GPIO32
+  rx_pin: GPIO35
+  baud_rate: 9600
+  parity: NONE
+  stop_bits: 1
+
+modbus:
+  id: rs485
+  uart_id: rs485_uart
+  flow_control_pin: GPIO33
+  send_wait_time: 1000ms
+
+# Pausable Poller: reads the simulator's counter at slave 1, holding 0x0000. Gaps in the
+# counter's reads in the simulator log are the pauses; the value keeps rising otherwise.
+modbus_controller:
+  - id: bench_poller
+    modbus_id: rs485
+    address: 1
+    update_interval: 2s
+
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: bench_poller
+    name: Bench poller counter
+    register_type: holding
+    address: 0x0000
+    value_type: U_WORD
+
+modbus_scanner:
+  - modbus_id: rs485
