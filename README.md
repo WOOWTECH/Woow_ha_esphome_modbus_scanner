@@ -1,7 +1,9 @@
 # Woow ESPHome Modbus Scanner
 
-> **0.5.0.dev1 is under development** (branch `epic/generic-scanner`). It is not a
-> release and has not been deployed or accepted on hardware yet. The last
+> **0.5.0.dev2 is under development** (on `main`). It is not a release and has
+> not been deployed or accepted on hardware yet. 0.5.0.dev1 (#17) introduced the
+> vendor-neutral component; 0.5.0.dev2 (#18) gives every Bus its own Result and
+> Lease sensor so the Buses of one Gateway probe independently. The last
 > deployed build was 0.4.0.dev1; see [History](#history).
 
 Read-only, best-effort discovery of which Modbus RTU slave IDs answer on an
