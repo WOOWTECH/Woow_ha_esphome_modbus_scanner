@@ -232,7 +232,7 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 `inter_request_delay_ms`；`check_gateway` 會回報 `health.probe_slots: per_bus`
 （ADR 0010）。
 
-沒有這些感測器的 firmware 會改用共用 slot：所有 Bus 的 Probe 輪流送出，所以每個
+沒有這些感測器的 firmware 會改用 Shared-slot fallback：所有 Bus 的 Probe 輪流送出，所以每個
 Gateway 一次只有一個 Probe 在途：所有 Bus 共用
 節點的結果感測器，否則 ESPHome API 可能丟掉同時發布的兩筆結果之一。因此一個 Scan
 在兩個 Probe 之間，要等自己的 `inter_request_delay_ms`，再加上同一 Gateway 每個其他

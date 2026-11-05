@@ -39,7 +39,7 @@ are admitted under the mode of the last info read (by Enrollment, `check_gateway
 Scan), and that mode stays until the next info read: a Scan that starts or ends does not
 change it. HA keeps this mode in its storage, so a restart does not reset it. A Gateway
 whose info HA has never read starts in the shared-slot fallback. `check_gateway` reports the
-mode as `health.probe_slots` (`per_bus` or `shared`), the Gateway's limits report
+mode as `health.probe_slots` (`per_bus` or `shared_slot_fallback`), the Gateway's limits report
 `probes_take_turns`, and `list_gateways` reports the Buses that run a Scan now as
 `running_buses`.
 

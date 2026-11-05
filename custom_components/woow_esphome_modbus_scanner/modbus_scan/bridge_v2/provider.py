@@ -584,7 +584,7 @@ class V2GatewayProvider:
             ) from None
         session.buses = info["buses"]
         session.bus_keys = _resolve_bus_sensors(session.buses, session.text_sensors)
-        mode = ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED
+        mode = ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED_SLOT_FALLBACK
         self._per_bus[gateway_id] = session.per_bus
         if self._probe_slot_memory is not None:
             self._probe_slot_memory.remember(gateway_id, mode)

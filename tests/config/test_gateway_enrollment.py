@@ -136,7 +136,9 @@ async def test_picking_an_esphome_device_enrolls_it_with_its_host_and_key(hass, 
     assert node.probes == []
 
 
-@pytest.mark.parametrize(("per_bus_sensors", "mode"), [(True, "per_bus"), (False, "shared")])
+@pytest.mark.parametrize(
+    ("per_bus_sensors", "mode"), [(True, "per_bus"), (False, "shared_slot_fallback")]
+)
 async def test_enrollment_records_the_probe_slot_mode_it_read(hass, node, per_bus_sensors, mode):
     # Scans right after Enrollment are then admitted under this mode (ADR 0010).
     node.per_bus_sensors = per_bus_sensors

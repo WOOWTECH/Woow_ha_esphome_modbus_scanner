@@ -133,14 +133,14 @@ async def test_an_info_read_saves_a_changed_mode(hass, hass_storage, gateway):
 
     gateway.per_bus_sensors = False  # reflashed to older firmware
     await call("check_gateway", {"gateway_id": GATEWAY_ID})
-    assert modes.get(GATEWAY_ID) == "shared"
+    assert modes.get(GATEWAY_ID) == "shared_slot_fallback"
     await modes._store._async_handle_write_data()
-    assert hass_storage[STORAGE_KEY]["data"] == {"modes": {GATEWAY_ID: "shared"}}
+    assert hass_storage[STORAGE_KEY]["data"] == {"modes": {GATEWAY_ID: "shared_slot_fallback"}}
 
     # The next HA run reads it back before any check or Scan.
     restarted = ProbeSlotModes(hass)
     await restarted.async_load()
-    assert restarted.get(GATEWAY_ID) == "shared"
+    assert restarted.get(GATEWAY_ID) == "shared_slot_fallback"
 
 
 async def test_two_buses_each_have_a_probe_in_flight_and_lose_no_result_to_batching(
@@ -276,7 +276,7 @@ async def test_the_whole_gateway_falls_back_to_one_shared_slot(hass, monkeypatch
     call = await _setup(hass)
 
     checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
-    assert checked["health"]["probe_slots"] == "shared"
+    assert checked["health"]["probe_slots"] == "shared_slot_fallback"
     assert _listed(await call("list_gateways"))["limits"]["probes_take_turns"] is True
 
     scans = [await _start(call, bus=bus, start_id=1, end_id=4) for bus in ("line_a", "line_b")]
@@ -374,5 +374,5 @@ async def test_a_gateway_reflashed_to_older_firmware_after_a_check_still_takes_t
     # ... but each Scan read the info itself: the Buses took turns and no result was lost.
     assert gateway.max_outstanding == 1
     listed = _listed(await call("list_gateways"))
-    assert listed["health"]["probe_slots"] == "shared"
+    assert listed["health"]["probe_slots"] == "shared_slot_fallback"
     assert listed["limits"]["probes_take_turns"] is True

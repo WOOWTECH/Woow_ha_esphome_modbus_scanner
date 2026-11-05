@@ -238,16 +238,16 @@ def test_tutorial_accessibility_and_offline_contract() -> None:
     assert all(term not in TUTORIAL.lower() for term in forbidden)
 
 
-def test_tutorial_explains_independent_and_turn_taking_probes() -> None:
-    # ADR 0010: per-Bus sensors make Buses probe independently; older firmware takes turns.
+def test_tutorial_explains_per_bus_mode_and_shared_slot_fallback() -> None:
+    # ADR 0010: per-Bus sensors give Per-Bus mode; older firmware gets the Shared-slot fallback.
     section = TUTORIAL.split('id="multi-bus-probes"', 1)[1].split("</section>", 1)[0]
     for item in (
-        "各自獨立",
-        "輪流送出",
+        "Per-Bus mode",
+        "Shared-slot fallback",
         "Modbus Scanner v2 Result &lt;bus&gt;",
         "Modbus Scanner v2 Lease &lt;bus&gt;",
         "probe_slots: per_bus",
-        "probe_slots: shared",
+        "probe_slots: shared_slot_fallback",
         "重刷",
         "預估未包含其他 Scan 的 Probe",
     ):

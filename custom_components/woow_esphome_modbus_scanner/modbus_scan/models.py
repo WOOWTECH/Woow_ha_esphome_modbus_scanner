@@ -86,7 +86,7 @@ class ProbeSlots(StrEnum):
     """How a Gateway's Buses share Probe Slots (ADR 0010), as health.probe_slots reports."""
 
     PER_BUS = "per_bus"
-    SHARED = "shared"
+    SHARED_SLOT_FALLBACK = "shared_slot_fallback"
 
 
 # Endings the Gateway decides by itself, possibly before the Scan finishes.
