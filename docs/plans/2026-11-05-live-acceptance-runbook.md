@@ -16,6 +16,61 @@
 
 `a426ddc` 與 `c84e40e` 的版本號都是 `0.5.0.dev2`，紀錄一律寫 commit SHA。
 
+## 測試台版本（本輪）
+
+本輪沒有實體 Modbus 設備，只有兩台 **單 Bus** Gateway 和兩個 USB-to-RS-485 轉換器。
+設備由電腦上的模擬器扮演；需要同一 Gateway 兩條實體 Bus 的項目延後。下面各步驟以本節為準，
+與後面原步驟衝突時照本節做。
+
+### 0b. 測試台
+
+接線（整輪不換接）：
+
+| 轉換器 | 接到 | 模擬器 line | 回應的站號 |
+|---|---|---|---|
+| A | Gateway X 的 RS-485（A–A、B–B，建議共地） | `X` | 1（Poller）、10、17 |
+| B | Gateway Y 的 RS-485 | `Y` | 1（Poller）、20、33 |
+
+- Gateway 板子同 `guanjie-ind17`：UART TX GPIO32、RX GPIO35、DE/RE GPIO33，9600 8N1。
+- 站號 10、17、20、33 的 register 0（holding 與 input）回 `0xA0nn`／`0xB0nn`（nn 為站號十六進位），
+  從 HA 的原始值就看得出是哪台 Gateway 的哪個站號。站號 1 的 holding 0x0000 每讀一次加一，
+  是 Pausable Poller 的讀取目標；log 裡它的讀取中斷就是暫停，重新出現就是恢復。
+- 模擬器（需要 `pyserial`）：
+
+  ```bash
+  python tools/rtu_bench_simulator.py tools/bench_profiles/bench.json       --port X=COMa --port Y=COMb --log bench-$(date +%Y%m%d).log
+  ```
+
+  每個請求一行 JSON（時間戳、line、站號、FC、位址、結果）。未設定的站號不回應（`silent`）。
+  整輪保持執行，log 作為 A2、A2'、B7 的證據。
+- Gateway YAML：`tools/bench_profiles/gateway-x.yaml`、`gateway-y.yaml`。同一份檔案在步驟 1 與
+  步驟 4 都不修改，只換指令列的 substitution（路徑相對於 YAML 所在目錄）：
+
+  ```bash
+  cd tools/bench_profiles
+  # 舊版元件（步驟 1）
+  esphome -s components_path ../../../scanner-old/firmware/components -s fw_version 0.5.0.dev1 run gateway-x.yaml
+  # 新版元件（步驟 4）
+  esphome -s components_path ../../../scanner-new/firmware/components -s fw_version 0.5.0.dev2 run gateway-x.yaml
+  ```
+
+  `secrets.yaml` 放在 `tools/bench_profiles/`（已被 `.gitignore` 排除），需要 `wifi_ssid`、
+  `wifi_password`、`api_encryption_key_x`、`api_encryption_key_y`。每次燒錄前記下
+  `git hash-object gateway-x.yaml`，作為 B1「YAML 未修改」的證明。
+
+### 本輪各步驟
+
+| 步驟 | 做什麼 | 測項 |
+|---|---|---|
+| 0 | 舊版 HA；X、Y 燒 v1 冠傑韌體（`../scanner-old/firmware/guanjie-scanner/guanjie-ind17.yaml`，在同一目錄各複製一份並改 `name`，secrets 需要 `scanner_api_key`、`guanjie_ota_password`，Wi-Fi 經 captive portal 設定），註冊到 HA | A0：Repairs 出現 Legacy Gateway 提示 |
+| 1 | X、Y 改燒 `gateway-x/y.yaml`（舊版元件） | A1、A2、A2'、A3（註明以模擬器代替）、多 Gateway（X、Y 同時 Scan） |
+| 2 | 只重燒 Y（新版元件） | B7 |
+| 3 | HA 升新版；X 不動 | B6 只驗模式：X 為 `shared_slot_fallback`，Y 為 `per_bus` |
+| 4 | 重燒 X（新版元件，YAML 不改） | B1（單 Bus 部分）、B1a |
+
+延後（需同一 Gateway 兩條實體 Bus）：B1 多 Bus、B2–B5、B3 對照組與反向對照、B6 輪流送 Probe
+與側邊欄提示、B8。A3 的實體非冠傑設備補驗也延後。這些在 #16 另列，#16 維持開啟。
+
 ## 0. 事前準備
 
 - [ ] 備份 HA（含 `.storage`），並記下兩台節點目前的 YAML 與 firmware 版本。
