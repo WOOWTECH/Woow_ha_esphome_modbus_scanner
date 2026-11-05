@@ -3,7 +3,7 @@
 - Status: accepted; supersedes the "Scans of different Buses on one Gateway take turns for
   Probes" consequence of [ADR 0007](0007-per-scan-lease-with-gateway-owned-recovery.md)
 - Date: 2026-11-04
-- Version: 0.5.0.dev1
+- Version: 0.5.0.dev2
 
 ## Decision
 

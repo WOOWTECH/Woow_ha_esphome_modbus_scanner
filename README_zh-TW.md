@@ -1,7 +1,8 @@
 # Woow ESPHome Modbus Scanner
 
-> **0.5.0.dev1 開發中**（分支 `epic/generic-scanner`）。這不是正式發行版，
-> 尚未部署，也尚未完成實機驗收。最後一次部署的版本是 0.4.0.dev1，請見
+> **0.5.0.dev2 開發中**（`main` 分支）。0.5.0.dev1（#17）加入廠牌中立元件；
+> 0.5.0.dev2（#18）讓每條 Bus 各有 Result 與 Lease sensor，同一 Gateway 的 Bus 各自送 Probe。
+> 這不是正式發行版，尚未部署，也尚未完成實機驗收。最後一次部署的版本是 0.4.0.dev1，請見
 > [歷史](#歷史)。
 
 從 Home Assistant 透過 ESPHome 節點，以唯讀、盡力而為（best-effort）的方式
