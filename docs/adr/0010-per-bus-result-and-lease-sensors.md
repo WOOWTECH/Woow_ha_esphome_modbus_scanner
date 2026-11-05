@@ -35,9 +35,10 @@ Both modes require the shared sensors. HA takes the names from info and never de
 them from the pattern.
 
 Every Scan reads info itself and takes the Probe Slot that its own info gives. New Scans
-are admitted under the mode of the last info read (by `check_gateway` or a Scan), and that
-mode stays until the next info read: a Scan that starts or ends does not change it. Until a
-Gateway's info has been read once, HA assumes the shared slot. `check_gateway` reports the
+are admitted under the mode of the last info read (by Enrollment, `check_gateway` or a
+Scan), and that mode stays until the next info read: a Scan that starts or ends does not
+change it. HA keeps this mode in its storage, so a restart does not reset it. A Gateway
+whose info HA has never read starts in the shared-slot fallback. `check_gateway` reports the
 mode as `health.probe_slots` (`per_bus` or `shared`), the Gateway's limits report
 `probes_take_turns`, and `list_gateways` reports the Buses that run a Scan now as
 `running_buses`.
@@ -74,7 +75,8 @@ turns or never do, and one rule decides which.
 - In the shared-slot fallback the duration estimate still leaves out other Scans' Probes.
   When another Bus of the Gateway is scanning, the sidebar says so next to the estimate.
   The sidebar shows an estimate only for a Large Range, so the caveat shows only there.
-- A Gateway reflashed to firmware without per-Bus sensors after its last info read can have
+- A Gateway reflashed to firmware without per-Bus sensors after its last info read (also
+  while HA is stopped, as the mode is kept across restarts) can have
   Scans admitted under the per-Bus limits. Each of these Scans still reads info and takes
   the shared slot, so no result is lost; the waits can pass the Scan Lease idle limit, and
   the Gateway then ends the lease and Normal Polling resumes during the Scan. We accept

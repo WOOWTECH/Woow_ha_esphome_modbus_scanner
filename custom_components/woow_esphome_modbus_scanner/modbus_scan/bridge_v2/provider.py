@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import inspect
 import json
 import re
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Protocol
 from uuid import uuid4
 
 from aioesphomeapi import (
@@ -170,6 +170,14 @@ class V2Gateway:
 
 # Current {host, port, noise_psk} of an ESPHome config entry, or None when it is gone.
 EndpointResolver = Callable[[str], dict[str, Any] | None]
+
+
+class ProbeSlotMemory(Protocol):
+    """Keeps each Gateway's last read Probe Slot mode across restarts (ADR 0010)."""
+
+    def get(self, gateway_id: str) -> ProbeSlots | None: ...
+
+    def remember(self, gateway_id: str, mode: ProbeSlots) -> None: ...
 
 
 class BusSensorKeys(NamedTuple):
@@ -374,10 +382,18 @@ class V2GatewayProvider:
     provider_id = "esphome"
     supports_progress = True
 
-    def __init__(self, gateways, *, client_factory=None, endpoint: EndpointResolver | None = None):
+    def __init__(
+        self,
+        gateways,
+        *,
+        client_factory=None,
+        endpoint: EndpointResolver | None = None,
+        probe_slot_memory: ProbeSlotMemory | None = None,
+    ):
         self.gateways = {g.gateway_id: g for g in gateways}
         self.client_factory = client_factory
         self._resolve_endpoint = endpoint
+        self._probe_slot_memory = probe_slot_memory
         # Held by a check; a Scan waits for it, a check refuses while any Scan runs.
         self._locks = {key: asyncio.Lock() for key in self.gateways}
         self._scans = dict.fromkeys(self.gateways, 0)
@@ -389,7 +405,12 @@ class V2GatewayProvider:
         # Whether the Gateway's last read info put it in per-Bus mode (ADR 0010). It decides
         # the limits Scans are admitted under, and it is kept until the next info read: a
         # Scan that reads info from a Gateway reflashed meanwhile still takes the shared slot.
-        self._per_bus = dict.fromkeys(self.gateways, False)
+        # The memory keeps it across restarts; a Gateway never read starts shared.
+        self._per_bus = {
+            key: probe_slot_memory is not None
+            and probe_slot_memory.get(key) == ProbeSlots.PER_BUS
+            for key in self.gateways
+        }
         self._buses: dict[str, tuple[dict[str, Any], ...]] = {}
         self.health = {
             key: {
@@ -563,10 +584,13 @@ class V2GatewayProvider:
             ) from None
         session.buses = info["buses"]
         session.bus_keys = _resolve_bus_sensors(session.buses, session.text_sensors)
+        mode = ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED
         self._per_bus[gateway_id] = session.per_bus
+        if self._probe_slot_memory is not None:
+            self._probe_slot_memory.remember(gateway_id, mode)
         self._buses[gateway_id] = _bus_rows(session.buses)
         self.health[gateway_id].update(
-            probe_slots=ProbeSlots.PER_BUS if session.per_bus else ProbeSlots.SHARED,
+            probe_slots=mode,
             api_status="verified",
             checked_at=_now(),
             bridge_status="v2_signature_verified",
@@ -592,7 +616,7 @@ class V2GatewayProvider:
             )
 
     def _probe_slot(self, session: _Session, gateway_id: str, bus: str) -> asyncio.Lock:
-        """The lock a Probe or lease release of this Bus holds while in flight."""
+        """The Probe Slot a Probe or lease release of this Bus holds while in flight."""
         key = (gateway_id, bus if session.per_bus else None)
         return self._probe_slots.setdefault(key, asyncio.Lock())
 

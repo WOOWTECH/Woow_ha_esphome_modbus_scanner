@@ -23,6 +23,11 @@ from test_bridge_v2 import (
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.probe_slot_modes import (
+    STORAGE_KEY,
+    ProbeSlotModes,
+    async_probe_slot_modes,
+)
 
 
 def _node(**options):
@@ -94,6 +99,48 @@ async def test_check_reports_per_bus_probe_slots_and_no_concurrent_wait_limit(ha
     assert before["limits"]["probes_take_turns"] is True
     assert checked["health"]["probe_slots"] == "per_bus"
     assert after["limits"]["probes_take_turns"] is False
+
+
+async def test_after_a_restart_concurrent_scans_are_admitted_under_the_stored_mode(
+    hass, hass_storage, gateway
+):
+    hass_storage[STORAGE_KEY] = {
+        "version": 1,
+        "key": STORAGE_KEY,
+        "data": {"modes": {GATEWAY_ID: "per_bus", "esphome:000000000000": "bogus"}},
+    }
+    modes = await async_probe_slot_modes(hass)
+    assert modes.get("esphome:000000000000") is None  # an unreadable entry is dropped
+    call = await _setup(hass)
+    assert _listed(await call("list_gateways"))["limits"]["probes_take_turns"] is False
+
+    # No check and no info read yet: with the shared slot's limits B would be refused.
+    first = await _start(
+        call, bus="line_a", start_id=2, end_id=3, inter_request_delay_ms=3000, timeout_ms=2000
+    )
+    second = await _start(call, bus="line_b", timeout_ms=2000)
+    await _settle(hass)
+    for scan in (first, second):
+        status = await call("get_scan_status", {"scan_id": scan["scan_id"]})
+        assert status["status"] == "completed", status["error_info"]
+
+
+async def test_an_info_read_saves_a_changed_mode(hass, hass_storage, gateway):
+    modes = await async_probe_slot_modes(hass)
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert modes.get(GATEWAY_ID) == "per_bus"
+
+    gateway.per_bus_sensors = False  # reflashed to older firmware
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert modes.get(GATEWAY_ID) == "shared"
+    await modes._store._async_handle_write_data()
+    assert hass_storage[STORAGE_KEY]["data"] == {"modes": {GATEWAY_ID: "shared"}}
+
+    # The next HA run reads it back before any check or Scan.
+    restarted = ProbeSlotModes(hass)
+    await restarted.async_load()
+    assert restarted.get(GATEWAY_ID) == "shared"
 
 
 async def test_two_buses_each_have_a_probe_in_flight_and_lose_no_result_to_batching(

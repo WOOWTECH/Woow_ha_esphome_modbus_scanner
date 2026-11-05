@@ -11,7 +11,7 @@ from homeassistant import config_entries, data_entry_flow
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
+from custom_components.woow_esphome_modbus_scanner.const import DATA_PROBE_SLOT_MODES, DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
@@ -134,6 +134,19 @@ async def test_picking_an_esphome_device_enrolls_it_with_its_host_and_key(hass, 
     # Verified over the API with the ESPHome integration's key; no Modbus frame sent.
     assert RecordingClient.opened == [{"host": "192.0.2.10", "port": 6053, "noise_psk": KEY}]
     assert node.probes == []
+
+
+@pytest.mark.parametrize(("per_bus_sensors", "mode"), [(True, "per_bus"), (False, "shared")])
+async def test_enrollment_records_the_probe_slot_mode_it_read(hass, node, per_bus_sensors, mode):
+    # Scans right after Enrollment are then admitted under this mode (ADR 0010).
+    node.per_bus_sensors = per_bus_sensors
+    device = esphome_device(hass)
+
+    form = await step(hass, await start_user(hass), {"next_step_id": "esphome_device"})
+    created = await step(hass, form, {"device": device.entry_id})
+
+    assert created["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert hass.data[DOMAIN][DATA_PROBE_SLOT_MODES].get("esphome:aabbccddee01") == mode
 
 
 async def test_the_device_list_only_offers_esphome_nodes_with_a_known_mac(hass, node):
