@@ -19,7 +19,6 @@ from custom_components.woow_esphome_modbus_scanner.modbus_scan.legacy_v1.provide
 )
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
     ProbeResult,
-    ProbeSlots,
     ScanOutcome,
 )
 from custom_components.woow_esphome_modbus_scanner.services import async_register_services
@@ -109,28 +108,17 @@ async def test_diagnostics_omit_identity_keys_and_raw_error_details(hass):
     assert diagnostics["gateways"][0]["encrypted"] is True
 
 
-@pytest.mark.parametrize(
-    ("health", "expected"),
-    [
-        ({"probe_slots": ProbeSlots.PER_BUS}, "per_bus"),
-        ({"probe_slots": ProbeSlots.SHARED_SLOT_FALLBACK}, "shared_slot_fallback"),
-        ({}, None),
-    ],
-    ids=["per_bus", "shared_slot_fallback", "info_not_read_or_legacy"],
-)
-async def test_diagnostics_report_each_gateway_probe_slot_mode(hass, health, expected):
-    secret = "PRIVATE_DIAGNOSTIC_MARKER"
-    gateway = {
-        "gateway_id": secret,
-        "host": secret,
-        "name": secret,
-        "provider": "esphome",
-        "health": {**health, "buses": [secret], "error_info": {"code": "X", "message": secret}},
-    }
-    fake = SimpleNamespace(list_gateways=lambda: {"gateways": [gateway]})
-    hass.data[DOMAIN] = {DATA_COORDINATOR: fake}
-    diagnostics = await async_get_config_entry_diagnostics(hass, MockConfigEntry(domain=DOMAIN))
-    dumped = json.dumps(diagnostics)
-    assert secret not in dumped
-    assert diagnostics["gateways"][0]["probe_slots"] == expected
-    assert json.loads(dumped)["gateways"][0]["probe_slots"] == expected
+async def test_diagnostics_report_no_probe_slot_mode_for_a_legacy_gateway(hass):
+    # A Legacy Gateway has no Probe Slot modes (ADR 0010 covers v2 only): it reports null.
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={"gateways": [{"host": "192.0.2.1", "mac": "AA:BB:CC:DD:EE:FF"}]}
+    )
+    entry.add_to_hass(hass)
+    async_register_services(hass, entry.entry_id)
+    router = hass.data[DOMAIN][DATA_COORDINATOR]._providers["esphome"]
+    assert isinstance(router._adapter("esphome:aabbccddeeff"), ESPHomeGatewayProvider)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    [legacy] = [g for g in diagnostics["gateways"] if g["provider"] == "esphome"]
+    assert legacy["probe_slots"] is None
+    assert "192.0.2.1" not in json.dumps(diagnostics)
