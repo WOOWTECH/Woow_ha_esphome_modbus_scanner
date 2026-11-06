@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "#16 bench: line X is wired to Gateway X, line Y to Gateway Y, 9600 8N1 like the bench YAML.",
+    "Slave 1 on each line is the Pausable Poller target: holding 0x0000 counts up on every read,",
+    "so the log shows when Normal Polling pauses and resumes. It also serves the 13 registers the",
+    "v1 Guanjie firmware polls (step 0), with values its range checks accept.",
+    "The other slaves exist on one line only and their register 0 encodes line and ID",
+    "(0xA0nn on X, 0xB0nn on Y, nn = slave id in hex), so a raw value shows where it came from."
+  ],
+  "lines": {
+    "X": {
+      "baudrate": 9600,
+      "parity": "N",
+      "stopbits": 1,
+      "slaves": {
+        "1": {
+          "holding": {
+            "0x0000": "counter",
+            "0x6201": 0, "0x6202": 1, "0x6203": 50, "0x6205": 0, "0x6206": 0,
+            "0x6101": 1305, "0x6102": 55, "0x6103": 240, "0x6104": 180,
+            "0x6105": 0, "0x6106": 0, "0x6111": 120, "0x6112": 500
+          },
+          "input": {"0x0000": "counter"}
+        },
+        "10": {"holding": {"0x0000": 40970}, "input": {"0x0000": 40970}},
+        "17": {"holding": {"0x0000": 40977}, "input": {"0x0000": 40977}}
+      }
+    },
+    "Y": {
+      "baudrate": 9600,
+      "parity": "N",
+      "stopbits": 1,
+      "slaves": {
+        "1": {
+          "holding": {
+            "0x0000": "counter",
+            "0x6201": 0, "0x6202": 1, "0x6203": 50, "0x6205": 0, "0x6206": 0,
+            "0x6101": 1305, "0x6102": 55, "0x6103": 240, "0x6104": 180,
+            "0x6105": 0, "0x6106": 0, "0x6111": 120, "0x6112": 500
+          },
+          "input": {"0x0000": "counter"}
+        },
+        "20": {"holding": {"0x0000": 45076}, "input": {"0x0000": 45076}},
+        "33": {"holding": {"0x0000": 45089}, "input": {"0x0000": 45089}}
+      }
+    }
+  }
+}

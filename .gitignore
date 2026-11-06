@@ -18,3 +18,4 @@ playwright-report/
 secrets.yaml
 .esphome/
 *.bin
+.env
