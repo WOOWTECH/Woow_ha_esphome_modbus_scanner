@@ -10,7 +10,7 @@
 ## 結論
 
 - 結果：**本輪可驗項目通過**（B7、B6 模式、B1 單 Bus、B1a）。
-- 不符或待追的項目：新版 firmware 的 Info sensor 超過 HA 255 字元 state 上限，HA log 出現 `ERROR`、該 entity 為 `unknown`（不影響掃描，見「發現的問題」，待開 issue）。延後項目（B1 多 Bus、B2–B5、B3 對照組與反向對照、B6 輪流與側邊欄提示、B8）需要同一 Gateway 接兩條實體 Bus，留在 #16。
+- 不符或待追的項目：新版 firmware 的 Info sensor 超過 HA 255 字元 state 上限，HA log 出現 `ERROR`、該 entity 為 `unknown`（不影響掃描，見「發現的問題」，#25）。延後項目（B1 多 Bus、B2–B5、B3 對照組與反向對照、B6 輪流與側邊欄提示、B8）需要同一 Gateway 接兩條實體 Bus，留在 #16。
 
 ## 環境
 
@@ -133,7 +133,7 @@ ERROR (homeassistant.core, core.py:2439) State {"v":1,"bridge":2,"buses":[{"bus"
 
 ## 發現的問題
 
-- **產品端：新版 firmware 的 Info sensor 超過 HA 的 255 字元 state 上限**（#18 引入，需開新 issue）。
+- **產品端：新版 firmware 的 Info sensor 超過 HA 的 255 字元 state 上限**（#18 引入，#25）。
   `0.5.0.dev2` 的 Info JSON 每條 Bus 多了 `result_sensor`、`lease_sensor`，單 Bus 就約 257 字元；
   HA 每次收到 Info 都記一則 `ERROR`，`sensor.*_modbus_scanner_v2_info` 變成 `unknown`。
   掃描功能不受影響：`check_gateway` 仍讀到 `probe_slots`、Bus 與 Pausable Poller（整合經 ESPHome API
