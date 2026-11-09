@@ -1,7 +1,8 @@
 # ADR 0010: Per-Bus Result and Lease sensors, so Buses probe independently
 
-- Status: accepted; supersedes the "Scans of different Buses on one Gateway take turns for
-  Probes" consequence of [ADR 0007](0007-per-scan-lease-with-gateway-owned-recovery.md)
+- Status: superseded by [ADR 0011](0011-one-bus-per-gateway.md) (one Bus per Gateway; per-Bus
+  sensors and probing modes removed). Previously superseded the "Scans of different Buses on one
+  Gateway take turns for Probes" consequence of [ADR 0007](0007-per-scan-lease-with-gateway-owned-recovery.md)
 - Date: 2026-11-04
 - Version: 0.5.0.dev2
 
