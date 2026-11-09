@@ -54,6 +54,17 @@
   esphome -s components_path ../../../scanner-new/firmware/components -s fw_version 0.5.0.dev2 run gateway-x.yaml
   ```
 
+  燒錄注意（2026-11-09 實測）：
+  - 測試台 Gateway 的 FTDI USB 沒接自動重置：USB 燒錄前手動按住 BOOT、按一下 EN、放開 BOOT，
+    esptool 加 `--before no-reset`；燒完要再按一次 EN，新韌體才會開始跑。
+  - v1 冠傑元件只接受 ESPHome 2026.9.0；通用元件用 2026.10.0（需 Python ≥ 3.12）。
+  - repo 路徑含中文且很深，編譯前設 `ESPHOME_DATA_DIR` 到短的英文路徑，否則 esp-idf 解壓失敗。
+  - 步驟 1 從 v1（Arduino）換到 `gateway-x/y.yaml`（esp-idf）要用 USB 燒 `firmware.factory.bin`，
+    不要 OTA（分割表可能不同）。步驟 2、4 兩邊都是 esp-idf，可以 OTA。
+  - A2' 要讓 HA 突然消失：`homeassistant.restart` 會先取消 Scan 並釋放 lease，驗不到 Gateway 自己恢復；
+    改拔 .28 的區網線（不要拔 `enp2s0`）。
+  - 插拔 USB 可能讓模擬器某條 line 停止（不會自動重開 port），插拔後確認 log 兩條 line 都還有流量。
+
   `secrets.yaml` 放在 `tools/bench_profiles/`（已被 `.gitignore` 排除），需要 `wifi_ssid`、
   `wifi_password`、`api_encryption_key_x`、`api_encryption_key_y`。每次燒錄前記下
   `git hash-object gateway-x.yaml`，作為 B1「YAML 未修改」的證明。
