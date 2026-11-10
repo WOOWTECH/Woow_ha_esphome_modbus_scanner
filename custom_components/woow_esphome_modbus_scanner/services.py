@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import re
 from typing import Any
 from uuid import UUID
@@ -36,7 +37,7 @@ from .const import (
     SERVICE_TEST_ADDRESS,
 )
 from .device_profile_store import DeviceProfileNotFoundError, DeviceProfileStore
-from .issues import clear_gateway_issue_after_check, report_gateway_issue
+from .issues import report_gateway_issue
 from .modbus_scan.adapters import build_physical_provider, physical_gateway_id
 from .modbus_scan.coordinator import (
     GatewayBusyError,
@@ -267,7 +268,7 @@ def _coordinator(
             hass,
             providers,
             history=domain_data.get("history"),
-            issue_callback=lambda gateway, code: report_gateway_issue(hass, gateway, code),
+            issue_callback=partial(report_gateway_issue, hass),
             selection_store=PollerSelectionStore(hass, owner[0] if owner else None),
         )
         domain_data[DATA_COORDINATOR] = coordinator
@@ -423,11 +424,11 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
 async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     await _authorize_physical(call, "esphome")
     try:
-        checked = await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
+        # The coordinator reports the outcome to Repairs, whoever asks for the check.
+        return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
     except ValueError as err:
         raise _as_home_assistant_error(err) from err
     except GatewayProviderError as err:
-        report_gateway_issue(call.hass, call.data["gateway_id"], err.code)
         raise HomeAssistantError(
             str(err),
             translation_domain=DOMAIN,
@@ -436,8 +437,6 @@ async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResp
         ) from err
     except GatewayBusyError as err:
         raise HomeAssistantError(str(err)) from err
-    clear_gateway_issue_after_check(call.hass, call.data["gateway_id"])
-    return checked
 
 
 async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> ServiceResponse:

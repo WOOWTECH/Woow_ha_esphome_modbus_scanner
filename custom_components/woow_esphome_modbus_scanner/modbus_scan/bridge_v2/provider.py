@@ -34,6 +34,7 @@ from ..models import (
     BUS_NAME_PATTERN,
     ONE_BUS_PER_GATEWAY,
     BusMismatchError,
+    FaultCode,
     GatewayInfo,
     LeaseEndReason,
     LeaseStatus,
@@ -41,7 +42,7 @@ from ..models import (
     ProbeType,
     ScanOutcome,
     ScanRequest,
-    resolve_bus,
+    check_bus,
 )
 from ..pollers import choose, paused_pollers, reconcile
 from ..provider import GatewayProviderError
@@ -336,6 +337,8 @@ class V2GatewayProvider:
             key: {
                 "api_status": "unchecked",
                 "bus_status": "unverified",
+                # Refused for reporting several Buses (GatewayInfo.multiple_buses).
+                "multiple_buses": False,
                 "recovery_status": "unknown",
                 "encrypted": bool(g.noise_psk),
             }
@@ -400,7 +403,7 @@ class V2GatewayProvider:
         ):
             return GatewayProviderError(
                 "ESPHome API authentication failed; verify the configured encryption key",
-                code="API_AUTH_FAILED",
+                code=FaultCode.API_AUTH_FAILED,
                 phase=phase,
             )
         code = (
@@ -446,7 +449,7 @@ class V2GatewayProvider:
             if info.mac_address.upper() != gateway.mac.upper():
                 raise GatewayProviderError(
                     "Gateway identity mismatch; no probe sent",
-                    code="IDENTITY_MISMATCH",
+                    code=FaultCode.IDENTITY_MISMATCH,
                     phase=phase,
                 )
             phase = "verify_bridge"
@@ -464,7 +467,7 @@ class V2GatewayProvider:
                 raise GatewayProviderError(
                     "The modbus_scanner component (Bridge Protocol v2) is not installed on "
                     "this Gateway",
-                    code="BRIDGE_UNSUPPORTED",
+                    code=FaultCode.BRIDGE_UNSUPPORTED,
                     phase=phase,
                     reason="scanner_missing",
                 )
@@ -473,7 +476,7 @@ class V2GatewayProvider:
             if not _signature(service, PROBE_ARGS) or not _signature(release_service, RELEASE_ARGS):
                 raise GatewayProviderError(
                     "Unexpected Bridge Protocol v2 action signature",
-                    code="BRIDGE_UNSUPPORTED",
+                    code=FaultCode.BRIDGE_UNSUPPORTED,
                     phase=phase,
                     reason="bridge_mismatch",
                 )
@@ -497,22 +500,24 @@ class V2GatewayProvider:
         except TimeoutError:
             raise GatewayProviderError(
                 "Gateway did not publish its Bridge Protocol v2 info",
-                code="BRIDGE_UNSUPPORTED",
+                code=FaultCode.BRIDGE_UNSUPPORTED,
                 phase="verify_bridge",
                 reason="bridge_mismatch",
             ) from None
         if len(info["buses"]) > 1:
-            # A Gateway serves exactly one Bus (ADR 0011); never pick one of several, and
-            # forget the Bus an earlier read reported so nothing targets or saves against it.
-            self._forget_bus(gateway_id)
+            # A Gateway serves exactly one Bus (ADR 0011); never pick one of several.
+            self._refuse_buses(gateway_id)
             raise GatewayProviderError(
                 f"Gateway reports {len(info['buses'])} Buses, but {ONE_BUS_PER_GATEWAY}",
-                code="MULTIPLE_BUSES",
+                code=FaultCode.MULTIPLE_BUSES,
                 phase="verify_bridge",
                 reason="multiple_buses",
             )
         session.buses = info["buses"]
         self._buses[gateway_id] = _bus_rows(session.buses)
+        if len(session.buses) == 1:
+            # The only way out of a refusal for several Buses: a read showing one.
+            self.health[gateway_id]["multiple_buses"] = False
         self.health[gateway_id].update(
             api_status="verified",
             checked_at=_now(),
@@ -522,11 +527,17 @@ class V2GatewayProvider:
             error_info=None,
         )
 
-    def _forget_bus(self, gateway_id: str) -> None:
-        """Drop the Bus and poller table an earlier read of this Gateway reported."""
+    def _refuse_buses(self, gateway_id: str) -> None:
+        """Mark the Gateway refused for several Buses, and forget its last Bus and pollers.
+
+        The refusal stays in health (``multiple_buses``) until an info read reports exactly
+        one Bus; a later failure for any other reason keeps it, so nothing targets or saves
+        against a Bus in the meantime.
+        """
         self._buses.pop(gateway_id, None)
         for key in ("buses", "pausable_pollers"):
             self.health[gateway_id].pop(key, None)
+        self.health[gateway_id]["multiple_buses"] = True
 
     @staticmethod
     def _accept_info(session: _Session, state) -> None:
@@ -538,7 +549,7 @@ class V2GatewayProvider:
             session.info.set_exception(
                 GatewayProviderError(
                     "Gateway published an incompatible bridge info",
-                    code="BRIDGE_UNSUPPORTED",
+                    code=FaultCode.BRIDGE_UNSUPPORTED,
                     phase="verify_bridge",
                     reason="bridge_mismatch",
                 )
@@ -779,14 +790,14 @@ class V2GatewayProvider:
         if len(buses) != 1:
             raise GatewayProviderError(
                 "Gateway does not report exactly one Bus; no probe sent",
-                code="UNKNOWN_BUS",
+                code=FaultCode.UNKNOWN_BUS,
                 phase=phase,
             )
         try:
-            resolve_bus(request.gateway_id, buses[0]["bus"], request.bus)
+            check_bus(request.gateway_id, buses[0]["bus"], request.bus)
         except BusMismatchError as err:
             raise GatewayProviderError(
-                f"{err}; no probe sent", code="UNKNOWN_BUS", phase=phase
+                f"{err}; no probe sent", code=FaultCode.UNKNOWN_BUS, phase=phase
             ) from None
         return buses[0]
 

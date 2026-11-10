@@ -22,7 +22,7 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from .const import DOMAIN, NAME
-from .issues import clear_gateway_issue_after_check
+from .issues import report_gateway_issue
 from .modbus_scan.adapters import (
     BRIDGE_V2,
     BRIDGES,
@@ -30,6 +30,7 @@ from .modbus_scan.adapters import (
     gateway_bridge,
     physical_gateway_id,
 )
+from .modbus_scan.models import FaultCode
 from .poller_selection import without_gateways
 
 ESPHOME_DOMAIN = "esphome"
@@ -121,13 +122,13 @@ def _verification_error(exc) -> str:
 
     if not isinstance(exc, GatewayProviderError):
         return "cannot_connect"
-    if exc.code == "API_AUTH_FAILED":
+    if exc.code == FaultCode.API_AUTH_FAILED:
         return "invalid_auth"
-    if exc.code == "IDENTITY_MISMATCH":
+    if exc.code == FaultCode.IDENTITY_MISMATCH:
         return "identity_mismatch"
-    if exc.code == "MULTIPLE_BUSES":
+    if exc.code == FaultCode.MULTIPLE_BUSES:
         return "multiple_buses"
-    if exc.code == "BRIDGE_UNSUPPORTED":
+    if exc.code == FaultCode.BRIDGE_UNSUPPORTED:
         return "scanner_missing" if exc.reason == "scanner_missing" else "bridge_mismatch"
     return "cannot_connect"
 
@@ -148,14 +149,15 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
     """One integration entry; any number of enrolled physical Gateways."""
 
     VERSION = 1
-    # 2: retired storage files removed (see async_migrate_entry).
-    MINOR_VERSION = 2
 
     async def _verify(self, gateway) -> str | None:
-        """Verify a Gateway (see ``verify_gateway``); a pass also clears what it proves fixed."""
+        """Verify a Gateway (see ``verify_gateway``), reporting a pass as a check's would be.
+
+        A failure is not reported: the Gateway is not enrolled until it passes.
+        """
         error = await verify_gateway(gateway)
         if error is None:
-            clear_gateway_issue_after_check(self.hass, physical_gateway_id(gateway["mac"]))
+            report_gateway_issue(self.hass, physical_gateway_id(gateway["mac"]), None, check=True)
         return error
 
     def _existing(self) -> list[dict[str, Any]]:

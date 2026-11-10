@@ -44,24 +44,16 @@ RETIRED_STORAGE_KEYS = (f"{DOMAIN}.probe_slot_modes",)
 
 
 async def _async_remove_retired_storage(hass: HomeAssistant) -> None:
-    """Delete the retired storage files, best effort: a file left behind is never read."""
+    """Delete the retired storage files, best effort, on every setup.
+
+    A storage cleanup, not a settings migration: a file left behind is never read, so a
+    failure only logs a warning and never fails setup.
+    """
     for key in RETIRED_STORAGE_KEYS:
         try:
             await Store(hass, 1, key).async_remove()  # a file already gone is not an error
         except OSError as err:
             _LOGGER.warning("Could not remove the retired %s storage file: %s", key, err)
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Bring an entry an earlier release wrote up to the config flow's version.
-
-    1.2 (0.5.0, one Bus per Gateway): the retired storage files are removed once. HA itself
-    refuses an entry a newer release wrote (a higher major version) before calling this.
-    """
-    if entry.minor_version < 2:
-        await _async_remove_retired_storage(hass)
-        hass.config_entries.async_update_entry(entry, minor_version=2)
-    return True
 
 
 @dataclass(slots=True)
@@ -139,6 +131,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 profiles = DeviceProfileStore(hass)
                 await profiles.async_load()
                 domain_data[DATA_DEVICE_PROFILES] = profiles
+            await _async_remove_retired_storage(hass)
             await _async_register_panel(hass)
         except BaseException:
             if (

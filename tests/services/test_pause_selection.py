@@ -23,6 +23,7 @@ from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
+from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import ONE_BUS_PER_GATEWAY
 from custom_components.woow_esphome_modbus_scanner.poller_selection import PollerSelectionStore
 
 INTEGRATION = "custom_components.woow_esphome_modbus_scanner"
@@ -188,9 +189,8 @@ async def test_saving_another_bus_after_a_restart_is_refused(hass, gateway, monk
     assert _options(hass) == before
 
 
-async def test_a_gateway_refused_for_two_buses_offers_no_checklist_until_it_passes(
-    hass, gateway
-):
+async def _refused_for_two_buses(hass, gateway):
+    """Check, save [0], then reflash with a second Bus and check again: (call, options)."""
     call = await _setup(hass)
     await call("check_gateway", {"gateway_id": GATEWAY_ID})
     await _choose(call, [0])
@@ -199,14 +199,62 @@ async def test_a_gateway_refused_for_two_buses_offers_no_checklist_until_it_pass
     gateway.buses = ["rs485", "rs485_b"]
     with pytest.raises(HomeAssistantError, match="exactly one Bus"):
         await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    return call, kept
 
+
+async def _assert_refused(hass, call, kept):
     listed = _listed(await call("list_gateways"))
     assert (listed["poller_selection"], listed["removed_pollers"]) == ({}, {})
-    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
-        await _choose(call, [1])
+    assert listed["health"]["multiple_buses"] is True
+    for bus in ({"bus": "rs485"}, {}):
+        with pytest.raises(ServiceValidationError) as refused:
+            await call(
+                "set_pausable_pollers", {"gateway_id": GATEWAY_ID, "pause_pollers": [1], **bus}
+            )
+        # The one-Bus rule, not advice to check a Gateway that was just checked.
+        assert str(refused.value) == (
+            f"Gateway {GATEWAY_ID} reports more than one Bus, but {ONE_BUS_PER_GATEWAY}"
+        )
     assert _options(hass) == kept
 
+
+async def test_a_gateway_refused_for_two_buses_offers_no_checklist_until_it_passes(
+    hass, gateway
+):
+    call, kept = await _refused_for_two_buses(hass, gateway)
+    await _assert_refused(hass, call, kept)
+
     # Reflashed back to one Bus: the saved checklist is offered again.
+    gateway.buses = ["rs485"]
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert checked["health"]["multiple_buses"] is False
+    assert checked["poller_selection"] == {"rs485": [_row(0), _row(1, False), _row(2, False)]}
+    saved = await _choose(call, [1])
+    assert saved["poller_selection"] == {"rs485": [_row(0, False), _row(1), _row(2, False)]}
+
+
+async def _offline(_self, **_kwargs):
+    raise ConnectionRefusedError("node offline")
+
+
+async def test_a_later_connect_failure_keeps_the_two_bus_refusal(hass, gateway, monkeypatch):
+    call, kept = await _refused_for_two_buses(hass, gateway)
+    # The node goes offline: a failed check proves nothing about its Buses.
+    online = FakeClient.connect
+    monkeypatch.setattr(FakeClient, "connect", _offline)
+    with pytest.raises(HomeAssistantError):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    listed = _listed(await call("list_gateways"))
+    assert listed["health"]["error_info"]["code"] == "API_TRANSPORT_ERROR"
+    await _assert_refused(hass, call, kept)
+
+    # A Scan that cannot connect does not lift it either.
+    status = await _scan(hass, call)
+    assert status["error_info"]["code"] == "API_TRANSPORT_ERROR"
+    await _assert_refused(hass, call, kept)
+
+    # Back online with one Bus: a passing check lifts the refusal.
+    monkeypatch.setattr(FakeClient, "connect", online)
     gateway.buses = ["rs485"]
     checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
     assert checked["poller_selection"] == {"rs485": [_row(0), _row(1, False), _row(2, False)]}

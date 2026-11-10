@@ -285,30 +285,37 @@ def _retired_file(hass_storage):
     }
 
 
-async def test_an_older_entry_removes_the_retired_storage_once(
-    hass, hass_storage, dependencies_loaded
-):
+async def test_setup_removes_the_retired_storage_file(hass, hass_storage, dependencies_loaded):
     _retired_file(hass_storage)
-    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, minor_version=1)
+    entry = MockConfigEntry(domain=DOMAIN, data={})
     entry.add_to_hass(hass)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     assert RETIRED_KEY not in hass_storage
-    assert (entry.version, entry.minor_version) == (1, 2)
+    # A storage cleanup, not a settings migration: the entry keeps its version.
+    assert (entry.version, entry.minor_version) == (1, 1)
+    assert await hass.config_entries.async_unload(entry.entry_id)
 
-    # Migrated: later starts never touch storage for it again.
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    _retired_file(hass_storage)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    assert RETIRED_KEY in hass_storage
-    assert await hass.config_entries.async_unload(entry.entry_id)
+
+async def test_setup_with_the_retired_file_already_gone_is_fine(
+    hass, hass_storage, dependencies_loaded
+):
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+
+    # Every setup tries again; the file is already gone on all but the first.
+    for _ in range(2):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        assert entry.state is ConfigEntryState.LOADED
+        assert RETIRED_KEY not in hass_storage
+        assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 async def test_a_retired_file_that_cannot_be_removed_never_fails_setup(
     hass, hass_storage, caplog, dependencies_loaded
 ):
     _retired_file(hass_storage)
-    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, minor_version=1)
+    entry = MockConfigEntry(domain=DOMAIN, data={})
     entry.add_to_hass(hass)
 
     with patch(
@@ -318,18 +325,5 @@ async def test_a_retired_file_that_cannot_be_removed_never_fails_setup(
         assert await hass.config_entries.async_setup(entry.entry_id)
 
     assert entry.state is ConfigEntryState.LOADED
-    assert entry.minor_version == 2
     assert "Could not remove the retired" in caplog.text
     assert await hass.config_entries.async_unload(entry.entry_id)
-
-
-async def test_an_entry_from_a_newer_release_is_not_migrated(
-    hass, hass_storage, dependencies_loaded
-):
-    _retired_file(hass_storage)
-    entry = MockConfigEntry(domain=DOMAIN, data={}, version=2, minor_version=1)
-    entry.add_to_hass(hass)
-
-    assert not await hass.config_entries.async_setup(entry.entry_id)
-    assert entry.state is ConfigEntryState.MIGRATION_ERROR
-    assert RETIRED_KEY in hass_storage

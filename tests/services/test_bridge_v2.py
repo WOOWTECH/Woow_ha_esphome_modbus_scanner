@@ -636,9 +636,9 @@ async def test_a_gateway_reflashed_to_two_buses_forgets_its_old_bus(hass, gatewa
     assert "pausable_pollers" not in listed["health"]
     assert listed["health"]["error_info"]["code"] == "MULTIPLE_BUSES"
     # Nothing is saved or targeted against the forgotten Bus.
-    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+    with pytest.raises(ServiceValidationError, match="a Gateway serves exactly one Bus"):
         await call("set_pausable_pollers", {"gateway_id": GATEWAY_ID, "pause_pollers": [0]})
-    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+    with pytest.raises(ServiceValidationError, match="a Gateway serves exactly one Bus"):
         await call(
             "set_pausable_pollers",
             {"gateway_id": GATEWAY_ID, "bus": "rs485", "pause_pollers": [0]},
@@ -727,9 +727,19 @@ async def test_a_passing_check_clears_the_two_bus_repairs_issue(hass, gateway):
     assert _gateway_issues(hass) == {}
 
 
-@pytest.mark.parametrize("code", ["FIRMWARE_FAULT", "PROFILE_MISMATCH"])
+# A check sends no Probe, so it cannot show the transport recovered; and only a Scan whose
+# recovery is verified clears an authentication, identity or Bridge Protocol fault (as on main).
+KEPT_BY_A_PASSING_CHECK = [
+    "FIRMWARE_FAULT",
+    "PROFILE_MISMATCH",
+    "API_AUTH_FAILED",
+    "IDENTITY_MISMATCH",
+    "BRIDGE_UNSUPPORTED",
+]
+
+
+@pytest.mark.parametrize("code", KEPT_BY_A_PASSING_CHECK)
 async def test_a_passing_check_keeps_an_issue_only_a_verified_scan_clears(hass, gateway, code):
-    # A check sends no Probe, so it cannot show the transport recovered.
     call = await _setup(hass)
     report_gateway_issue(hass, GATEWAY_ID, code)
 
@@ -739,10 +749,61 @@ async def test_a_passing_check_keeps_an_issue_only_a_verified_scan_clears(hass, 
     assert issue.translation_placeholders == {"code": code}
 
 
-async def test_enrolling_a_gateway_that_passes_verification_clears_its_two_bus_issue(
-    hass, gateway
+async def test_the_coordinator_reports_every_check_outcome(hass, gateway):
+    # One place reports a check, whoever calls it: not only the check_gateway service.
+    call = await _setup(hass)
+    await call("list_gateways")
+    coordinator = hass.data[DOMAIN][DATA_COORDINATOR]
+    gateway.buses = ["rs485_a", "rs485_b"]
+    with pytest.raises(v2_provider.GatewayProviderError):
+        await coordinator.check_gateway(GATEWAY_ID)
+    [issue] = _gateway_issues(hass).values()
+    assert issue.translation_placeholders == {"code": "MULTIPLE_BUSES"}
+
+    gateway.buses = ["rs485"]
+    await coordinator.check_gateway(GATEWAY_ID)
+    assert _gateway_issues(hass) == {}
+
+
+async def test_a_scan_that_fails_before_reaching_its_bus_records_no_bus(hass, gateway):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    async def offline(_self, **_kwargs):
+        raise ConnectionRefusedError("node offline")
+
+    with patch.object(FakeClient, "connect", offline):
+        omitted = await _test_address(hass, call, address=7)
+        named = await _test_address(hass, call, address=7, bus="rs485")
+
+    # Never the Bus HA cached from the check: the Scan never reached a Bus.
+    assert omitted["status"] == "failed"
+    assert omitted["bus"] is None
+    status = await call("get_scan_status", {"scan_id": omitted["scan_id"]})
+    assert status["bus"] is None
+    [recorded] = [
+        scan
+        for scan in (await call("get_history"))["scans"]
+        if scan["scan_id"] == omitted["scan_id"]
+    ]
+    assert recorded["bus"] is None
+    # A Scan that named its Bus keeps the name it asked for.
+    assert named["bus"] == "rs485"
+    assert gateway.probes == []
+
+
+@pytest.mark.parametrize("code", ["IDENTITY_MISMATCH", "API_AUTH_FAILED"])
+async def test_enrolling_a_gateway_keeps_an_issue_only_a_verified_scan_clears(
+    hass, gateway, code
 ):
-    report_gateway_issue(hass, GATEWAY_ID, "MULTIPLE_BUSES")
+    report_gateway_issue(hass, GATEWAY_ID, code)
+    await _enroll_manually(hass)
+
+    [issue] = _gateway_issues(hass).values()
+    assert issue.translation_placeholders == {"code": code}
+
+
+async def _enroll_manually(hass):
     hass.config.components.update({"frontend", "panel_custom", "esphome"})
     flow = hass.config_entries.flow
     with patch(f"{INTEGRATION}.async_setup_entry", return_value=True):
@@ -752,8 +813,15 @@ async def test_enrolling_a_gateway_that_passes_verification_clears_its_two_bus_i
             form["flow_id"], {"host": "192.0.2.10", "mac": MAC, "bridge": "v2"}
         )
         await hass.async_block_till_done()
-
     assert created["type"] == "create_entry"
+
+
+async def test_enrolling_a_gateway_that_passes_verification_clears_its_two_bus_issue(
+    hass, gateway
+):
+    report_gateway_issue(hass, GATEWAY_ID, "MULTIPLE_BUSES")
+    await _enroll_manually(hass)
+
     assert _gateway_issues(hass) == {}
 
 

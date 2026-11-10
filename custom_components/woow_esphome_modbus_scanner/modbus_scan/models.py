@@ -30,6 +30,23 @@ ONE_BUS_PER_GATEWAY = (
 )
 
 
+class FaultCode(StrEnum):
+    """Fault codes a Gateway failure carries that HA acts on (Repairs, config flow, checklists).
+
+    A ``StrEnum``, so each compares and serializes as its plain string in ``error_info``.
+    """
+
+    API_AUTH_FAILED = "API_AUTH_FAILED"
+    IDENTITY_MISMATCH = "IDENTITY_MISMATCH"
+    BRIDGE_UNSUPPORTED = "BRIDGE_UNSUPPORTED"
+    PROFILE_MISMATCH = "PROFILE_MISMATCH"
+    FIRMWARE_FAULT = "FIRMWARE_FAULT"
+    # The Gateway's info reports more than one Bus (ADR 0011).
+    MULTIPLE_BUSES = "MULTIPLE_BUSES"
+    # A request names a Bus the Gateway does not serve, or the Gateway reports none.
+    UNKNOWN_BUS = "UNKNOWN_BUS"
+
+
 class BusMismatchError(ValueError):
     """A request names a Bus other than the one Bus its Gateway serves."""
 
@@ -42,15 +59,23 @@ def gateway_key(provider: str, gateway_id: str) -> tuple[str, str]:
     return provider, gateway_id
 
 
-def resolve_bus(gateway_id: str, known: str | None, requested: str | None) -> str | None:
-    """The Bus a request names on a Gateway whose one Bus is ``known`` (None while unknown).
+def check_bus(gateway_id: str, known: str | None, requested: str | None) -> None:
+    """Refuse a request naming a Bus other than the Gateway's ``known`` one Bus.
 
-    ``requested`` may be omitted (then ``known`` is returned); when given it must name the
-    known Bus, else BusMismatchError. While the Bus is unknown the requested name is returned
-    as is, for the provider to check against what the Gateway reports.
+    Raises BusMismatchError. An omitted ``requested`` Bus, or a ``known`` one that is None
+    (not known yet), passes: the provider checks it against what the Gateway reports.
     """
     if requested is not None and known is not None and requested != known:
         raise BusMismatchError(gateway_id, requested, known)
+
+
+def resolve_bus(gateway_id: str, known: str | None, requested: str | None) -> str | None:
+    """The Bus a request names on a Gateway whose one Bus is ``known`` (None while unknown).
+
+    ``requested`` may be omitted (then ``known`` is returned); when given it must pass
+    ``check_bus``. While the Bus is unknown the requested name is returned as is.
+    """
+    check_bus(gateway_id, known, requested)
     return known if requested is None else requested
 
 
@@ -144,6 +169,16 @@ class GatewayInfo:
         Never one of several: a Gateway reporting more than one Bus has no Bus to target.
         """
         return self.buses[0]["bus"] if len(self.buses) == 1 else None
+
+    @property
+    def multiple_buses(self) -> bool:
+        """Whether the Gateway is refused for reporting more than one Bus (ADR 0011).
+
+        Set when an info read reports several Buses and kept through later failures of any
+        other kind; only an info read reporting exactly one Bus lifts it. Such a Gateway has
+        no Bus to target, and so no Pausable Poller checklist to show or save.
+        """
+        return bool((self.health or {}).get("multiple_buses"))
 
     @property
     def pausable_poller_tables(self) -> dict[str, list[dict[str, Any]]] | None:
