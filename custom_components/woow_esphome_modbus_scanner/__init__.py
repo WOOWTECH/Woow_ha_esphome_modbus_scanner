@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
 
 from .const import (
     DATA_COORDINATOR,
@@ -33,6 +34,16 @@ from .issues import sync_legacy_bridge_issues
 from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+# Storage files earlier releases wrote and nothing reads any more. 0.5.0.dev2 kept each
+# Gateway's Probe Slot mode; one Bus per Gateway (ADR 0011) removed Probe Slot modes.
+RETIRED_STORAGE_KEYS = (f"{DOMAIN}.probe_slot_modes",)
+
+
+async def _async_remove_retired_storage(hass: HomeAssistant) -> None:
+    """Delete the retired storage files; a file already gone is not an error."""
+    for key in RETIRED_STORAGE_KEYS:
+        await Store(hass, 1, key).async_remove()
 
 
 @dataclass(slots=True)
@@ -110,6 +121,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 profiles = DeviceProfileStore(hass)
                 await profiles.async_load()
                 domain_data[DATA_DEVICE_PROFILES] = profiles
+            await _async_remove_retired_storage(hass)
             await _async_register_panel(hass)
         except BaseException:
             if (

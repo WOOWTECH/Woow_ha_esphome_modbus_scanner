@@ -23,6 +23,22 @@ MAX_INTER_REQUEST_DELAY_MS = 5_000
 LARGE_RANGE_THRESHOLD = 32
 # A Bus name: what a Gateway reports and what a Scan targets (bridge v2 identifier charset).
 BUS_NAME_PATTERN = r"[0-9A-Za-z_-]{1,32}"
+# What every refusal of a Gateway reporting more than one Bus tells the user (ADR 0011).
+ONE_BUS_PER_GATEWAY = (
+    "a Gateway serves exactly one Bus. Keep one modbus_scanner entry on this node and scan "
+    "a second RS-485 line with another node"
+)
+
+
+def resolve_bus(known: str | None, requested: str | None) -> str | None:
+    """The Bus a request targets on a Gateway whose one Bus is ``known`` (None while unknown).
+
+    ``requested`` may be omitted; when given it must name the known Bus, else ValueError. While
+    the Bus is unknown the requested name is returned as is, for the provider to check later.
+    """
+    if requested is not None and known is not None and requested != known:
+        raise ValueError(f"has no Bus {requested}; its Bus is {known}")
+    return known if known is not None else requested
 
 
 class ProbeType(StrEnum):
@@ -107,6 +123,11 @@ class GatewayInfo:
     supports_bus_selection: bool = False
     # A Scan may hold the Bus's chosen Pausable Pollers paused under a Scan Lease.
     supports_scan_lease: bool = False
+
+    @property
+    def bus(self) -> str | None:
+        """The name of the Gateway's one Bus, or None while the provider does not know it."""
+        return self.buses[0]["bus"] if self.buses else None
 
     @property
     def pausable_poller_tables(self) -> dict[str, list[dict[str, Any]]] | None:

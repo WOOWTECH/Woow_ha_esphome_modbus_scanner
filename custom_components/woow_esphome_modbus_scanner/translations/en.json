@@ -91,7 +91,7 @@
   "issues": {
     "gateway_action_required": {
       "title": "Scanner gateway requires attention",
-      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and Bridge Protocol version of the Gateway firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual Gateway maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
+      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and Bridge Protocol version of the Gateway firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual Gateway maintenance. For MULTIPLE_BUSES, the Gateway firmware declares more than one modbus_scanner Bus but a Gateway serves exactly one: keep one modbus_scanner entry in its ESPHome YAML, reflash it and check the Gateway again, and scan a second RS-485 line with another node. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
     },
     "legacy_bridge": {
       "title": "Gateway {name} uses the deprecated Bridge Protocol v1",

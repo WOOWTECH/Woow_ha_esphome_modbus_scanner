@@ -69,8 +69,10 @@ class PollerSelectionStore:
         """(checklist per Bus, saved rows the firmware no longer has, per Bus).
 
         ``tables`` is the Gateway's current poller table per Bus, or None while unknown, in
-        which case the saved checklists are returned as they are. With ``prune`` this also
-        saves the checklists without the removed rows, so each removal is reported once.
+        which case the saved checklists are returned as they are. Once known, only Buses the
+        Gateway reports keep a checklist; the saved rows of any other Bus count as removed.
+        With ``prune`` this also saves the checklists without the removed rows and without
+        the Buses the Gateway no longer reports, so each removal is reported once.
         """
         saved = self.saved(gateway_id)
         if tables is None:
@@ -80,7 +82,7 @@ class PollerSelectionStore:
         for bus in sorted({*tables, *saved}):
             selection[bus], removed[bus] = reconcile(tables.get(bus, ()), saved.get(bus))
         selection = {bus: rows for bus, rows in selection.items() if bus in tables}
-        if prune and any(removed.values()):
+        if prune and (any(removed.values()) or not set(saved) <= set(tables)):
             self.save(gateway_id, {bus: selection[bus] for bus in saved if bus in tables})
         return selection, removed
 
@@ -100,7 +102,9 @@ class PollerSelectionStore:
     def save_choice(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table).
 
-        Validated against the Bus's last known table; returns the Gateway's checklists after.
+        Validated against the Bus's last known table, never against a saved checklist alone;
+        returns the Gateway's checklists after. Checklists of Buses the Gateway no longer
+        reports are dropped by the same save.
         """
         checklists = self.for_gateway(gateway, prune=False) if gateway is not None else {}
         if not checklists:
@@ -108,7 +112,7 @@ class PollerSelectionStore:
                 "Pausable Poller selection needs an enrolled Gateway with Scan Lease support"
             )
         selection = checklists["poller_selection"]
-        if bus not in selection:
+        if gateway.pausable_poller_tables is None or bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
             )
@@ -117,5 +121,7 @@ class PollerSelectionStore:
             raise ValueError(f"Bus {bus} has no Pausable Poller with index {unknown}")
         saved = self.saved(gateway.gateway_id)
         saved[bus] = checklist
-        self.save(gateway.gateway_id, saved)
+        kept = {key: rows for key, rows in saved.items() if key in selection}
+        self.save(gateway.gateway_id, kept)
         return self.for_gateway(gateway, prune=False)
+

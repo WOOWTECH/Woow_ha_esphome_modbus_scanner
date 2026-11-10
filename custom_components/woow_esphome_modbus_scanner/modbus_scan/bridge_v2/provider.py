@@ -32,6 +32,7 @@ from ..adapters import physical_gateway_id
 from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
+    ONE_BUS_PER_GATEWAY,
     GatewayInfo,
     LeaseEndReason,
     LeaseStatus,
@@ -39,6 +40,7 @@ from ..models import (
     ProbeType,
     ScanOutcome,
     ScanRequest,
+    resolve_bus,
 )
 from ..pollers import choose, paused_pollers, reconcile
 from ..provider import GatewayProviderError
@@ -499,11 +501,13 @@ class V2GatewayProvider:
                 reason="bridge_mismatch",
             ) from None
         if len(info["buses"]) > 1:
-            # A Gateway serves exactly one Bus (ADR 0011); never pick one of several.
+            # A Gateway serves exactly one Bus (ADR 0011); never pick one of several, and
+            # forget the Bus an earlier read reported so nothing targets or saves against it.
+            self._buses.pop(gateway_id, None)
+            for key in ("buses", "pausable_pollers"):
+                self.health[gateway_id].pop(key, None)
             raise GatewayProviderError(
-                f"Gateway reports {len(info['buses'])} Buses, but a Gateway serves exactly "
-                "one Bus. Keep one modbus_scanner entry on this node and scan a second "
-                "RS-485 line with another node",
+                f"Gateway reports {len(info['buses'])} Buses, but {ONE_BUS_PER_GATEWAY}",
                 code="MULTIPLE_BUSES",
                 phase="verify_bridge",
                 reason="multiple_buses",
@@ -771,13 +775,12 @@ class V2GatewayProvider:
             raise GatewayProviderError(
                 "Gateway reports no Bus; no probe sent", code="UNKNOWN_BUS", phase=phase
             )
-        if request.bus is not None and request.bus != buses[0]["bus"]:
+        try:
+            resolve_bus(buses[0]["bus"], request.bus)
+        except ValueError as err:
             raise GatewayProviderError(
-                f"Gateway reports no Bus {request.bus}; its Bus is {buses[0]['bus']}; "
-                "no probe sent",
-                code="UNKNOWN_BUS",
-                phase=phase,
-            )
+                f"Gateway {err}; no probe sent", code="UNKNOWN_BUS", phase=phase
+            ) from None
         return buses[0]
 
     @staticmethod

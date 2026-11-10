@@ -91,7 +91,7 @@
   "issues": {
     "gateway_action_required": {
       "title": "掃描閘道需要處理",
-      "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及閘道韌體的橋接協定版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護閘道。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
+      "description": "閘道錯誤：{code}。請核對 MAC、API 加密金鑰及閘道韌體的橋接協定版本。FIRMWARE_FAULT 表示韌體因傳輸狀態不明而阻擋後續讀取，請安排人工維護閘道。MULTIPLE_BUSES 表示閘道韌體回報不只一條 Bus，但一台 Gateway 只服務一條 Bus：請在其 ESPHome YAML 只保留一個 modbus_scanner 並重燒，再重新檢查閘道；第二條 RS-485 請改用另一台節點。不要反覆重啟掃描，也不要以清除加密來繞過認證錯誤。"
     },
     "legacy_bridge": {
       "title": "閘道 {name} 使用已淘汰的橋接協定 v1",

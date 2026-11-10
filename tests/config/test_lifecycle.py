@@ -263,3 +263,21 @@ async def test_scan_history_written_by_0_4_with_identified_rows_still_loads(hass
     assert stored["responders"] == [row]
     assert not hass.data[DOMAIN]["history"].load_error
     assert await async_unload_entry(hass, entry)
+
+
+async def test_setup_removes_the_retired_probe_slot_mode_storage(hass, hass_storage):
+    # 0.5.0.dev2 kept each Gateway's Probe Slot mode; one Bus per Gateway removed them.
+    key = f"{DOMAIN}.probe_slot_modes"
+    hass_storage[key] = {
+        "version": 1,
+        "key": key,
+        "data": {"modes": {"esphome:aabbccddee01": "per_bus"}},
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    assert await async_setup_entry(hass, entry)
+    assert key not in hass_storage
+    # Setting up again with the file already gone is fine.
+    assert await async_unload_entry(hass, entry)
+    assert await async_setup_entry(hass, entry)
+    assert await async_unload_entry(hass, entry)

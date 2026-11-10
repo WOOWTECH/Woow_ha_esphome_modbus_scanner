@@ -9,6 +9,7 @@ from homeassistant.exceptions import ServiceValidationError, Unauthorized
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from test_bridge_v2 import GATEWAY_ID, MAC, FakeClient, FakeV2Gateway, _settle, _setup
+import voluptuous as vol
 
 from custom_components.woow_esphome_modbus_scanner import (
     async_setup_entry,
@@ -227,7 +228,8 @@ async def test_explicit_empty_selection_pauses_nothing(hass, gateway):
     ("data", "message"),
     [
         ({"bus": "rs485", "pause_pollers": [3]}, "no Pausable Poller with index \\[3\\]"),
-        ({"bus": "other", "pause_pollers": [0]}, "Bus other has no known Pausable Poller"),
+        # A Gateway serves exactly one Bus (ADR 0011): a selection never names another.
+        ({"bus": "other", "pause_pollers": [0]}, "has no Bus other; its Bus is rs485"),
         (
             {"gateway_id": "mock:rs485-gateway", "bus": "rs485", "pause_pollers": []},
             "needs an enrolled Gateway with Scan Lease support",
@@ -274,3 +276,72 @@ async def test_explicit_selection_is_refused_for_gateways_that_cannot_choose(has
         ServiceValidationError, match="pause_pollers needs a Gateway with Scan Lease support"
     ):
         await call("test_address", {"provider": "mock", "address": 1, "pause_pollers": [0]})
+
+
+def _options(hass):
+    [entry] = hass.config_entries.async_entries(DOMAIN)
+    return entry.options.get("pausable_poller_selection", {})
+
+
+def _seed(hass, checklists):
+    [entry] = hass.config_entries.async_entries(DOMAIN)
+    hass.config_entries.async_update_entry(
+        entry, options={"pausable_poller_selection": {GATEWAY_ID: checklists}}
+    )
+
+
+# Checklists a 0.5.0.dev2 multi-Bus Gateway left behind: one with rows, one empty.
+STALE = {"rs485_b": [{"index": 0, "name": "meter", "address": 1, "paused": False}], "x": []}
+
+
+async def test_check_drops_saved_checklists_of_buses_the_gateway_does_not_report(hass, gateway):
+    call = await _setup(hass)
+    _seed(hass, {"rs485": [_row(0, False), _row(1), _row(2)], **STALE})
+
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    assert checked["poller_selection"] == {"rs485": [_row(0, False), _row(1), _row(2)]}
+    assert _options(hass) == {GATEWAY_ID: {"rs485": [_row(0, False), _row(1), _row(2)]}}
+
+
+async def test_check_drops_an_empty_stale_checklist_too(hass, gateway):
+    call = await _setup(hass)
+    _seed(hass, {"rs485": [_row(0), _row(1), _row(2)], "x": []})
+
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    assert _options(hass) == {GATEWAY_ID: {"rs485": [_row(0), _row(1), _row(2)]}}
+
+
+async def test_saving_drops_saved_checklists_of_buses_the_gateway_does_not_report(
+    hass, gateway
+):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    _seed(hass, STALE)
+
+    saved = await _choose(call, [1])
+
+    assert saved["poller_selection"] == {"rs485": [_row(0, False), _row(1), _row(2, False)]}
+    assert _options(hass) == {GATEWAY_ID: {"rs485": [_row(0, False), _row(1), _row(2, False)]}}
+
+
+async def test_saving_a_stale_bus_before_the_table_is_known_is_refused(hass, gateway):
+    call = await _setup(hass)
+    _seed(hass, STALE)
+    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+        await call(
+            "set_pausable_pollers",
+            {"gateway_id": GATEWAY_ID, "bus": "rs485_b", "pause_pollers": [0]},
+        )
+    assert _options(hass) == {GATEWAY_ID: STALE}
+
+
+@pytest.mark.parametrize("bus", ["", "x y", "a" * 33])
+async def test_a_malformed_bus_name_is_a_schema_error(hass, gateway, bus):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    with pytest.raises(vol.Invalid):
+        await call(
+            "set_pausable_pollers", {"gateway_id": GATEWAY_ID, "bus": bus, "pause_pollers": []}
+        )

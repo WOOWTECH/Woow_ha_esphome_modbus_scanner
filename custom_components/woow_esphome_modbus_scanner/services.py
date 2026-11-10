@@ -105,11 +105,14 @@ _POLLER_INDICES = vol.All(
     [vol.All(_exact_int, vol.Range(min=0, max=255))], vol.Unique(), vol.Coerce(tuple)
 )
 
+# A Bus name as a Gateway reports it; a malformed name is a schema error, never a lookup.
+_BUS_NAME = vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z"))
+
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
     # The Gateway's one Bus (ADR 0011); may be omitted, and when given must name that Bus.
-    vol.Optional("bus"): vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z")),
+    vol.Optional("bus"): _BUS_NAME,
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
     vol.Optional("esphome_device_id"): str,
@@ -542,7 +545,7 @@ _SERVICE_DEFINITIONS = (
         vol.Schema(
             {
                 vol.Required("gateway_id"): str,
-                vol.Optional("bus"): str,
+                vol.Optional("bus"): _BUS_NAME,
                 vol.Required("pause_pollers"): _POLLER_INDICES,
             }
         ),

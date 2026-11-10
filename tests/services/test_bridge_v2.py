@@ -19,6 +19,7 @@ from aioesphomeapi import (
 )
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import issue_registry as ir
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -589,6 +590,57 @@ async def test_check_gateway_refuses_a_gateway_reporting_two_buses(hass, gateway
     assert listed["health"]["api_status"] == "failed"
     assert listed["health"]["error_info"]["code"] == "MULTIPLE_BUSES"
     assert listed["buses"] == []
+    assert gateway.probes == []
+
+
+def _gateway_issue(hass):
+    registry = ir.async_get(hass)
+    return next(
+        issue
+        for (domain, issue_id), issue in registry.issues.items()
+        if domain == DOMAIN and issue_id.startswith("gateway_")
+    )
+
+
+async def test_a_gateway_reporting_two_buses_gets_a_repairs_issue(hass, gateway):
+    # The fix is a reflash, so the refusal stays visible in Repairs until a check passes.
+    gateway.buses = ["rs485_a", "rs485_b"]
+    call = await _setup(hass)
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    issue = _gateway_issue(hass)
+    assert issue.translation_key == "gateway_action_required"
+    assert issue.translation_placeholders == {"code": "MULTIPLE_BUSES"}
+
+
+async def test_a_gateway_reflashed_to_two_buses_forgets_its_old_bus(hass, gateway):
+    gateway.pollers = {"rs485": [("meter", 1)]}
+    call = await _setup(hass)
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert [row["bus"] for row in checked["buses"]] == ["rs485"]
+
+    # Reflashed with a second modbus_scanner entry.
+    gateway.buses = ["rs485", "rs485_b"]
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    listed = next(
+        g for g in (await call("list_gateways"))["gateways"] if g["gateway_id"] == GATEWAY_ID
+    )
+    assert listed["buses"] == []
+    assert "buses" not in listed["health"]
+    assert "pausable_pollers" not in listed["health"]
+    assert listed["health"]["error_info"]["code"] == "MULTIPLE_BUSES"
+    # Nothing is saved or targeted against the forgotten Bus.
+    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+        await call("set_pausable_pollers", {"gateway_id": GATEWAY_ID, "pause_pollers": [0]})
+    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+        await call(
+            "set_pausable_pollers",
+            {"gateway_id": GATEWAY_ID, "bus": "rs485", "pause_pollers": [0]},
+        )
+    results = await _test_address(hass, call, address=7)
+    assert results["error_info"]["code"] == "MULTIPLE_BUSES"
     assert gateway.probes == []
 
 

@@ -19,16 +19,9 @@ from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
 MOCK_LIMITS = ProbeLimits("A mock Gateway")
-
-
-def _bus(name: str, baud_rate: int, parity: str = "NONE") -> dict:
-    return {"bus": name, "serial": {"baud_rate": baud_rate, "parity": parity, "stop_bits": 1}}
-
-
-# Simulated Gateways and their one Bus each. Every Bus answers with the same Mock Scenario.
-MOCK_GATEWAYS = {
-    MOCK_GATEWAY_ID: ("Simulated RS-485 Gateway", (_bus("rs485", 9600),)),
-}
+MOCK_GATEWAY_NAME = "Simulated RS-485 Gateway"
+# The simulated Gateway's one Bus (ADR 0011); it answers with the requested Mock Scenario.
+MOCK_BUS = {"bus": "rs485", "serial": {"baud_rate": 9600, "parity": "NONE", "stop_bits": 1}}
 
 
 class MockGatewayProvider:
@@ -40,12 +33,12 @@ class MockGatewayProvider:
         self._step_delay_ms = step_delay_ms
 
     def list_gateways(self) -> tuple[GatewayInfo, ...]:
-        """Expose the simulated RS-485 Gateways and all supported capabilities."""
-        return tuple(
+        """Expose the simulated RS-485 Gateway and all supported capabilities."""
+        return (
             GatewayInfo(
                 provider=self.provider_id,
-                gateway_id=gateway_id,
-                name=name,
+                gateway_id=MOCK_GATEWAY_ID,
+                name=MOCK_GATEWAY_NAME,
                 capabilities=(
                     "holding_register",
                     "input_register",
@@ -53,10 +46,9 @@ class MockGatewayProvider:
                 ),
                 mock_scenarios=tuple(scenario.value for scenario in MockScenario),
                 limits=MOCK_LIMITS,
-                buses=deepcopy(buses),
+                buses=(deepcopy(MOCK_BUS),),
                 supports_bus_selection=True,
-            )
-            for gateway_id, (name, buses) in MOCK_GATEWAYS.items()
+            ),
         )
 
     async def run_scan(
@@ -69,10 +61,9 @@ class MockGatewayProvider:
         request.validate()
         if request.provider != self.provider_id:
             raise ValueError(f"Unsupported mock provider: {request.provider}")
-        if request.gateway_id not in MOCK_GATEWAYS:
+        if request.gateway_id != MOCK_GATEWAY_ID:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
-        buses = [row["bus"] for row in MOCK_GATEWAYS[request.gateway_id][1]]
-        if request.bus is not None and request.bus not in buses:
+        if request.bus is not None and request.bus != MOCK_BUS["bus"]:
             raise ValueError(f"The mock Gateway {request.gateway_id} has no Bus {request.bus}")
         if request.mock_scenario not in {item.value for item in MockScenario}:
             raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")

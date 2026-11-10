@@ -24,6 +24,7 @@ from .models import (
     ScanOutcome,
     ScanPhase,
     ScanRequest,
+    resolve_bus,
 )
 from .pollers import POLLER_KEYS
 from .provider import GatewayProvider, GatewayProviderError
@@ -163,13 +164,15 @@ class ModbusScanCoordinator:
         if self._selection_store is None:
             raise ValueError("No config entry keeps Pausable Poller selections")
         gateway = self._gateway("esphome", gateway_id)
+        known = gateway.bus if gateway is not None else None
+        try:
+            bus = resolve_bus(known, bus)
+        except ValueError as err:
+            raise ValueError(f"Gateway {gateway_id} {err}") from None
         if bus is None:
-            names = [row["bus"] for row in gateway.buses] if gateway is not None else []
-            if len(names) != 1:
-                raise ValueError(
-                    f"The Bus of Gateway {gateway_id} is not known yet; check the Gateway first"
-                )
-            bus = names[0]
+            raise ValueError(
+                f"The Bus of Gateway {gateway_id} is not known yet; check the Gateway first"
+            )
         checklists = self._selection_store.save_choice(gateway, bus, indices)
         return {"gateway_id": gateway_id, "bus": bus, **checklists}
 
@@ -195,10 +198,6 @@ class ModbusScanCoordinator:
             None,
         )
 
-    def _running_on(self, provider: str, gateway_id: str) -> str | None:
-        """The running Scan of the Gateway, if any."""
-        return self._active.get((provider, gateway_id))
-
     @staticmethod
     def _target_bus(request: ScanRequest, gateway: GatewayInfo) -> ScanRequest:
         """Resolve the Scan's Bus to the one Bus the Gateway reports (ADR 0011).
@@ -207,21 +206,13 @@ class ModbusScanCoordinator:
         that supports Bus selection is not known yet (a bridge v2 Gateway never checked), the
         provider resolves and checks it when it connects.
         """
-        names = [row["bus"] for row in gateway.buses]
-        if len(names) > 1:
-            raise ValueError(
-                f"Gateway {request.gateway_id} reports {len(names)} Buses; a Gateway serves "
-                "exactly one Bus, so scan a second RS-485 line with another node"
-            )
-        if request.bus is None:
-            return replace(request, bus=names[0]) if names else request
-        if names and request.bus != names[0]:
-            raise ValueError(
-                f"Gateway {request.gateway_id} has no Bus {request.bus}; its Bus is {names[0]}"
-            )
-        if not names and not gateway.supports_bus_selection:
+        try:
+            bus = resolve_bus(gateway.bus, request.bus)
+        except ValueError as err:
+            raise ValueError(f"Gateway {request.gateway_id} {err}") from None
+        if request.bus is not None and gateway.bus is None and not gateway.supports_bus_selection:
             raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
-        return request
+        return request if bus == request.bus else replace(request, bus=bus)
 
     async def start(
         self, request: ScanRequest, profile: DeviceProfile = GENERIC_DEVICE_PROFILE
@@ -245,7 +236,7 @@ class ModbusScanCoordinator:
         if request.pause_pollers is not None and not gateway.supports_scan_lease:
             raise ValueError("pause_pollers needs a Gateway with Scan Lease support")
         request = self._target_bus(request, gateway)
-        if existing := self._running_on(request.provider, request.gateway_id):
+        if existing := self._active.get(request.gateway_key):
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
         scan_id = str(uuid4())
@@ -723,7 +714,7 @@ class ModbusScanCoordinator:
         provider = self._providers.get("esphome")
         if provider is None or not hasattr(provider, "check_gateway"):
             raise ValueError("No physical gateways are configured")
-        if existing := self._running_on("esphome", gateway_id):
+        if existing := self._active.get(("esphome", gateway_id)):
             raise GatewayBusyError("esphome", gateway_id, existing)
         health = await provider.check_gateway(gateway_id)
         response = {"gateway_id": gateway_id, "health": health}
