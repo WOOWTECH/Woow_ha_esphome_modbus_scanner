@@ -101,38 +101,31 @@ jobs:
           } > secrets.yaml
       - run: esphome config generic-modbus-scanner.yaml
         working-directory: firmware/examples
-      - name: Multi-hub example (one Gateway, two Buses)
-        run: esphome config multi-bus-modbus-scanner.yaml
-        working-directory: firmware/examples
+      - name: Two modbus_scanner entries on one node are refused (one Bus per Gateway)
+        working-directory: firmware/tests
+        run: |
+          if esphome config two-modbus-scanners.yaml > /tmp/two.log 2>&1; then
+            cat /tmp/two.log
+            echo "ESPHome unexpectedly accepted two modbus_scanner entries"; exit 1
+          fi
+          grep -F "A node supports only one modbus_scanner; scan a second RS-485 line with another node" /tmp/two.log || { cat /tmp/two.log; exit 1; }
       - uses: actions/cache@v4
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}
-      - run: esphome compile generic-modbus-scanner.yaml
-        working-directory: firmware/examples
-      - name: Compile the multi-hub example (codegen discovery per Bus)
+      - name: Compile the example (codegen discovery for its one Bus)
         working-directory: firmware/examples
         run: |
-          esphome compile multi-bus-modbus-scanner.yaml
-          main=.esphome/build/multi-bus-modbus-scanner/src/main.cpp
-          # Each Bus gets its own Pausable Poller table and its hub's serial parameters.
-          grep -F 'ModbusScannerBus("line_a", 1000)' "$main"
-          grep -F 'ModbusScannerBus("line_b", 500)' "$main"
+          esphome compile generic-modbus-scanner.yaml
+          main=.esphome/build/generic-modbus-scanner/src/main.cpp
+          # The Bus gets its Pausable Poller table and its hub's serial parameters.
+          grep -F 'ModbusScannerBus("rs485", 1000)' "$main"
           grep -F 'set_serial(9600, "NONE", 1)' "$main"
-          grep -F 'set_serial(19200, "EVEN", 1)' "$main"
           grep -F 'add_poller("meter", 0x01, meter)' "$main"
-          grep -F 'add_poller("inverter_2", 0x02, inverter_2)' "$main"
-          test "$(grep -c 'add_bus(' "$main")" -eq 2
-          # Each Bus gets its own exposed Result and Lease sensor, and reports the same names in
-          # its info entry (ADR 0010). The shared sensors stay.
-          for bus in line_a line_b; do
-            grep -F "\"Modbus Scanner v2 Result $bus\", " "$main" | grep -F register_text_sensor | grep -vF internal
-            grep -F "\"Modbus Scanner v2 Lease $bus\", " "$main" | grep -F register_text_sensor | grep -vF internal
-            grep -F "\"Modbus Scanner v2 Result $bus\", modbus_scanner_bus" "$main" | grep -F "\"Modbus Scanner v2 Lease $bus\");"
-          done
-          grep -F '"Modbus Scanner v2 Result", ' "$main"
-          grep -F '"Modbus Scanner v2 Lease", ' "$main"
-          test "$(grep -c 'set_own_sensors(' "$main")" -eq 2
+          grep -F 'add_poller("inverter", 0x02, inverter)' "$main"
+          test "$(grep -c 'set_bus(' "$main")" -eq 1
+          grep -F '"Modbus Scanner v2 Result"' "$main"
+          grep -F '"Modbus Scanner v2 Lease"' "$main"
       - name: ESPHome older than 2026.9.0 is refused with a clear message
         working-directory: firmware/examples
         run: |

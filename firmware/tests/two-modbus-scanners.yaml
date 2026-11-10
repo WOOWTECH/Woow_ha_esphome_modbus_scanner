@@ -1,0 +1,46 @@
+# Must NOT validate: a Gateway serves exactly one Bus (ADR 0011), so a second
+# `modbus_scanner` entry is refused. CI runs `esphome config` on this file and expects
+# "A node supports only one modbus_scanner; scan a second RS-485 line with another node".
+# Self-contained (no secrets) so it validates up to the scanner's own check.
+esphome:
+  name: two-modbus-scanners
+  min_version: 2026.9.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+wifi:
+  ssid: "ci-ssid"
+  password: "ci-password"
+
+api:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [modbus_scanner]
+
+uart:
+  - id: uart_a
+    tx_pin: GPIO17
+    rx_pin: GPIO16
+    baud_rate: 9600
+  - id: uart_b
+    tx_pin: GPIO25
+    rx_pin: GPIO26
+    baud_rate: 19200
+
+modbus:
+  - id: hub_a
+    uart_id: uart_a
+  - id: hub_b
+    uart_id: uart_b
+
+modbus_scanner:
+  - modbus_id: hub_a
+  - modbus_id: hub_b

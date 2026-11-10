@@ -27,16 +27,7 @@ class PollingComponentPoller : public modbus_scanner_core::Poller {
   PollingComponent *component_;
 };
 
-/// One Bus's own Result and Lease text sensors (ADR 0010).
-class BusSensors : public modbus_scanner_core::ResultSink {
- public:
-  text_sensor::TextSensor *result{nullptr};
-  text_sensor::TextSensor *lease{nullptr};
-  void publish_result(const std::string &json) override { this->result->publish_state(json); }
-  void publish_lease(const std::string &json) override { this->lease->publish_state(json); }
-};
-
-/// One scanner per Modbus client hub (a Bus). Probes are queued to arbitrary slaves through the
+/// The scanner of the node's one Modbus client hub (its Bus). Probes are queued to arbitrary slaves through the
 /// hub's public queue; the hub keeps one frame in flight and correlates the reply to it.
 class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanner_core::BusPort {
  public:
@@ -53,15 +44,6 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
   /// Codegen passes the hub UART's YAML serial parameters, reported in the bus's info entry.
   void set_serial(uint32_t baud_rate, const char *parity, uint8_t stop_bits) {
     this->core_.set_serial(baud_rate, parity, stop_bits);
-  }
-
-  /// Codegen creates this Bus's own Result and Lease sensors and passes their entity names, which
-  /// the Bus reports in its info entry.
-  void set_own_sensors(text_sensor::TextSensor *result, const char *result_name, text_sensor::TextSensor *lease,
-                       const char *lease_name) {
-    this->own_sensors_.result = result;
-    this->own_sensors_.lease = lease;
-    this->core_.set_own_sensors(&this->own_sensors_, result_name, lease_name);
   }
 
   /// Codegen emits one call per Pausable Poller, in stable table order.
@@ -84,13 +66,12 @@ class ModbusScannerBus : public modbus::ModbusClientDevice, public modbus_scanne
   void on_not_sent(std::span<const uint8_t> /*request_pdu*/) override { this->core_.on_not_sent(); }
 
  protected:
-  BusSensors own_sensors_;
   modbus_scanner_core::Bus core_;
   std::vector<std::unique_ptr<PollingComponentPoller>> pollers_;
 };
 
-/// The Gateway, one per node: registers the v2 probe and release actions, owns the shared
-/// info/result/lease text sensors and runs each Bus's lease recovery from loop().
+/// The Gateway, one per node and serving one Bus: registers the v2 probe and release actions, owns the
+/// info/result/lease text sensors and runs the Bus's lease recovery from loop().
 class ModbusScannerGateway : public Component,
                              public api::CustomAPIDevice,
                              public modbus_scanner_core::Clock,
@@ -103,7 +84,7 @@ class ModbusScannerGateway : public Component,
   void set_info_sensor(text_sensor::TextSensor *sensor) { this->info_sensor_ = sensor; }
   void set_result_sensor(text_sensor::TextSensor *sensor) { this->result_sensor_ = sensor; }
   void set_lease_sensor(text_sensor::TextSensor *sensor) { this->lease_sensor_ = sensor; }
-  void add_bus(ModbusScannerBus *bus) { this->core_.add_bus(&bus->core()); }
+  void set_bus(ModbusScannerBus *bus) { this->core_.set_bus(&bus->core()); }
 
   uint32_t now_ms() override;
   void publish_result(const std::string &json) override;

@@ -1,6 +1,6 @@
 """Vendor-neutral Modbus RTU scanner (bridge protocol v2) for ESPHome 2026.9+.
 
-Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
+Minimal YAML (one entry, naming the Modbus client hub of the node's one Bus)::
 
     external_components:
       - source: github://WOOWTECH/Woow_ha_esphome_modbus_scanner/firmware/components
@@ -8,13 +8,10 @@ Minimal YAML (one entry per Modbus client hub, i.e. per Bus)::
     modbus_scanner:
       - modbus_id: modbus_bus
 
-On a node with several hubs, add one entry per hub (each is one Bus, optionally named with
-``bus:``; see firmware/examples/multi-bus-modbus-scanner.yaml). The info entry of each Bus
-reports its hub UART's baud rate, parity and stop bits. The Gateway's probe/release actions
-and the shared info/result/lease text sensors are created once, by the first entry. Every entry
-also gets its own Result and Lease text sensors, "Modbus Scanner v2 Result <bus>" and
-"Modbus Scanner v2 Lease <bus>", so the Buses of one Gateway probe independently (ADR 0010);
-the Bus reports their names in its info entry. Users never declare any of these sensors. Their
+A Gateway serves exactly one Bus (ADR 0011): a second ``modbus_scanner`` entry fails
+validation, so a second RS-485 line is scanned with another node. The Bus may be named with
+``bus:``; its info entry reports the hub UART's baud rate, parity and stop bits. The entry
+creates the Gateway's probe/release actions and the info/result/lease text sensors, whose
 names are fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
 
@@ -34,7 +31,6 @@ from esphome.const import (
     CONF_ADDRESS,
     CONF_BAUD_RATE,
     CONF_ID,
-    CONF_INTERNAL,
     CONF_NAME,
     CONF_UART_ID,
     ENTITY_CATEGORY_DIAGNOSTIC,
@@ -51,9 +47,6 @@ MULTI_CONF = True
 INFO_SENSOR_NAME = "Modbus Scanner v2 Info"
 RESULT_SENSOR_NAME = "Modbus Scanner v2 Result"
 LEASE_SENSOR_NAME = "Modbus Scanner v2 Lease"
-# The contract's bus_text_sensors name patterns, {bus} being the Bus name.
-BUS_RESULT_SENSOR_PATTERN = "Modbus Scanner v2 Result {bus}"
-BUS_LEASE_SENSOR_PATTERN = "Modbus Scanner v2 Lease {bus}"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
 CONF_BUS = "bus"
@@ -61,11 +54,9 @@ CONF_GATEWAY_ID = "gateway_id"
 CONF_INFO_SENSOR = "info_sensor"
 CONF_RESULT_SENSOR = "result_sensor"
 CONF_LEASE_SENSOR = "lease_sensor"
-# Each Bus's own sensors, created by the component (never declared in YAML).
-CONF_BUS_RESULT_SENSOR = "bus_result_sensor"
-CONF_BUS_LEASE_SENSOR = "bus_lease_sensor"
-_BUS_SENSORS = (CONF_BUS_RESULT_SENSOR, CONF_BUS_LEASE_SENSOR)
-_GATEWAY_KEY = "modbus_scanner_gateway"
+ONE_ENTRY_MESSAGE = (
+    "A node supports only one modbus_scanner; scan a second RS-485 line with another node"
+)
 
 modbus_scanner_ns = cg.esphome_ns.namespace("modbus_scanner")
 ModbusScannerGateway = modbus_scanner_ns.class_("ModbusScannerGateway", cg.Component)
@@ -88,13 +79,13 @@ def _fixed_name(name):
     return validator
 
 
-_SENSOR_SCHEMA = text_sensor.text_sensor_schema(
-    entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:lan-connect"
-)
-
-
 def _sensor(name):
-    return cv.All(_SENSOR_SCHEMA, _fixed_name(name))
+    return cv.All(
+        text_sensor.text_sensor_schema(
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:lan-connect"
+        ),
+        _fixed_name(name),
+    )
 
 
 _GATEWAY_SENSORS = {
@@ -102,56 +93,36 @@ _GATEWAY_SENSORS = {
     CONF_RESULT_SENSOR: RESULT_SENSOR_NAME,
     CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
 }
-_SENSORS_CLAIMED_KEY = "modbus_scanner_sensors_claimed"
-_NEXT_ENTRY_INDEX_KEY = "modbus_scanner_next_entry_index"
+_ENTRY_SEEN_KEY = "modbus_scanner_entry_seen"
 
 
-def _gateway_sensors_on_first_entry(config):
-    """The Gateway's text sensors belong to the first entry only.
+def _one_entry_per_node(config):
+    """Refuse a second entry and give the only one the Gateway's text sensors.
 
-    Their names are fixed by the contract and entity names are unique per node, so a
-    second hub's entry must not declare them again. Runs before the schema, once per entry,
-    in YAML order; CORE.data is reset together with ESPHome's entity-name registry.
+    MULTI_CONF stays on so that a second entry reaches this message rather than ESPHome's
+    generic one. Runs before the schema, once per entry, in YAML order; CORE.data is reset
+    with every validation.
     """
     if not isinstance(config, dict):
         return config
+    if CORE.data.get(_ENTRY_SEEN_KEY):
+        raise cv.Invalid(ONE_ENTRY_MESSAGE)
+    CORE.data[_ENTRY_SEEN_KEY] = True
     config = dict(config)
-    first = not CORE.data.get(_SENSORS_CLAIMED_KEY)
-    CORE.data[_SENSORS_CLAIMED_KEY] = True
     for key, name in _GATEWAY_SENSORS.items():
-        if first:
-            config.setdefault(key, {CONF_NAME: name})
-        elif key in config:
-            raise cv.Invalid(
-                f"{key} is shared by every Bus of the Gateway; "
-                "set it on the first modbus_scanner entry only",
-                path=[key],
-            )
-    index = CORE.data.get(_NEXT_ENTRY_INDEX_KEY, 0)
-    CORE.data[_NEXT_ENTRY_INDEX_KEY] = index + 1
-    for key in _BUS_SENSORS:
-        if key in config:
-            raise cv.Invalid(
-                f"{key} is created by the component for every Bus; do not declare it",
-                path=[key],
-            )
-        # Named in to_code, once the default Bus name (from the hub's resolved id) is known;
-        # until then an id of its own satisfies the entity schema.
-        config[key] = {CONF_ID: f"modbus_scanner_bus{index}_{key.removeprefix('bus_')}"}
+        config.setdefault(key, {CONF_NAME: name})
     return config
 
 
 CONFIG_SCHEMA = cv.All(
-    _gateway_sensors_on_first_entry,
+    _one_entry_per_node,
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ModbusScannerBus),
-            # Only the first entry's Gateway object is created; it serves every Bus.
             cv.GenerateID(CONF_GATEWAY_ID): cv.declare_id(ModbusScannerGateway),
             cv.GenerateID(modbus.CONF_MODBUS_ID): cv.use_id(modbus.ModbusClient),
             cv.Optional(CONF_BUS): _bus_name,
             **{cv.Optional(key): _sensor(name) for key, name in _GATEWAY_SENSORS.items()},
-            **{cv.Required(key): _SENSOR_SCHEMA for key in _BUS_SENSORS},
         }
     ),
     cv.require_esphome_version(*MIN_ESPHOME_VERSION),
@@ -165,18 +136,11 @@ def _default_bus_name(config):
 
 def _final_validate(configs):
     full = fv.full_config.get()
-    for config in configs if isinstance(configs, list) else [configs]:
+    configs = configs if isinstance(configs, list) else [configs]
+    if len(configs) > 1:
+        raise cv.Invalid(ONE_ENTRY_MESSAGE)
+    for config in configs:
         modbus.final_validate_modbus_device("modbus_scanner", role="client")(config)
-    hubs, names = set(), set()
-    for config in full.get("modbus_scanner", []):
-        hub = str(config[modbus.CONF_MODBUS_ID])
-        if hub in hubs:
-            raise cv.Invalid(f"Only one modbus_scanner is allowed per Modbus hub ({hub})")
-        hubs.add(hub)
-        name = config.get(CONF_BUS) or _default_bus_name(config)
-        if name in names:
-            raise cv.Invalid(f"Duplicate modbus_scanner bus name {name!r}")
-        names.add(name)
     if "api" not in full:
         raise cv.Invalid("modbus_scanner requires the native 'api:' component")
     return configs
@@ -243,11 +207,7 @@ def _poller_address(config) -> int:
     return address if isinstance(address, int) and 1 <= address <= 247 else 0
 
 
-async def _gateway(config):
-    if _GATEWAY_KEY in CORE.data:
-        return CORE.data[_GATEWAY_KEY]
-    # The entry that carries the Gateway's sensors (the first one in YAML).
-    config = next(c for c in CORE.config["modbus_scanner"] if CONF_INFO_SENSOR in c)
+async def to_code(config):
     gateway = cg.new_Pvariable(config[CONF_GATEWAY_ID])
     await cg.register_component(gateway, {})
     info = await text_sensor.new_text_sensor(config[CONF_INFO_SENSOR])
@@ -260,39 +220,17 @@ async def _gateway(config):
     # `api: custom_services: true` in YAML.
     cg.add_define("USE_API_USER_DEFINED_ACTIONS")
     cg.add_define("USE_API_CUSTOM_SERVICES")
-    CORE.data[_GATEWAY_KEY] = gateway
-    return gateway
 
-
-async def _bus_sensor(config, key, pattern, bus):
-    """One of the Bus's own sensors, named by the contract pattern; returns (sensor, name)."""
-    name = pattern.format(bus=bus)
-    # Validation named the nameless sensor after its id and made it internal; it is a named
-    # entity HA must see.
-    config[key].update({CONF_NAME: name, CONF_INTERNAL: False})
-    return await text_sensor.new_text_sensor(config[key]), name
-
-
-async def to_code(config):
-    gateway = await _gateway(config)
     name = config.get(CONF_BUS) or _default_bus_name(config)
     hub = await cg.get_variable(config[modbus.CONF_MODBUS_ID])
     var = cg.new_Pvariable(
         config[CONF_ID], name, _hub_send_wait_ms(config[modbus.CONF_MODBUS_ID])
     )
     cg.add(var.set_parent(hub))
-    # The same name goes to the entity and to the Bus's info entry, so HA finds the sensor.
-    result, result_name = await _bus_sensor(
-        config, CONF_BUS_RESULT_SENSOR, BUS_RESULT_SENSOR_PATTERN, name
-    )
-    lease, lease_name = await _bus_sensor(
-        config, CONF_BUS_LEASE_SENSOR, BUS_LEASE_SENSOR_PATTERN, name
-    )
-    cg.add(var.set_own_sensors(result, result_name, lease, lease_name))
     if serial := _hub_serial(config[modbus.CONF_MODBUS_ID]):
         cg.add(var.set_serial(*serial))
     for poller in _pausable_pollers(config[modbus.CONF_MODBUS_ID]):
         component = await cg.get_variable(poller[CONF_ID])
         name = str(poller.get(CONF_NAME) or poller[CONF_ID])
         cg.add(var.add_poller(name, _poller_address(poller), component))
-    cg.add(gateway.add_bus(var))
+    cg.add(gateway.set_bus(var))
