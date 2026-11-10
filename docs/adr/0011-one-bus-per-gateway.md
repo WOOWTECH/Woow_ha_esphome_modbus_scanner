@@ -44,3 +44,15 @@ hardware (#16), and the Info sensor growing past Home Assistant's 255-character 
   multi-Bus support.
 - #25 is reduced but not fixed: without the per-Bus sensor names a single-Bus Info is about
   160 characters, but every Pausable Poller adds about 34 characters plus its name.
+- A Gateway refused for several Buses offers no Pausable Poller checklist and refuses to save
+  one, with the one-Bus message. HA keeps the refusal through later failures of any other
+  kind (offline, connect); only a check or Scan whose info reports exactly one Bus lifts it.
+  The saved checklist is kept and is offered again after that.
+- Before any check or Scan after a restart, HA knows no Bus: a save goes to the single Bus a
+  checklist was saved for, and is refused for any other Bus.
+- A passing check or Enrollment clears only the MULTIPLE_BUSES Repairs issue. Every other
+  Gateway issue is still cleared only by a Scan whose cleanup closed and whose recovery is
+  verified.
+- The retired Probe Slot mode storage file is removed on a best-effort basis at every setup.
+  This is a storage cleanup, not a settings migration, so removing several Buses still needs
+  no migration.
