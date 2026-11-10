@@ -225,7 +225,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       }
       if (generation !== this._operationGeneration || !this.isConnected) return;
       // The check learns the Gateway's Buses (with their serial parameters).
-      this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
+      this._mergeGateway(gateway.gateway_id, {health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})});
       this._reconcileGateway();
       this._message = this._text.healthChecked;
     });
@@ -241,8 +241,13 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       if (Array.isArray(payload.gateways)) gateways = payload.gateways;
     } catch (_error) { /* the check's own error is the one shown */ }
     if (generation !== this._operationGeneration || !this.isConnected) return;
-    this._gateways = gateways || this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, buses:[], poller_selection:undefined, removed_pollers:undefined} : g);
+    if (gateways) this._gateways = gateways;
+    else this._mergeGateway(gatewayId, {buses:[], poller_selection:undefined, removed_pollers:undefined});
     this._reconcileGateway();
+  }
+  /** Merge `fields` into the Gateway `gatewayId`, leaving the other Gateways as they are. */
+  _mergeGateway(gatewayId, fields) {
+    this._gateways = this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, ...fields} : g);
   }
   async _savePollers(bus, pollers, index, paused) {
     if (this._status?.status === "running") return;
@@ -252,7 +257,7 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
       const result = await this._call("set_pausable_pollers", selectionPayload(gatewayId, bus, pollers, index, paused));
       if (generation !== this._operationGeneration || !this.isConnected) return;
       // Keep removals reported by the last check visible; the saved checklist is the answer's.
-      this._gateways = this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, poller_selection:result.poller_selection} : g);
+      this._mergeGateway(gatewayId, {poller_selection:result.poller_selection});
       this._message = this._text.pollersSaved;
     });
   }

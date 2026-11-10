@@ -317,6 +317,12 @@ try {
   await zh.getByRole('button',{name:'開始掃描'}).click();
   await zh.getByText('請修正標示的欄位。').waitFor();
   check(await zh.getByText(/預期終止狀態：完成/).count()===1, 'Traditional-Chinese detailed profile help missing');
+  await zhPage.evaluate(async () => {
+    panel._results={scan_id:fixture.uuid,status:'failed',provider:'esphome',gateway_id:'esphome:aabbccddee02',bus:null,responders:[],outcome_counts:{}};
+    await panel.updateComplete;
+  });
+  const zhSource=await zh.locator('.evidence-source').textContent();
+  check(await zh.locator('#result-bus').count()===0 && !/null|undefined|匯流排/.test(zhSource), `Traditional-Chinese result source with a null Bus names a Bus: ${zhSource}`);
   await zhPage.close();
 
   // A range above 32 IDs shows the estimated duration and needs a second confirmation.
@@ -431,6 +437,15 @@ try {
   });
   await bused.locator('#result-bus').waitFor();
   check(await bused.locator('#result-bus').textContent()==='line_a (19200 baud, parity EVEN, 1 stop bit)', 'result source lacks the Bus serial parameters');
+  // A Scan that failed before its provider reported the Bus is recorded with `bus: null`: the source names no Bus.
+  for (const bus of [null, undefined]) {
+    await busPage.evaluate(async (bus) => {
+      panel._results={scan_id:fixture.uuid,status:'failed',provider:'esphome',gateway_id:'esphome:aabbccddee02',bus,responders:[],outcome_counts:{}};
+      await panel.updateComplete;
+    }, bus);
+    const source=await bused.locator('.evidence-source').textContent();
+    check(await bused.locator('#result-bus').count()===0 && !/null|undefined|Bus/.test(source), `result source with bus ${bus} names a Bus: ${source}`);
+  }
   await busPage.close();
 
   // Device Profiles: upload (invalid and valid), profile-driven form limits, labelled results, export and delete.

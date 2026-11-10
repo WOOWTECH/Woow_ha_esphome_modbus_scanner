@@ -244,10 +244,12 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The saved checklist key of a Gateway's one Bus (ADR 0011), exactly the key set_pausable_pollers accepts:
- * the Bus HA knows; else, while HA knows no Bus (no check since a restart, or after a MULTIPLE_BUSES check
- * made it forget the Bus), the only saved key, which HA validates against the saved checklist. Several
- * saved keys with no known Bus, or several reported Buses, give none. Former Buses' keys never qualify.
+ * The checklist key the panel shows for a Gateway's one Bus (ADR 0011), read only from what HA sends:
+ * the keys of its `poller_selection` payload and the Gateway's `buses`. With one reported Bus, that Bus
+ * if HA sent a checklist for it; with no reported Bus (no check since a restart, or a check that made HA
+ * forget it), the only key HA sent. Several keys with no reported Bus, or several reported Buses, give none.
+ * HA decides which checklist it sends and sends `{}` for a Gateway it refuses, which shows no checklist;
+ * whatever the panel picks, HA still validates the key when the checklist is saved.
  */
 function ownBus(gateway, keys) {
   const buses = Array.isArray(gateway.buses) ? gateway.buses : [];

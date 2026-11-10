@@ -19,6 +19,8 @@ test("the result source names the Bus with the serial parameters its Gateway rep
   assert.equal(busLabel(undefined, "line_a"), "line_a");
   assert.equal(busLabel(GATEWAY, "bad name"), null);
   assert.equal(busLabel(GATEWAY, undefined), null);
+  // A Scan that failed before its provider reported the Bus is recorded with `bus: null`: no Bus is named.
+  assert.equal(busLabel(GATEWAY, null), null);
 });
 
 test("Scans never name a Bus: HA targets the Gateway's one Bus", () => {
