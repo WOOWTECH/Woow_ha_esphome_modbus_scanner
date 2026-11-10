@@ -376,33 +376,30 @@ try {
   check(await polled.locator('#bus').count()===0, 'Bus selector shown for a gateway with one known Bus');
   await pollerPage.close();
 
-  // A Gateway with two Buses shows a Bus selector (with serial parameters); its Pausable Pollers and every Scan follow the chosen Bus.
+  // A Gateway serves one Bus (ADR 0011): no Bus selector, Scans name no Bus, and the result source shows the Bus with its serial parameters.
   const busPage=await browser.newPage({viewport:{width:390,height:1200}}); await busPage.goto(base);
   const bused=busPage.locator('woow-esphome-modbus-scanner-panel'); await bused.getByText('1 gateway available.').waitFor();
-  check(await bused.locator('#bus').count()===0, 'Bus selector shown for the single-Bus simulated gateway');
   await busPage.evaluate(async () => {
-    const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee02',name:'Two-line v2',simulated:false,can_operate:true,
+    const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee02',name:'One-line v2',simulated:false,can_operate:true,
       capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
-      buses:[{bus:'line_a',serial:{baud_rate:9600,parity:'NONE',stop_bits:1}},{bus:'line_b',serial:{baud_rate:19200,parity:'EVEN',stop_bits:1}}],
-      poller_selection:{line_a:[{index:0,name:'meter',address:1,paused:true}],line_b:[{index:0,name:'pump',address:4,paused:true}]},
-      removed_pollers:{line_a:[],line_b:[]}};
+      buses:[{bus:'line_a',serial:{baud_rate:19200,parity:'EVEN',stop_bits:1}}],
+      poller_selection:{line_a:[{index:0,name:'meter',address:1,paused:true}]},removed_pollers:{line_a:[]}};
     panel._gateways=[...panel._gateways,gateway]; await panel.updateComplete;
     panel._selectGateway(gateway.gateway_id); await panel.updateComplete;
   });
-  await bused.locator('#bus').waitFor();
-  check(await bused.locator('#bus').inputValue()==='line_a', 'multi-Bus gateway did not start on its first Bus');
-  check(await bused.locator('#bus option').allTextContents().then((texts)=>texts.join('|'))==='line_a (9600 baud, parity NONE, 1 stop bit)|line_b (19200 baud, parity EVEN, 1 stop bit)', 'Bus options lack serial parameters');
   await bused.getByText('Bus line_a: pause during a Scan').waitFor();
-  check(await bused.getByText('Bus line_b: pause during a Scan').count()===0, 'checklist of another Bus shown');
-  await bused.locator('#bus').selectOption('line_b');
-  await bused.getByText('Bus line_b: pause during a Scan').waitFor();
-  check(await bused.getByLabel('pump (4)').isChecked(), 'line_b pollers not shown');
+  check(await bused.locator('#bus').count()===0, 'Bus selector shown');
   await busPage.evaluate(() => { calls.length=0; mode='normal'; polls=0; });
   await bused.locator('#safety').check();
   await bused.getByRole('button',{name:'Start scan'}).click();
   await busPage.waitForFunction(() => calls.some((c)=>c.service==='start_scan'));
-  check(await busPage.evaluate(() => calls.find((c)=>c.service==='start_scan').data.bus==='line_b'), 'start_scan did not target the chosen Bus');
-  await capturePanel(busPage, 'mocked-multi-bus-selector.png');
+  check(await busPage.evaluate(() => !('bus' in calls.find((c)=>c.service==='start_scan').data)), 'start_scan named a Bus');
+  await busPage.evaluate(async () => {
+    panel._results={scan_id:fixture.uuid,status:'completed',provider:'esphome',gateway_id:'esphome:aabbccddee02',bus:'line_a',responders:[],outcome_counts:{}};
+    await panel.updateComplete;
+  });
+  await bused.locator('#result-bus').waitFor();
+  check(await bused.locator('#result-bus').textContent()==='line_a (19200 baud, parity EVEN, 1 stop bit)', 'result source lacks the Bus serial parameters');
   await busPage.close();
 
   // Device Profiles: upload (invalid and valid), profile-driven form limits, labelled results, export and delete.
