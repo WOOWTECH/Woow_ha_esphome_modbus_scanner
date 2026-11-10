@@ -6,6 +6,12 @@
 - Date: 2026-11-04
 - Version: 0.5.0.dev2
 
+> **Superseded.** Since 0.5.0.dev3 a Gateway serves exactly one Bus and a node accepts only
+> one `modbus_scanner` entry (ADR 0011). The per-Bus Result and Lease sensors, the
+> `per_bus`/`shared_slot_fallback` probing modes and `concurrent_wait_max_ms` are gone; the
+> Gateway's shared Info, Result and Lease sensors are the only ones. The decision below is
+> kept as history.
+
 ## Decision
 
 Every Bus on a Gateway gets its own result and lease text sensor:

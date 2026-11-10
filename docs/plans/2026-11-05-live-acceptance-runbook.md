@@ -1,5 +1,11 @@
 # #16 實機驗收操作清單
 
+> **已過時（僅供歷史參考）。** 一個 Gateway 只服務一條 Bus
+> （[ADR 0011](../adr/0011-one-bus-per-gateway.md)，#26）：多 Bus、每條 Bus 的
+> Result／Lease sensor、`probe_slots`（`per_bus`／`shared_slot_fallback`）與
+> `concurrent_wait_max_ms` 都已移除，本清單的 B 段步驟不能再照做。目前的驗收是
+> #16 C 段，見 [`docs/history/one-bus-regression.md`](../history/one-bus-regression.md)。
+
 驗收項目與通過門檻以 #16 為準，本清單只列每一步要切的版本、燒錄與操作順序。
 結果填入：
 
@@ -12,7 +18,7 @@
 |---|---|---|---|
 | 舊版 HA ／ 舊版 fw | `0.5.0.dev1` | `38547c1`（#17） | |
 | 新版 fw | `0.5.0.dev2` | `a426ddc`（#20）或 `c84e40e`（#22） | 兩者 firmware 完全相同 |
-| 新版 HA | `0.5.0.dev2` | `c84e40e`（#22）或之後 | diagnostics 的 `probe_slots` 從 #21 才有；`a426ddc` 只能看 `check_gateway` 的 `health.probe_slots` |
+| 新版 HA | `0.5.0.dev2` | `c84e40e`（#22）或之後 | （已移除，見 ADR 0011）diagnostics 的 `probe_slots` 從 #21 才有；`a426ddc` 只能看 `check_gateway` 的 `health.probe_slots` |
 
 `a426ddc` 與 `c84e40e` 的版本號都是 `0.5.0.dev2`，紀錄一律寫 commit SHA。
 
@@ -76,7 +82,7 @@
 | 0 | 舊版 HA；X、Y 燒 v1 冠傑韌體（`../scanner-old/firmware/guanjie-scanner/guanjie-ind17.yaml`，在同一目錄各複製一份並改 `name`，secrets 需要 `scanner_api_key`、`guanjie_ota_password`，Wi-Fi 經 captive portal 設定），註冊到 HA | A0：Repairs 出現 Legacy Gateway 提示 |
 | 1 | X、Y 改燒 `gateway-x/y.yaml`（舊版元件） | A1、A2、A2'、A3（註明以模擬器代替）、多 Gateway（X、Y 同時 Scan） |
 | 2 | 只重燒 Y（新版元件） | B7 |
-| 3 | HA 升新版；X 不動 | B6 只驗模式：X 為 `shared_slot_fallback`，Y 為 `per_bus` |
+| 3 | HA 升新版；X 不動 | B6 只驗模式：X 為 `shared_slot_fallback`，Y 為 `per_bus`（已移除，見 ADR 0011） |
 | 4 | 重燒 X（新版元件，YAML 不改） | B1（單 Bus 部分）、B1a |
 
 延後（需同一 Gateway 兩條實體 Bus）：B1 多 Bus、B2–B5、B3 對照組與反向對照、B6 輪流送 Probe
@@ -117,6 +123,11 @@
 
 ## 步驟 3：HA 新版、X 舊版、Y 新版 → B6 + B3 對照組
 
+> **已過時。** 本步驟驗的 `probe_slots`、`per_bus`／`shared_slot_fallback`、每條 Bus 的
+> sensor 與 `concurrent_wait_max_ms` 已由 [ADR 0011](../adr/0011-one-bus-per-gateway.md)
+> 移除，不要再照做；改看 #16 C 段
+> （[`docs/history/one-bus-regression.md`](../history/one-bus-regression.md)）。
+
 - [ ] HA 換成 `../scanner-new/custom_components/woow_esphome_modbus_scanner`，重啟 HA；裝置資訊顯示 `0.5.0.dev2`。
 - [ ] 節點 X 不重燒（仍是舊版 fw）。
 - [ ] B6：對 X 執行 `woow_esphome_modbus_scanner.check_gateway`（開發者工具 → 動作，勾選回傳回應），`health.probe_slots` 為 `shared_slot_fallback`；之後下載 diagnostics，`probe_slots` 也是 `shared_slot_fallback`（`check_gateway` 之前是 `null`，屬正常）。
@@ -126,6 +137,11 @@
 - [ ] 節點 Y 順便確認 `probe_slots` 為 `per_bus`。
 
 ## 步驟 4：HA 新版、X 新版、Y 新版 → B1–B5、B8
+
+> **已過時。** 本步驟驗的 `probe_slots`、`per_bus`／`shared_slot_fallback`、每條 Bus 的
+> sensor 與 `concurrent_wait_max_ms` 已由 [ADR 0011](../adr/0011-one-bus-per-gateway.md)
+> 移除，不要再照做；改看 #16 C 段
+> （[`docs/history/one-bus-regression.md`](../history/one-bus-regression.md)）。
 
 - [ ] B1：節點 X **實際使用中** 的多 Bus YAML 不修改，用 `../scanner-new` 的元件編譯、重燒；HA 有每條 Bus 的 `Modbus Scanner v2 Result <bus>` 與 `Modbus Scanner v2 Lease <bus>`，共用的 Info／Result／Lease sensor 仍在；裝置資訊顯示 `0.5.0.dev2`。
 - [ ] B1a：**先** 對 X 執行 `check_gateway`，確認 `health.probe_slots` 為 `per_bus`，再下載 diagnostics 記錄。沒做這步不要往下。
