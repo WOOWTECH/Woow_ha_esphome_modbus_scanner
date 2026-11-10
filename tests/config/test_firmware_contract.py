@@ -58,7 +58,7 @@ class _Invalid(Exception):
 @pytest.fixture
 def codegen(monkeypatch):
     """The codegen module, imported against stub esphome modules (ESPHome is not installed)."""
-    core = SimpleNamespace(data={}, config={})
+    core = SimpleNamespace(data={}, config={}, raw_config=None)
     stubs = {
         "esphome": MagicMock(),
         "esphome.codegen": MagicMock(),
@@ -85,21 +85,20 @@ def codegen(monkeypatch):
 
 def test_codegen_refuses_a_second_modbus_scanner_entry(codegen):
     module, core = codegen
-    first = module._one_entry_per_node({"modbus_id": "hub_a"})
+    hub_a, hub_b = {"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}
+    core.raw_config = {"modbus_scanner": [hub_a]}
+    first = module._one_entry_per_node(hub_a)
     # The only entry carries the Gateway's text sensors under their contract names.
     assert {first[key]["name"] for key in module._GATEWAY_SENSORS} == {
         sensor["name"] for sensor in CONTRACT["text_sensors"].values()
     }
+    # No state of its own: validating the same config again is still fine.
+    assert module._one_entry_per_node(hub_a) == first
+    core.raw_config = {"modbus_scanner": [hub_a, hub_b]}
+    module._one_entry_per_node(hub_a)  # only the entries after the first are refused
     with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
-        module._one_entry_per_node({"modbus_id": "hub_b"})
+        module._one_entry_per_node(hub_b)
     assert module.ONE_ENTRY_MESSAGE == ONE_ENTRY_MESSAGE
-    assert core.data
-
-
-def test_final_validation_refuses_two_entries(codegen):
-    module, _core = codegen
-    with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
-        module._final_validate([{"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}])
 
 
 def test_two_scanner_fixture_declares_two_entries():

@@ -49,6 +49,7 @@ RESULT_SENSOR_NAME = "Modbus Scanner v2 Result"
 LEASE_SENSOR_NAME = "Modbus Scanner v2 Lease"
 MIN_ESPHOME_VERSION = (2026, 9, 0)
 
+DOMAIN = "modbus_scanner"
 CONF_BUS = "bus"
 CONF_GATEWAY_ID = "gateway_id"
 CONF_INFO_SENSOR = "info_sensor"
@@ -93,21 +94,23 @@ _GATEWAY_SENSORS = {
     CONF_RESULT_SENSOR: RESULT_SENSOR_NAME,
     CONF_LEASE_SENSOR: LEASE_SENSOR_NAME,
 }
-_ENTRY_SEEN_KEY = "modbus_scanner_entry_seen"
 
 
 def _one_entry_per_node(config):
     """Refuse a second entry and give the only one the Gateway's text sensors.
 
-    MULTI_CONF stays on so that a second entry reaches this message rather than ESPHome's
-    generic one. Runs before the schema, once per entry, in YAML order; CORE.data is reset
-    with every validation.
+    Checked here, before the schema, because a second entry would otherwise fail first on
+    ESPHome's duplicate entity-name check (the sensor names are fixed) and the final
+    validation step, which runs only on an error-free config, would never be reached.
+    MULTI_CONF stays on for the same reason: without it two entries fail as "expected a
+    dictionary". The count comes from the YAML as loaded for this validation run, so it
+    needs no state of its own; only the entries after the first are refused, giving one error.
     """
     if not isinstance(config, dict):
         return config
-    if CORE.data.get(_ENTRY_SEEN_KEY):
+    entries = (CORE.raw_config or {}).get(DOMAIN)
+    if isinstance(entries, list) and len(entries) > 1 and config is not entries[0]:
         raise cv.Invalid(ONE_ENTRY_MESSAGE)
-    CORE.data[_ENTRY_SEEN_KEY] = True
     config = dict(config)
     for key, name in _GATEWAY_SENSORS.items():
         config.setdefault(key, {CONF_NAME: name})
@@ -134,16 +137,12 @@ def _default_bus_name(config):
     return re.sub(r"[^0-9A-Za-z_-]", "_", raw)[:32]
 
 
-def _final_validate(configs):
-    full = fv.full_config.get()
-    configs = configs if isinstance(configs, list) else [configs]
-    if len(configs) > 1:
-        raise cv.Invalid(ONE_ENTRY_MESSAGE)
-    for config in configs:
-        modbus.final_validate_modbus_device("modbus_scanner", role="client")(config)
-    if "api" not in full:
+def _final_validate(config):
+    """Runs once per entry (ESPHome passes each MULTI_CONF entry on its own)."""
+    modbus.final_validate_modbus_device(DOMAIN, role="client")(config)
+    if "api" not in fv.full_config.get():
         raise cv.Invalid("modbus_scanner requires the native 'api:' component")
-    return configs
+    return config
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
