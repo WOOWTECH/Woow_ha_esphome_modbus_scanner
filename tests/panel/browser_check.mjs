@@ -376,6 +376,37 @@ try {
   check(await polled.locator('#bus').count()===0, 'Bus selector shown for a gateway with one known Bus');
   await pollerPage.close();
 
+  // A failed check can change what HA knows: after MULTIPLE_BUSES HA forgets the Bus, so the panel shows HA's
+  // answer (list_gateways), not the Bus and checklist of the last good check. If HA cannot be read, nothing is offered.
+  for (const listFails of [false, true]) {
+    const failPage=await browser.newPage({viewport:{width:800,height:1200}}); await failPage.goto(base);
+    const failed=failPage.locator('woow-esphome-modbus-scanner-panel'); await failed.getByText('1 gateway available.').waitFor();
+    await failPage.evaluate(async (listFails) => {
+      const saved={rs485:[{index:0,name:'meter',address:1,paused:true}],line_b:[{index:0,name:'old',address:9,paused:true}]};
+      const gateway={provider:'esphome',gateway_id:'esphome:aabbccddee03',name:'Two-line v2',simulated:false,can_operate:true,
+        capabilities:['bridge_v2','holding_register','input_register','multi_register'],supports_bus_selection:true,supports_scan_lease:true,
+        buses:[{bus:'rs485'}],poller_selection:{rs485:saved.rs485},removed_pollers:{rs485:[]}};
+      const original=panel.hass.callService;
+      panel.hass={...panel.hass,callService:async(domain,service,data,...rest)=>{
+        window.calls.push({domain,service,data});
+        if(service==='check_gateway') throw new Error('Gateway esphome:aabbccddee03 reports more than one Bus');
+        if(service==='list_gateways'){ if(listFails) throw new Error('Connection lost');
+          const mock=(await original(domain,service,data,...rest)).response.gateways;
+          return {response:{gateways:[...mock,{...gateway,buses:[],poller_selection:saved,removed_pollers:{}}]}}; }
+        return original(domain,service,data,...rest);
+      }};
+      panel._gateways=[...panel._gateways,gateway]; await panel.updateComplete;
+      panel._selectGateway(gateway.gateway_id); await panel.updateComplete;
+    }, listFails);
+    await failed.getByText('Bus rs485: pause during a Scan').waitFor();
+    await failed.getByRole('button',{name:'Check API only'}).click();
+    await failed.getByText(/reports more than one Bus/).waitFor();
+    await failed.getByText('Check the gateway to list its Pausable Pollers.').waitFor();
+    check(await failed.getByText('Bus rs485: pause during a Scan').count()===0, `stale checklist kept after a failed check (list ${listFails?'failed':'read'})`);
+    check(await failPage.evaluate(() => calls.some((c)=>c.service==='list_gateways')), 'failed check did not re-read the gateways');
+    await failPage.close();
+  }
+
   // A Gateway serves one Bus (ADR 0011): no Bus selector, Scans name no Bus, and the result source shows the Bus with its serial parameters.
   const busPage=await browser.newPage({viewport:{width:390,height:1200}}); await busPage.goto(base);
   const bused=busPage.locator('woow-esphome-modbus-scanner-panel'); await bused.getByText('1 gateway available.').waitFor();

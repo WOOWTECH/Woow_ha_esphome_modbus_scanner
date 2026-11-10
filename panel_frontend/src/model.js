@@ -244,8 +244,10 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The saved checklist key of a Gateway's one Bus (ADR 0011): the Bus it reports, else, before a check
- * reports it, the only saved key. Saved keys of former Buses (a dev2 multi-Bus Gateway) never qualify.
+ * The saved checklist key of a Gateway's one Bus (ADR 0011), exactly the key set_pausable_pollers accepts:
+ * the Bus HA knows; else, while HA knows no Bus (no check since a restart, or after a MULTIPLE_BUSES check
+ * made it forget the Bus), the only saved key, which HA validates against the saved checklist. Several
+ * saved keys with no known Bus, or several reported Buses, give none. Former Buses' keys never qualify.
  */
 function ownBus(gateway, keys) {
   const buses = Array.isArray(gateway.buses) ? gateway.buses : [];

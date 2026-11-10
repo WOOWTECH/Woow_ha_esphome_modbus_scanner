@@ -216,13 +216,33 @@ export class WoowEsphomeModbusScannerPanel extends LitElement {
     if (gateway?.provider !== "esphome" || gateway.can_operate !== true) return;
     const generation = this._operationGeneration;
     return this._action("check", async () => {
-      const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
+      let result;
+      try { result = await this._call("check_gateway", {gateway_id:gateway.gateway_id}); }
+      catch (error) {
+        // A failed check can change what HA knows (MULTIPLE_BUSES forgets the Bus and its poller tables).
+        if (generation === this._operationGeneration && this.isConnected) await this._rereadGateway(gateway.gateway_id, generation);
+        throw error;
+      }
       if (generation !== this._operationGeneration || !this.isConnected) return;
       // The check learns the Gateway's Buses (with their serial parameters).
       this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
       this._reconcileGateway();
       this._message = this._text.healthChecked;
     });
+  }
+  /**
+   * After a failed check, show HA's Gateways as list_gateways reports them, not the Bus and checklist of the
+   * last good check; if HA cannot be read, forget this Gateway's Bus and checklist rather than offer one HA may refuse.
+   */
+  async _rereadGateway(gatewayId, generation) {
+    let gateways = null;
+    try {
+      const payload = await this._call("list_gateways");
+      if (Array.isArray(payload.gateways)) gateways = payload.gateways;
+    } catch (_error) { /* the check's own error is the one shown */ }
+    if (generation !== this._operationGeneration || !this.isConnected) return;
+    this._gateways = gateways || this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, buses:[], poller_selection:undefined, removed_pollers:undefined} : g);
+    this._reconcileGateway();
   }
   async _savePollers(bus, pollers, index, paused) {
     if (this._status?.status === "running") return;

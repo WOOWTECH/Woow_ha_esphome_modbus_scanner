@@ -314,8 +314,10 @@ function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The saved checklist key of a Gateway's one Bus (ADR 0011): the Bus it reports, else, before a check
- * reports it, the only saved key. Saved keys of former Buses (a dev2 multi-Bus Gateway) never qualify.
+ * The saved checklist key of a Gateway's one Bus (ADR 0011), exactly the key set_pausable_pollers accepts:
+ * the Bus HA knows; else, while HA knows no Bus (no check since a restart, or after a MULTIPLE_BUSES check
+ * made it forget the Bus), the only saved key, which HA validates against the saved checklist. Several
+ * saved keys with no known Bus, or several reported Buses, give none. Former Buses' keys never qualify.
  */
 function ownBus(gateway, keys) {
   const buses = Array.isArray(gateway.buses) ? gateway.buses : [];
@@ -909,13 +911,33 @@ class WoowEsphomeModbusScannerPanel extends i {
     if (gateway?.provider !== "esphome" || gateway.can_operate !== true) return;
     const generation = this._operationGeneration;
     return this._action("check", async () => {
-      const result = await this._call("check_gateway", {gateway_id:gateway.gateway_id});
+      let result;
+      try { result = await this._call("check_gateway", {gateway_id:gateway.gateway_id}); }
+      catch (error) {
+        // A failed check can change what HA knows (MULTIPLE_BUSES forgets the Bus and its poller tables).
+        if (generation === this._operationGeneration && this.isConnected) await this._rereadGateway(gateway.gateway_id, generation);
+        throw error;
+      }
       if (generation !== this._operationGeneration || !this.isConnected) return;
       // The check learns the Gateway's Buses (with their serial parameters).
       this._gateways = this._gateways.map((g) => g.gateway_id === gateway.gateway_id ? {...g, health:result.health, poller_selection:result.poller_selection, removed_pollers:result.removed_pollers, ...(Array.isArray(result.buses) ? {buses:result.buses} : {})} : g);
       this._reconcileGateway();
       this._message = this._text.healthChecked;
     });
+  }
+  /**
+   * After a failed check, show HA's Gateways as list_gateways reports them, not the Bus and checklist of the
+   * last good check; if HA cannot be read, forget this Gateway's Bus and checklist rather than offer one HA may refuse.
+   */
+  async _rereadGateway(gatewayId, generation) {
+    let gateways = null;
+    try {
+      const payload = await this._call("list_gateways");
+      if (Array.isArray(payload.gateways)) gateways = payload.gateways;
+    } catch (_error) { /* the check's own error is the one shown */ }
+    if (generation !== this._operationGeneration || !this.isConnected) return;
+    this._gateways = gateways || this._gateways.map((g) => g.gateway_id === gatewayId ? {...g, buses:[], poller_selection:undefined, removed_pollers:undefined} : g);
+    this._reconcileGateway();
   }
   async _savePollers(bus, pollers, index, paused) {
     if (this._status?.status === "running") return;
