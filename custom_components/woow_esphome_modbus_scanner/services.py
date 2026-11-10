@@ -36,7 +36,7 @@ from .const import (
     SERVICE_TEST_ADDRESS,
 )
 from .device_profile_store import DeviceProfileNotFoundError, DeviceProfileStore
-from .issues import report_gateway_issue
+from .issues import clear_gateway_issue_after_check, report_gateway_issue
 from .modbus_scan.adapters import build_physical_provider, physical_gateway_id
 from .modbus_scan.coordinator import (
     GatewayBusyError,
@@ -423,7 +423,7 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
 async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     await _authorize_physical(call, "esphome")
     try:
-        return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
+        checked = await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
     except ValueError as err:
         raise _as_home_assistant_error(err) from err
     except GatewayProviderError as err:
@@ -436,6 +436,8 @@ async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResp
         ) from err
     except GatewayBusyError as err:
         raise HomeAssistantError(str(err)) from err
+    clear_gateway_issue_after_check(call.hass, call.data["gateway_id"])
+    return checked
 
 
 async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> ServiceResponse:

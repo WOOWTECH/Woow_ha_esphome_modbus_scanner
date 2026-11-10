@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from aioesphomeapi import (
     TextSensorInfo,
@@ -24,10 +25,12 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.woow_esphome_modbus_scanner.const import DATA_COORDINATOR, DOMAIN
+from custom_components.woow_esphome_modbus_scanner.issues import report_gateway_issue
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.models import (
+    GatewayInfo,
     ProbeResult,
     ScanOutcome,
 )
@@ -39,6 +42,7 @@ CONTRACT = json.loads(
         / "custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json"
     ).read_text(encoding="utf-8")
 )
+INTEGRATION = "custom_components.woow_esphome_modbus_scanner"
 MAC = "AA:BB:CC:DD:EE:01"
 GATEWAY_ID = "esphome:aabbccddee01"
 ARG_TYPES = {"string": UserServiceArgType.STRING, "int": UserServiceArgType.INT}
@@ -651,6 +655,9 @@ async def test_bus_may_be_omitted_or_must_name_the_one_bus(hass, gateway):
     other = await _test_address(hass, call, address=7, bus="rs485_b")
     assert other["status"] == "failed"
     assert other["error_info"]["code"] == "UNKNOWN_BUS"
+    assert other["error"] == (
+        f"Gateway {GATEWAY_ID} has no Bus rs485_b; its Bus is rs485; no probe sent"
+    )
     assert gateway.probes == []
     named = await _test_address(hass, call, address=7, bus="rs485")
     assert named["status"] == "completed"
@@ -660,11 +667,94 @@ async def test_bus_may_be_omitted_or_must_name_the_one_bus(hass, gateway):
     assert omitted["bus"] == "rs485"
     assert [probe["bus"] for probe in gateway.probes] == ["rs485", "rs485"]
     # Once the Bus is known, a wrong name is refused before any connection.
-    with pytest.raises(ServiceValidationError, match="its Bus is rs485"):
+    with pytest.raises(
+        ServiceValidationError, match=f"^Gateway {GATEWAY_ID} has no Bus rs485_b; its Bus is rs485$"
+    ):
         await call(
             "test_address",
             {"provider": "esphome", "gateway_id": GATEWAY_ID, "address": 7, "bus": "rs485_b"},
         )
+
+
+async def test_an_omitted_bus_follows_a_renamed_bus_after_a_reflash(hass, gateway):
+    call = await _setup(hass)
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert [row["bus"] for row in checked["buses"]] == ["rs485"]
+
+    # Reflashed with its one Bus renamed: a Scan naming no Bus scans the Bus it reports now,
+    # not the name HA remembers from the last check.
+    gateway.buses = ["line_a"]
+    gateway.devices = {("line_a", 7): [1]}
+    results = await _test_address(hass, call, address=7)
+
+    assert results["status"] == "completed"
+    assert results["bus"] == "line_a"
+    assert [probe["bus"] for probe in gateway.probes] == ["line_a"]
+    status = await call("get_scan_status", {"scan_id": results["scan_id"]})
+    assert status["bus"] == "line_a"
+
+
+def test_gateway_info_never_picks_one_of_several_buses():
+    def info(*names):
+        return GatewayInfo(
+            "esphome", GATEWAY_ID, "node", (), buses=tuple({"bus": name} for name in names)
+        )
+
+    assert info("rs485").bus == "rs485"
+    assert info().bus is None
+    assert info("rs485_a", "rs485_b").bus is None
+
+
+def _gateway_issues(hass):
+    return {
+        issue_id: issue
+        for (domain, issue_id), issue in ir.async_get(hass).issues.items()
+        if domain == DOMAIN and issue_id.startswith("gateway_")
+    }
+
+
+async def test_a_passing_check_clears_the_two_bus_repairs_issue(hass, gateway):
+    gateway.buses = ["rs485_a", "rs485_b"]
+    call = await _setup(hass)
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert len(_gateway_issues(hass)) == 1
+
+    # Reflashed with one modbus_scanner entry.
+    gateway.buses = ["rs485"]
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    assert _gateway_issues(hass) == {}
+
+
+@pytest.mark.parametrize("code", ["FIRMWARE_FAULT", "PROFILE_MISMATCH"])
+async def test_a_passing_check_keeps_an_issue_only_a_verified_scan_clears(hass, gateway, code):
+    # A check sends no Probe, so it cannot show the transport recovered.
+    call = await _setup(hass)
+    report_gateway_issue(hass, GATEWAY_ID, code)
+
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    [issue] = _gateway_issues(hass).values()
+    assert issue.translation_placeholders == {"code": code}
+
+
+async def test_enrolling_a_gateway_that_passes_verification_clears_its_two_bus_issue(
+    hass, gateway
+):
+    report_gateway_issue(hass, GATEWAY_ID, "MULTIPLE_BUSES")
+    hass.config.components.update({"frontend", "panel_custom", "esphome"})
+    flow = hass.config_entries.flow
+    with patch(f"{INTEGRATION}.async_setup_entry", return_value=True):
+        menu = await flow.async_init(DOMAIN, context={"source": "user"})
+        form = await flow.async_configure(menu["flow_id"], {"next_step_id": "manual"})
+        created = await flow.async_configure(
+            form["flow_id"], {"host": "192.0.2.10", "mac": MAC, "bridge": "v2"}
+        )
+        await hass.async_block_till_done()
+
+    assert created["type"] == "create_entry"
+    assert _gateway_issues(hass) == {}
 
 
 @pytest.mark.parametrize(

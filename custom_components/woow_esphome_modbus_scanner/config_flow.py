@@ -22,6 +22,7 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from .const import DOMAIN, NAME
+from .issues import clear_gateway_issue_after_check
 from .modbus_scan.adapters import (
     BRIDGE_V2,
     BRIDGES,
@@ -147,6 +148,15 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
     """One integration entry; any number of enrolled physical Gateways."""
 
     VERSION = 1
+    # 2: retired storage files removed (see async_migrate_entry).
+    MINOR_VERSION = 2
+
+    async def _verify(self, gateway) -> str | None:
+        """Verify a Gateway (see ``verify_gateway``); a pass also clears what it proves fixed."""
+        error = await verify_gateway(gateway)
+        if error is None:
+            clear_gateway_issue_after_check(self.hass, physical_gateway_id(gateway["mac"]))
+        return error
 
     def _existing(self) -> list[dict[str, Any]]:
         if self.source == config_entries.SOURCE_RECONFIGURE:
@@ -196,7 +206,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
                 gateway["noise_psk"] = entry.data["noise_psk"]
             gateway["esphome_entry_id"] = entry.entry_id
             gateways, error = upsert_gateway(self._existing(), gateway)
-            error = error or await verify_gateway(gateway)
+            error = error or await self._verify(gateway)
             if error is None:
                 return self._save(gateways)
             errors["base"] = error
@@ -221,7 +231,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             if gateway is not None:
                 gateways, error = upsert_gateway(existing, gateway)
                 # Same API-only MAC and Bridge Protocol check as the ESPHome device path.
-                error = error or await verify_gateway(gateway)
+                error = error or await self._verify(gateway)
             if error is None:
                 return self._save(gateways)
             errors["base"] = error
@@ -272,7 +282,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
                 user_input.get("noise_psk", "").strip(),
                 user_input.get("clear_psk", False),
             )
-            error = error or await verify_gateway(gateway)
+            error = error or await self._verify(gateway)
             if error is None:
                 return self.async_update_reload_and_abort(
                     entry,

@@ -33,6 +33,7 @@ from ..limits import ProbeLimits, ScanTiming
 from ..models import (
     BUS_NAME_PATTERN,
     ONE_BUS_PER_GATEWAY,
+    BusMismatchError,
     GatewayInfo,
     LeaseEndReason,
     LeaseStatus,
@@ -503,9 +504,7 @@ class V2GatewayProvider:
         if len(info["buses"]) > 1:
             # A Gateway serves exactly one Bus (ADR 0011); never pick one of several, and
             # forget the Bus an earlier read reported so nothing targets or saves against it.
-            self._buses.pop(gateway_id, None)
-            for key in ("buses", "pausable_pollers"):
-                self.health[gateway_id].pop(key, None)
+            self._forget_bus(gateway_id)
             raise GatewayProviderError(
                 f"Gateway reports {len(info['buses'])} Buses, but {ONE_BUS_PER_GATEWAY}",
                 code="MULTIPLE_BUSES",
@@ -522,6 +521,12 @@ class V2GatewayProvider:
             pausable_pollers={bus["bus"]: deepcopy(bus["pollers"]) for bus in session.buses},
             error_info=None,
         )
+
+    def _forget_bus(self, gateway_id: str) -> None:
+        """Drop the Bus and poller table an earlier read of this Gateway reported."""
+        self._buses.pop(gateway_id, None)
+        for key in ("buses", "pausable_pollers"):
+            self.health[gateway_id].pop(key, None)
 
     @staticmethod
     def _accept_info(session: _Session, state) -> None:
@@ -771,15 +776,17 @@ class V2GatewayProvider:
         ``_read_info`` already refused more than one Bus. A ``bus`` given by the request must
         name that Bus.
         """
-        if not buses:
+        if len(buses) != 1:
             raise GatewayProviderError(
-                "Gateway reports no Bus; no probe sent", code="UNKNOWN_BUS", phase=phase
+                "Gateway does not report exactly one Bus; no probe sent",
+                code="UNKNOWN_BUS",
+                phase=phase,
             )
         try:
-            resolve_bus(buses[0]["bus"], request.bus)
-        except ValueError as err:
+            resolve_bus(request.gateway_id, buses[0]["bus"], request.bus)
+        except BusMismatchError as err:
             raise GatewayProviderError(
-                f"Gateway {err}; no probe sent", code="UNKNOWN_BUS", phase=phase
+                f"{err}; no probe sent", code="UNKNOWN_BUS", phase=phase
             ) from None
         return buses[0]
 

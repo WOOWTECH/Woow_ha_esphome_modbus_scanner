@@ -91,9 +91,13 @@ class PollerSelectionStore:
 
         Empty for a Gateway without Scan Lease support: the one place that rule is checked.
         With ``prune`` the saved rows the firmware no longer has are dropped (see ``revalidate``).
+        No checklist while the last check refused the Gateway for reporting several Buses: it
+        has no Bus a checklist applies to until a check passes (the saved one is kept).
         """
         if not gateway.supports_scan_lease:
             return {}
+        if gateway.pausable_poller_tables is None and _refused_buses(gateway):
+            return {"poller_selection": {}, "removed_pollers": {}}
         selection, removed = self.revalidate(
             gateway.gateway_id, gateway.pausable_poller_tables, prune=prune
         )
@@ -102,9 +106,11 @@ class PollerSelectionStore:
     def save_choice(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table).
 
-        Validated against the Bus's last known table, never against a saved checklist alone;
-        returns the Gateway's checklists after. Checklists of Buses the Gateway no longer
-        reports are dropped by the same save.
+        Validated against the Bus's last known table. While the table is unknown (no check
+        or Scan since HA started), against the checklist saved for the Gateway's one saved
+        Bus, as the panel shows it; never for any other Bus, nor for a Gateway the last check
+        found reporting several Buses. Returns the Gateway's checklists after. Checklists of
+        Buses the Gateway no longer reports are dropped by the same save once it is known.
         """
         checklists = self.for_gateway(gateway, prune=False) if gateway is not None else {}
         if not checklists:
@@ -112,7 +118,9 @@ class PollerSelectionStore:
                 "Pausable Poller selection needs an enrolled Gateway with Scan Lease support"
             )
         selection = checklists["poller_selection"]
-        if gateway.pausable_poller_tables is None or bus not in selection:
+        if gateway.pausable_poller_tables is None and len(selection) != 1:
+            selection = {}
+        if bus not in selection:
             raise ValueError(
                 f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
             )
@@ -125,3 +133,8 @@ class PollerSelectionStore:
         self.save(gateway.gateway_id, kept)
         return self.for_gateway(gateway, prune=False)
 
+
+def _refused_buses(gateway: GatewayInfo) -> bool:
+    """Whether the Gateway's last check refused it for reporting more than one Bus."""
+    error = (gateway.health or {}).get("error_info") or {}
+    return error.get("code") == "MULTIPLE_BUSES"

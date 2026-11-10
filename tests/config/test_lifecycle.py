@@ -1,7 +1,9 @@
 """Singleton config-entry lifecycle and unload-race tests."""
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
+from homeassistant.config_entries import ConfigEntryState
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -265,19 +267,69 @@ async def test_scan_history_written_by_0_4_with_identified_rows_still_loads(hass
     assert await async_unload_entry(hass, entry)
 
 
-async def test_setup_removes_the_retired_probe_slot_mode_storage(hass, hass_storage):
+RETIRED_KEY = f"{DOMAIN}.probe_slot_modes"
+
+
+@pytest.fixture
+def dependencies_loaded(hass):
+    """HA's own setup path, without setting up the ESPHome integration it depends on."""
+    hass.config.components.update({"frontend", "panel_custom", "esphome"})
+
+
+def _retired_file(hass_storage):
     # 0.5.0.dev2 kept each Gateway's Probe Slot mode; one Bus per Gateway removed them.
-    key = f"{DOMAIN}.probe_slot_modes"
-    hass_storage[key] = {
+    hass_storage[RETIRED_KEY] = {
         "version": 1,
-        "key": key,
+        "key": RETIRED_KEY,
         "data": {"modes": {"esphome:aabbccddee01": "per_bus"}},
     }
-    entry = MockConfigEntry(domain=DOMAIN, data={})
+
+
+async def test_an_older_entry_removes_the_retired_storage_once(
+    hass, hass_storage, dependencies_loaded
+):
+    _retired_file(hass_storage)
+    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, minor_version=1)
     entry.add_to_hass(hass)
-    assert await async_setup_entry(hass, entry)
-    assert key not in hass_storage
-    # Setting up again with the file already gone is fine.
-    assert await async_unload_entry(hass, entry)
-    assert await async_setup_entry(hass, entry)
-    assert await async_unload_entry(hass, entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    assert RETIRED_KEY not in hass_storage
+    assert (entry.version, entry.minor_version) == (1, 2)
+
+    # Migrated: later starts never touch storage for it again.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    _retired_file(hass_storage)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    assert RETIRED_KEY in hass_storage
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_a_retired_file_that_cannot_be_removed_never_fails_setup(
+    hass, hass_storage, caplog, dependencies_loaded
+):
+    _retired_file(hass_storage)
+    entry = MockConfigEntry(domain=DOMAIN, data={}, version=1, minor_version=1)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "homeassistant.helpers.storage.Store.async_remove",
+        AsyncMock(side_effect=PermissionError("read-only config directory")),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.minor_version == 2
+    assert "Could not remove the retired" in caplog.text
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_an_entry_from_a_newer_release_is_not_migrated(
+    hass, hass_storage, dependencies_loaded
+):
+    _retired_file(hass_storage)
+    entry = MockConfigEntry(domain=DOMAIN, data={}, version=2, minor_version=1)
+    entry.add_to_hass(hass)
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.MIGRATION_ERROR
+    assert RETIRED_KEY in hass_storage

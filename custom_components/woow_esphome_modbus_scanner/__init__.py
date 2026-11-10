@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
@@ -35,15 +36,32 @@ from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+_LOGGER = logging.getLogger(__name__)
+
 # Storage files earlier releases wrote and nothing reads any more. 0.5.0.dev2 kept each
 # Gateway's Probe Slot mode; one Bus per Gateway (ADR 0011) removed Probe Slot modes.
 RETIRED_STORAGE_KEYS = (f"{DOMAIN}.probe_slot_modes",)
 
 
 async def _async_remove_retired_storage(hass: HomeAssistant) -> None:
-    """Delete the retired storage files; a file already gone is not an error."""
+    """Delete the retired storage files, best effort: a file left behind is never read."""
     for key in RETIRED_STORAGE_KEYS:
-        await Store(hass, 1, key).async_remove()
+        try:
+            await Store(hass, 1, key).async_remove()  # a file already gone is not an error
+        except OSError as err:
+            _LOGGER.warning("Could not remove the retired %s storage file: %s", key, err)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring an entry an earlier release wrote up to the config flow's version.
+
+    1.2 (0.5.0, one Bus per Gateway): the retired storage files are removed once. HA itself
+    refuses an entry a newer release wrote (a higher major version) before calling this.
+    """
+    if entry.minor_version < 2:
+        await _async_remove_retired_storage(hass)
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+    return True
 
 
 @dataclass(slots=True)
@@ -121,7 +139,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 profiles = DeviceProfileStore(hass)
                 await profiles.async_load()
                 domain_data[DATA_DEVICE_PROFILES] = profiles
-            await _async_remove_retired_storage(hass)
             await _async_register_panel(hass)
         except BaseException:
             if (

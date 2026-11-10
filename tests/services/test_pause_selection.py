@@ -5,7 +5,11 @@ The selection is kept per Gateway and Bus in the integration's config entry.
 """
 
 from homeassistant.core import Context
-from homeassistant.exceptions import ServiceValidationError, Unauthorized
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+)
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from test_bridge_v2 import GATEWAY_ID, MAC, FakeClient, FakeV2Gateway, _settle, _setup
@@ -124,6 +128,88 @@ async def test_selection_survives_a_restart(hass, gateway, monkeypatch):
     assert listed["poller_selection"] == {"rs485": [_row(0, False), _row(1), _row(2, False)]}
     await _scan(hass, call)
     assert {probe["pause_pollers"] for probe in gateway.probes} == {"1"}
+
+
+async def _restarted(hass, monkeypatch):
+    """Set up from a stored entry, check, save [1], then restart: (call, options)."""
+
+    async def no_panel(_hass):
+        return None
+
+    monkeypatch.setattr(f"{INTEGRATION}._async_register_panel", no_panel)
+    monkeypatch.setattr(f"{INTEGRATION}.frontend.async_remove_panel", lambda *_a, **_k: None)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"gateways": [{"host": "192.0.2.10", "mac": MAC, "bridge": "v2"}]},
+    )
+    entry.add_to_hass(hass)
+    assert await async_setup_entry(hass, entry)
+
+    async def call(service, data=None):
+        return await hass.services.async_call(
+            DOMAIN, service, data or {}, blocking=True, return_response=True
+        )
+
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    await _choose(call, [1])
+    assert await async_unload_entry(hass, entry)
+    assert await async_setup_entry(hass, entry)
+    return call
+
+
+async def test_saving_after_a_restart_uses_the_saved_checklist(hass, gateway, monkeypatch):
+    # No check since the restart: the panel shows the saved checklist, and saving from it
+    # works against that checklist, the Bus given or omitted.
+    call = await _restarted(hass, monkeypatch)
+
+    saved = await _choose(call, [0, 2])
+    assert saved["bus"] == "rs485"
+    assert saved["poller_selection"] == {"rs485": [_row(0), _row(1, False), _row(2)]}
+    omitted = await call(
+        "set_pausable_pollers", {"gateway_id": GATEWAY_ID, "pause_pollers": [2]}
+    )
+    assert omitted["poller_selection"] == {"rs485": [_row(0, False), _row(1, False), _row(2)]}
+    assert _options(hass) == {GATEWAY_ID: omitted["poller_selection"]}
+    with pytest.raises(ServiceValidationError, match="no Pausable Poller with index \\[3\\]"):
+        await _choose(call, [3])
+
+    await _scan(hass, call)
+    assert {probe["pause_pollers"] for probe in gateway.probes} == {"2"}
+
+
+async def test_saving_another_bus_after_a_restart_is_refused(hass, gateway, monkeypatch):
+    call = await _restarted(hass, monkeypatch)
+    before = _options(hass)
+    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+        await call(
+            "set_pausable_pollers",
+            {"gateway_id": GATEWAY_ID, "bus": "rs485_b", "pause_pollers": [0]},
+        )
+    assert _options(hass) == before
+
+
+async def test_a_gateway_refused_for_two_buses_offers_no_checklist_until_it_passes(
+    hass, gateway
+):
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    await _choose(call, [0])
+    kept = _options(hass)
+    # Reflashed with a second modbus_scanner entry: HA forgets the Bus.
+    gateway.buses = ["rs485", "rs485_b"]
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+
+    listed = _listed(await call("list_gateways"))
+    assert (listed["poller_selection"], listed["removed_pollers"]) == ({}, {})
+    with pytest.raises(ServiceValidationError, match="check the Gateway first"):
+        await _choose(call, [1])
+    assert _options(hass) == kept
+
+    # Reflashed back to one Bus: the saved checklist is offered again.
+    gateway.buses = ["rs485"]
+    checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    assert checked["poller_selection"] == {"rs485": [_row(0), _row(1, False), _row(2, False)]}
 
 
 async def test_check_drops_saved_pollers_the_firmware_no_longer_has(hass, gateway):

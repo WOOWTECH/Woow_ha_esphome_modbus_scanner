@@ -16,6 +16,11 @@ PERSISTENT = {
 }
 
 
+# Faults a passing Gateway check (API connection, MAC, Bridge Protocol signature and, on
+# bridge v2, exactly one Bus) proves fixed. The others (PROFILE_MISMATCH, FIRMWARE_FAULT) are
+# about transport state after a Probe: only a Scan whose recovery is verified clears them.
+CLEARED_BY_CHECK = {"API_AUTH_FAILED", "IDENTITY_MISMATCH", "BRIDGE_UNSUPPORTED", "MULTIPLE_BUSES"}
+
 LEGACY_BRIDGE_PREFIX = "legacy_bridge_"
 
 
@@ -59,8 +64,20 @@ def sync_legacy_bridge_issues(hass, gateways) -> None:
         )
 
 
+def _gateway_issue_id(gateway_id: str) -> str:
+    return "gateway_" + _digest(gateway_id)
+
+
+def clear_gateway_issue_after_check(hass, gateway_id) -> None:
+    """A check of this Gateway passed: drop its Repairs issue if the check proves it fixed."""
+    issue_id = _gateway_issue_id(gateway_id)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    if issue is not None and (issue.translation_placeholders or {}).get("code") in CLEARED_BY_CHECK:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
 def report_gateway_issue(hass, gateway_id, code):
-    issue_id = "gateway_" + _digest(gateway_id)
+    issue_id = _gateway_issue_id(gateway_id)
     if code is None:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
     elif code in PERSISTENT:

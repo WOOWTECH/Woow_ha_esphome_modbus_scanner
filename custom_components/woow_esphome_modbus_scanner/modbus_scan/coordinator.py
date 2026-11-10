@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
@@ -24,6 +24,7 @@ from .models import (
     ScanOutcome,
     ScanPhase,
     ScanRequest,
+    gateway_key,
     resolve_bus,
 )
 from .pollers import POLLER_KEYS
@@ -57,12 +58,12 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-
 @dataclass(slots=True)
 class _ScanState:
     scan_id: str
     request: ScanRequest
-    # The Bus scanned: the request's, else the one the provider resolved on connect.
+    # The Bus scanned, as the provider reports it on connect; until then the requested one,
+    # else the one HA last knew.
     bus: str | None = None
     profile: DeviceProfile = GENERIC_DEVICE_PROFILE
     device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
@@ -164,11 +165,10 @@ class ModbusScanCoordinator:
         if self._selection_store is None:
             raise ValueError("No config entry keeps Pausable Poller selections")
         gateway = self._gateway("esphome", gateway_id)
-        known = gateway.bus if gateway is not None else None
-        try:
-            bus = resolve_bus(known, bus)
-        except ValueError as err:
-            raise ValueError(f"Gateway {gateway_id} {err}") from None
+        bus = resolve_bus(gateway_id, gateway.bus if gateway is not None else None, bus)
+        if bus is None and len(saved := self._selection_store.saved(gateway_id)) == 1:
+            # Not checked since HA started: the one Bus a checklist was saved for.
+            [bus] = saved
         if bus is None:
             raise ValueError(
                 f"The Bus of Gateway {gateway_id} is not known yet; check the Gateway first"
@@ -199,20 +199,17 @@ class ModbusScanCoordinator:
         )
 
     @staticmethod
-    def _target_bus(request: ScanRequest, gateway: GatewayInfo) -> ScanRequest:
-        """Resolve the Scan's Bus to the one Bus the Gateway reports (ADR 0011).
+    def _check_bus(request: ScanRequest, gateway: GatewayInfo) -> None:
+        """Refuse a Scan naming a Bus other than the Gateway's one Bus (ADR 0011).
 
-        ``bus`` may be omitted; when given it must name that Bus. While the Bus of a Gateway
-        that supports Bus selection is not known yet (a bridge v2 Gateway never checked), the
-        provider resolves and checks it when it connects.
+        ``bus`` may be omitted and then stays omitted: the provider targets the one Bus the
+        Gateway reports when the Scan connects, never a name HA remembers from an earlier
+        read (the Gateway may have been reflashed with its Bus renamed). A Bus that is named
+        while HA does not know it yet is checked by the provider the same way.
         """
-        try:
-            bus = resolve_bus(gateway.bus, request.bus)
-        except ValueError as err:
-            raise ValueError(f"Gateway {request.gateway_id} {err}") from None
+        resolve_bus(request.gateway_id, gateway.bus, request.bus)
         if request.bus is not None and gateway.bus is None and not gateway.supports_bus_selection:
             raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
-        return request if bus == request.bus else replace(request, bus=bus)
 
     async def start(
         self, request: ScanRequest, profile: DeviceProfile = GENERIC_DEVICE_PROFILE
@@ -235,7 +232,7 @@ class ModbusScanCoordinator:
         profile.limits.validate(request)
         if request.pause_pollers is not None and not gateway.supports_scan_lease:
             raise ValueError("pause_pollers needs a Gateway with Scan Lease support")
-        request = self._target_bus(request, gateway)
+        self._check_bus(request, gateway)
         if existing := self._active.get(request.gateway_key):
             raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
@@ -243,7 +240,8 @@ class ModbusScanCoordinator:
         state = _ScanState(
             scan_id=scan_id,
             request=request,
-            bus=request.bus,
+            # Shown until the provider reports the Bus it actually targets.
+            bus=request.bus if request.bus is not None else gateway.bus,
             profile=profile,
             device_profile=profile.summary(),
             timing=gateway.limits.timing if gateway.limits is not None else ScanTiming(),
@@ -478,7 +476,7 @@ class ModbusScanCoordinator:
                 state.lease_ended_after_address = (
                     state.request.start_id + state.completed_addresses - 1
                 )
-            if state.bus is None and isinstance(update.get("bus"), str):
+            if isinstance(update.get("bus"), str):
                 state.bus = update["bus"]
             for key in ("paused_pollers", "removed_pollers"):
                 if isinstance(update.get(key), list):
@@ -714,7 +712,7 @@ class ModbusScanCoordinator:
         provider = self._providers.get("esphome")
         if provider is None or not hasattr(provider, "check_gateway"):
             raise ValueError("No physical gateways are configured")
-        if existing := self._active.get(("esphome", gateway_id)):
+        if existing := self._active.get(gateway_key("esphome", gateway_id)):
             raise GatewayBusyError("esphome", gateway_id, existing)
         health = await provider.check_gateway(gateway_id)
         response = {"gateway_id": gateway_id, "health": health}

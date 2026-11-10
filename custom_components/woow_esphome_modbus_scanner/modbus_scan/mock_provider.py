@@ -14,6 +14,7 @@ from .models import (
     ProbeType,
     ScanOutcome,
     ScanRequest,
+    resolve_bus,
 )
 from .provider import EmitResult, GatewayProviderError, IsCancelled
 
@@ -63,8 +64,7 @@ class MockGatewayProvider:
             raise ValueError(f"Unsupported mock provider: {request.provider}")
         if request.gateway_id != MOCK_GATEWAY_ID:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
-        if request.bus is not None and request.bus != MOCK_BUS["bus"]:
-            raise ValueError(f"The mock Gateway {request.gateway_id} has no Bus {request.bus}")
+        resolve_bus(request.gateway_id, MOCK_BUS["bus"], request.bus)
         if request.mock_scenario not in {item.value for item in MockScenario}:
             raise ValueError(f"Unsupported mock_scenario: {request.mock_scenario}")
         delay_ms = max(self._step_delay_ms, request.inter_request_delay_ms)
