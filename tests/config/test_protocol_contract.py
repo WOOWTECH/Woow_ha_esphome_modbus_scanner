@@ -68,14 +68,14 @@ def test_no_removed_profile_tooling_is_referenced():
 
 
 def test_integration_panel_and_firmware_share_one_version():
-    assert VERSION == "0.5.0.dev2"
+    assert VERSION == "0.5.0.dev3"
     manifest = json.loads(
         (ROOT / "custom_components/woow_esphome_modbus_scanner/manifest.json").read_text()
     )
     assert manifest["version"] == VERSION
     assert f"/frontend/{VERSION}/" in PANEL_STATIC_URL
     package = json.loads((ROOT / "panel_frontend/package.json").read_text())
-    assert package["version"] == "0.5.0-dev.2"  # the same version in npm's semver spelling
+    assert package["version"] == "0.5.0-dev.3"  # the same version in npm's semver spelling
     example = yaml.load(  # noqa: S506 - a SafeLoader subclass
         (ROOT / "firmware/examples/generic-modbus-scanner.yaml").read_text(encoding="utf-8"),
         Loader=_EsphomeLoader,
