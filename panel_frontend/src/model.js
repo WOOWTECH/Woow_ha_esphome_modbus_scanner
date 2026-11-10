@@ -244,12 +244,24 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
+ * The saved checklist key of a Gateway's one Bus (ADR 0011): the Bus it reports, else, before a check
+ * reports it, the only saved key. Saved keys of former Buses (a dev2 multi-Bus Gateway) never qualify.
+ */
+function ownBus(gateway, keys) {
+  const buses = Array.isArray(gateway.buses) ? gateway.buses : [];
+  if (buses.length) return buses.length === 1 && keys.includes(buses[0]?.bus) ? buses[0].bus : null;
+  return keys.length === 1 ? keys[0] : null;
+}
+/**
  * The Pausable Poller checklist of a Gateway with Scan Lease support, as saved in HA (keyed by its
  * one Bus) and revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ * At most one checklist: the Gateway's one Bus.
  */
 export function pollerChecklists(gateway) {
   if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
-  return Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows)).map(([bus, rows]) => ({
+  const saved = Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows));
+  const own = ownBus(gateway, saved.map(([bus]) => bus));
+  return saved.filter(([bus]) => bus === own).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
       .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),

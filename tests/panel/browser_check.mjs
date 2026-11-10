@@ -219,7 +219,7 @@ try {
 
   await page.evaluate(() => { mode='failure';panel._currentScanId=fixture.uuid;panel._status={scan_id:fixture.uuid,status:'running'}; });
   await panel.getByRole("button", {name:"Refresh status"}).click();
-  await panel.locator(".notice.failure").filter({hasText:/another Scan is running on the same Bus/i}).waitFor();
+  await panel.locator(".notice.failure").filter({hasText:/another Scan is already running on this Gateway/i}).waitFor();
   await capturePanel(page, "mocked-failed-long-evidence.png");
 
   const menu = panel.getByRole("button", {name:"Open Home Assistant menu"});
