@@ -18,7 +18,6 @@ from .models import (
 from .provider import EmitResult, GatewayProviderError, IsCancelled
 
 MOCK_GATEWAY_ID = "mock:rs485-gateway"
-MOCK_MULTI_BUS_GATEWAY_ID = "mock:multi-bus-gateway"
 MOCK_LIMITS = ProbeLimits("A mock Gateway")
 
 
@@ -26,13 +25,9 @@ def _bus(name: str, baud_rate: int, parity: str = "NONE") -> dict:
     return {"bus": name, "serial": {"baud_rate": baud_rate, "parity": parity, "stop_bits": 1}}
 
 
-# Simulated Gateways and their Buses. Every Bus answers with the same Mock Scenario.
+# Simulated Gateways and their one Bus each. Every Bus answers with the same Mock Scenario.
 MOCK_GATEWAYS = {
     MOCK_GATEWAY_ID: ("Simulated RS-485 Gateway", (_bus("rs485", 9600),)),
-    MOCK_MULTI_BUS_GATEWAY_ID: (
-        "Simulated two-Bus Gateway",
-        (_bus("rs485_a", 9600), _bus("rs485_b", 19200, "EVEN")),
-    ),
 }
 
 
@@ -77,8 +72,6 @@ class MockGatewayProvider:
         if request.gateway_id not in MOCK_GATEWAYS:
             raise ValueError(f"Unknown mock gateway: {request.gateway_id}")
         buses = [row["bus"] for row in MOCK_GATEWAYS[request.gateway_id][1]]
-        if request.bus is None and len(buses) != 1:
-            raise ValueError(f"The mock Gateway {request.gateway_id} needs a Bus")
         if request.bus is not None and request.bus not in buses:
             raise ValueError(f"The mock Gateway {request.gateway_id} has no Bus {request.bus}")
         if request.mock_scenario not in {item.value for item in MockScenario}:

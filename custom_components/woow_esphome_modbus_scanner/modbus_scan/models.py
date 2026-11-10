@@ -82,13 +82,6 @@ class LeaseEndReason(StrEnum):
     SUPERSEDED = "superseded"
 
 
-class ProbeSlots(StrEnum):
-    """How a Gateway's Buses share Probe Slots (ADR 0010), as health.probe_slots reports."""
-
-    PER_BUS = "per_bus"
-    SHARED_SLOT_FALLBACK = "shared_slot_fallback"
-
-
 # Endings the Gateway decides by itself, possibly before the Scan finishes.
 EARLY_LEASE_END_REASONS = frozenset(
     {LeaseEndReason.IDLE, LeaseEndReason.HARD_LIMIT, LeaseEndReason.SUPERSEDED}
@@ -107,9 +100,10 @@ class GatewayInfo:
     profile: dict[str, Any] | None = None
     health: dict[str, Any] | None = None
     limits: Any = None  # ProbeLimits reported by the provider adapter
-    # The Gateway's Buses as {"bus", "serial"} rows; empty while the provider does not know.
+    # The Gateway's one Bus as a {"bus", "serial"} row (ADR 0011); empty while the provider
+    # does not know it.
     buses: tuple[dict[str, Any], ...] = ()
-    # A Scan may target one of several Buses, even before the provider knows them.
+    # A Scan may name its Bus even before the provider knows it; the provider checks it.
     supports_bus_selection: bool = False
     # A Scan may hold the Bus's chosen Pausable Pollers paused under a Scan Lease.
     supports_scan_lease: bool = False
@@ -206,12 +200,12 @@ class ScanRequest:
         return max(0, self.address_count - 1) * self.inter_request_delay_ms
 
     @property
-    def gateway_key(self) -> tuple[str, str, str | None]:
-        """Concurrency key used by the coordinator: one Scan at a time per Bus.
+    def gateway_key(self) -> tuple[str, str]:
+        """Concurrency key used by the coordinator: one Scan at a time per Gateway.
 
-        A None Bus stands for the whole Gateway, so it conflicts with every Bus of it.
+        A Gateway serves exactly one Bus (ADR 0011), so this is also one Scan per Bus.
         """
-        return self.provider, self.gateway_id, self.bus
+        return self.provider, self.gateway_id
 
     def validate(self, *, require_safety: bool = True) -> None:
         """Validate all transport-independent safety bounds."""

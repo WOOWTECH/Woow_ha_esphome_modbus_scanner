@@ -43,10 +43,7 @@ GATEWAY_ID = "esphome:aabbccddee01"
 ARG_TYPES = {"string": UserServiceArgType.STRING, "int": UserServiceArgType.INT}
 INFO_KEY, RESULT_KEY, LEASE_KEY = 1, 2, 3
 PROBE_KEY, RELEASE_KEY = 10, 11
-# Keys of Bus n's own result and lease sensors (firmware with per-Bus sensors).
-BUS_RESULT_KEY, BUS_LEASE_KEY = 100, 200
 LEASE = CONTRACT["lease"]
-BUS_SENSORS = CONTRACT["bus_text_sensors"]
 
 
 def _args(action):
@@ -65,24 +62,9 @@ class FakeV2Gateway:
     ``serial`` a bus to the serial parameters its info entry reports. Each Bus holds its own
     Scan Lease, following the contract's lease rules except the timers (firmware host tests
     own those). Every sensor state goes to every connected API client, as on a real node.
-
-    With ``per_bus_sensors`` it is current firmware: every Bus has its own result and lease
-    sensor, named in its info entry, and each message is mirrored on the shared sensor.
-    Without it, it is v2 firmware from before per-Bus sensors. ``outstanding`` holds the
-    request ids sent whose result no client has received yet; ``max_outstanding`` the most at
-    once.
     """
 
-    def __init__(
-        self,
-        *,
-        mac=MAC,
-        buses=("rs485",),
-        devices=None,
-        pollers=None,
-        serial=None,
-        per_bus_sensors=False,
-    ):
+    def __init__(self, *, mac=MAC, buses=("rs485",), devices=None, pollers=None, serial=None):
         self.mac = mac
         self.buses = list(buses)
         self.devices = devices or {}
@@ -93,14 +75,6 @@ class FakeV2Gateway:
         self.paused = set()  # (bus, index) currently held paused by a lease
         self.leases = {}  # bus -> {"bus", "scan", "pollers", "active", "reason"}
         self.result_override = None
-        self.per_bus_sensors = per_bus_sensors
-        self.info_hook = None  # edits the info a test wants the Gateway to publish
-        self.extra_entities = []
-        self.outstanding = set()
-        self.probe_times = []  # loop time of each probe in probes
-        self.discovery_gate = None  # an asyncio.Event entity listing waits for
-        self.discovering = 0
-        self.max_outstanding = 0
         self.clients = []  # connected FakeClients subscribed to states
         self.services = [
             UserService(
@@ -124,46 +98,6 @@ class FakeV2Gateway:
             if client.connected:
                 client.publish(key, payload)
 
-    def bus_sensor_names(self, bus):
-        """(result, lease) entity names of a Bus's own sensors, by the contract's patterns."""
-        return tuple(
-            BUS_SENSORS[kind]["name_pattern"].format(bus=bus) for kind in ("result", "lease")
-        )
-
-    def bus_keys(self, bus):
-        index = self.buses.index(bus)
-        return BUS_RESULT_KEY + index, BUS_LEASE_KEY + index
-
-    def all_entities(self):
-        entities = list(self.entities)
-        if self.per_bus_sensors:
-            for bus in self.buses:
-                for key, name in zip(self.bus_keys(bus), self.bus_sensor_names(bus), strict=True):
-                    entities.append(TextSensorInfo(key=key, name=name))
-        return entities + list(self.extra_entities)
-
-    def _own_key(self, bus, kind):
-        if not self.per_bus_sensors or bus not in self.buses:
-            return None
-        return self.bus_keys(bus)[kind]
-
-    def publish_result(self, payload):
-        """A result on its Bus's own sensor (if any), mirrored on the shared one."""
-        if (key := self._own_key(payload.get("bus"), 0)) is not None:
-            self.publish(key, payload)
-        self.publish(RESULT_KEY, payload)
-
-    def publish_lease(self, message):
-        """A lease message on its Bus's own sensor (if any), mirrored on the shared one."""
-        if (key := self._own_key(message["bus"], 1)) is not None:
-            self.publish(key, message)
-        self.publish(LEASE_KEY, message)
-
-    def delivered(self, payload):
-        """A client received this state; a result is no longer outstanding."""
-        if isinstance(payload, dict):
-            self.outstanding.discard(payload.get("id"))
-
     @property
     def lease(self):
         """The most recent Scan Lease of any Bus (single-Bus tests)."""
@@ -180,18 +114,13 @@ class FakeV2Gateway:
             }
             if bus in self.serial:
                 row["serial"] = dict(self.serial[bus])
-            if self.per_bus_sensors:
-                row["result_sensor"], row["lease_sensor"] = self.bus_sensor_names(bus)
             return row
 
-        info = {
+        return {
             "v": CONTRACT["info"]["schema_version"],
             "bridge": CONTRACT["bridge_version"],
             "buses": [entry(bus) for bus in self.buses],
         }
-        if self.info_hook is not None:
-            self.info_hook(info)
-        return info
 
     @staticmethod
     def lease_message(bus, scan, state, pollers=(), reason=None):
@@ -211,7 +140,8 @@ class FakeV2Gateway:
         lease = self.leases[bus] if bus is not None else self.lease
         lease.update(active=False, reason=reason)
         self.paused = {item for item in self.paused if item[0] != lease["bus"]}
-        self.publish_lease(
+        self.publish(
+            LEASE_KEY,
             self.lease_message(lease["bus"], lease["scan"], "ended", lease["pollers"], reason),
         )
 
@@ -230,7 +160,7 @@ class FakeV2Gateway:
         self.leases[bus] = {"bus": bus, "scan": data["scan_id"], "pollers": selected}
         self.leases[bus]["active"] = True
         self.paused |= {(bus, index) for index in selected}
-        self.publish_lease(self.lease_message(bus, data["scan_id"], "active", selected))
+        self.publish(LEASE_KEY, self.lease_message(bus, data["scan_id"], "active", selected))
 
     def release(self, data):
         self.releases.append(dict(data))
@@ -241,13 +171,14 @@ class FakeV2Gateway:
             if lease["active"]:
                 self.end_lease("released", data["bus"])
             else:
-                self.publish_lease(
+                self.publish(
+                    LEASE_KEY,
                     self.lease_message(
                         lease["bus"], lease["scan"], "ended", lease["pollers"], lease["reason"]
                     ),
                 )
             return
-        self.publish_lease(self.lease_message(data["bus"], data["scan_id"], "none"))
+        self.publish(LEASE_KEY, self.lease_message(data["bus"], data["scan_id"], "none"))
 
     def _rejection(self, data):
         limits = CONTRACT["hard_limits"]
@@ -279,9 +210,6 @@ class FakeV2Gateway:
     def execute(self, data):
         """Firmware behaviour: one result per probe, published on the result sensor."""
         self.probes.append(dict(data))
-        self.probe_times.append(asyncio.get_running_loop().time())
-        self.outstanding.add(data["request_id"])
-        self.max_outstanding = max(self.max_outstanding, len(self.outstanding))
         if self._rejection(data) is None:
             self._lease_for(data)
         if self.result_override is not None:
@@ -330,10 +258,7 @@ class FakeClient:
         return SimpleNamespace(mac_address=self.gateway.mac)
 
     async def list_entities_services(self):
-        if self.gateway.discovery_gate is not None:
-            self.gateway.discovering += 1
-            await self.gateway.discovery_gate.wait()
-        return self.gateway.all_entities(), list(self.gateway.services)
+        return list(self.gateway.entities), list(self.gateway.services)
 
     def subscribe_states(self, callback):
         self.callback = callback
@@ -348,7 +273,7 @@ class FakeClient:
     def publish(self, key, payload):
         state = json.dumps(payload, separators=(",", ":"))
         if self.batch_delay is None:
-            self._deliver(key, state)
+            self.callback(TextSensorState(key=key, state=state))
             return
         batch = self.__dict__.setdefault("batch", {})
         if not batch:
@@ -359,14 +284,7 @@ class FakeClient:
         batch, self.batch = self.batch, {}
         for key, state in batch.items():
             if self.connected:
-                self._deliver(key, state)
-
-    def _deliver(self, key, state):
-        try:
-            self.gateway.delivered(json.loads(state))
-        except ValueError:
-            pass  # a test publishing a malformed state
-        self.callback(TextSensorState(key=key, state=state))
+                self.callback(TextSensorState(key=key, state=state))
 
     def execute_service(self, service, data):
         if not self.connected:
@@ -376,7 +294,7 @@ class FakeClient:
             return None
         result = self.gateway.execute(data)
         if result is not None:
-            self.gateway.publish_result(result)
+            self.gateway.publish(RESULT_KEY, result)
         return None
 
     async def disconnect(self, force=False):
@@ -479,7 +397,6 @@ async def test_v2_gateway_reports_contract_hard_limits_in_list_gateways(hass, ga
         "pause_normal_polling_required": False,
         "pause_normal_polling_supported": True,
         "attempt_overhead_ms": 300,
-        "probes_take_turns": True,  # old v2 firmware: one shared Probe Slot
         # What the adapter fills in for omitted fields; the panel's form starts from them.
         "defaults": {
             "probe_type": "holding_register",
@@ -650,12 +567,52 @@ async def test_a_mismatched_reply_is_recorded_and_the_scan_goes_on(hass, gateway
     assert "possible ID collision" in collision["detail"]
 
 
-async def test_more_than_one_bus_requires_bus_selection(hass, gateway):
+async def test_a_gateway_reporting_two_buses_is_refused_without_a_probe(hass, gateway):
+    # A Gateway serves exactly one Bus (ADR 0011); HA never picks one of several.
     gateway.buses = ["rs485_a", "rs485_b"]
     call = await _setup(hass)
     results = await _test_address(hass, call, address=7)
-    assert results["error_info"]["code"] == "BUS_SELECTION_REQUIRED"
+    assert results["status"] == "failed"
+    assert results["error_info"]["code"] == "MULTIPLE_BUSES"
+    assert "exactly one Bus" in results["error"]
     assert gateway.probes == []
+
+
+async def test_check_gateway_refuses_a_gateway_reporting_two_buses(hass, gateway):
+    gateway.buses = ["rs485_a", "rs485_b"]
+    call = await _setup(hass)
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    listed = next(
+        g for g in (await call("list_gateways"))["gateways"] if g["gateway_id"] == GATEWAY_ID
+    )
+    assert listed["health"]["api_status"] == "failed"
+    assert listed["health"]["error_info"]["code"] == "MULTIPLE_BUSES"
+    assert listed["buses"] == []
+    assert gateway.probes == []
+
+
+async def test_bus_may_be_omitted_or_must_name_the_one_bus(hass, gateway):
+    gateway.devices = {("rs485", 7): [1]}
+    call = await _setup(hass)
+    # Before HA knows the Bus, the provider checks the name once it reads info.
+    other = await _test_address(hass, call, address=7, bus="rs485_b")
+    assert other["status"] == "failed"
+    assert other["error_info"]["code"] == "UNKNOWN_BUS"
+    assert gateway.probes == []
+    named = await _test_address(hass, call, address=7, bus="rs485")
+    assert named["status"] == "completed"
+    assert named["bus"] == "rs485"
+    omitted = await _test_address(hass, call, address=7)
+    assert omitted["status"] == "completed"
+    assert omitted["bus"] == "rs485"
+    assert [probe["bus"] for probe in gateway.probes] == ["rs485", "rs485"]
+    # Once the Bus is known, a wrong name is refused before any connection.
+    with pytest.raises(ServiceValidationError, match="its Bus is rs485"):
+        await call(
+            "test_address",
+            {"provider": "esphome", "gateway_id": GATEWAY_ID, "address": 7, "bus": "rs485_b"},
+        )
 
 
 @pytest.mark.parametrize(

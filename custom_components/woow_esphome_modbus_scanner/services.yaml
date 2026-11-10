@@ -21,8 +21,7 @@ set_pausable_pollers:
         text:
     bus:
       name: Bus
-      description: Bus id as listed by check_gateway.
-      required: true
+      description: The Gateway's one Bus as listed by check_gateway; may be omitted. A Gateway serves exactly one Bus.
       selector:
         text:
     pause_pollers:
@@ -52,7 +51,7 @@ start_scan:
         text:
     bus: &bus
       name: Bus
-      description: Bus id from the gateway's buses in list_gateways. Required when the gateway has more than one Bus; one Scan at a time runs per Bus.
+      description: Optional. The Gateway's one Bus as listed in list_gateways; when given it must name that Bus. A Gateway serves exactly one Bus and runs one Scan at a time.
       selector:
         text:
     esphome_device_id: &device

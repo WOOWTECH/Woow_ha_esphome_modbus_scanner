@@ -19,7 +19,6 @@ from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
     DATA_DEVICE_PROFILES,
-    DATA_PROBE_SLOT_MODES,
     DATA_SERVICE_OWNER,
     DATA_SERVICES_AVAILABLE,
     DOMAIN,
@@ -109,7 +108,7 @@ _POLLER_INDICES = vol.All(
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
-    # The Bus to scan; may be omitted when the Gateway has only one.
+    # The Gateway's one Bus (ADR 0011); may be omitted, and when given must name that Bus.
     vol.Optional("bus"): vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z")),
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
@@ -257,9 +256,7 @@ def _coordinator(
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
         if entry is not None and (
             physical := build_physical_provider(
-                entry.data.get("gateways", ()),
-                esphome_endpoint=_esphome_endpoint(hass),
-                probe_slot_memory=domain_data.get(DATA_PROBE_SLOT_MODES),
+                entry.data.get("gateways", ()), esphome_endpoint=_esphome_endpoint(hass)
             )
         ):
             providers.append(physical)
@@ -442,7 +439,7 @@ async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> Serv
     await _authorize_physical(call, "esphome")
     try:
         return _coordinator(call.hass, owner).save_poller_selection(
-            call.data["gateway_id"], call.data["bus"], call.data["pause_pollers"]
+            call.data["gateway_id"], call.data.get("bus"), call.data["pause_pollers"]
         )
     except ValueError as err:
         raise _as_home_assistant_error(err) from err
@@ -545,7 +542,7 @@ _SERVICE_DEFINITIONS = (
         vol.Schema(
             {
                 vol.Required("gateway_id"): str,
-                vol.Required("bus"): str,
+                vol.Optional("bus"): str,
                 vol.Required("pause_pollers"): _POLLER_INDICES,
             }
         ),

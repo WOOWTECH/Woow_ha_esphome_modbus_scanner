@@ -30,7 +30,6 @@ from .modbus_scan.adapters import (
     physical_gateway_id,
 )
 from .poller_selection import without_gateways
-from .probe_slot_modes import async_probe_slot_modes
 
 ESPHOME_DOMAIN = "esphome"
 _MAC = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}")
@@ -125,20 +124,16 @@ def _verification_error(exc) -> str:
         return "invalid_auth"
     if exc.code == "IDENTITY_MISMATCH":
         return "identity_mismatch"
+    if exc.code == "MULTIPLE_BUSES":
+        return "multiple_buses"
     if exc.code == "BRIDGE_UNSUPPORTED":
         return "scanner_missing" if exc.reason == "scanner_missing" else "bridge_mismatch"
     return "cannot_connect"
 
 
-async def verify_gateway(hass, gateway) -> str | None:
-    """API-only MAC and Bridge Protocol check; never sends a Modbus frame. Returns a form error.
-
-    The check also records the Gateway's Probe Slot mode, so Scans right after Enrollment
-    are admitted under it (ADR 0010).
-    """
-    provider = build_physical_provider(
-        [gateway], probe_slot_memory=await async_probe_slot_modes(hass)
-    )
+async def verify_gateway(gateway) -> str | None:
+    """API-only MAC and Bridge Protocol check; never sends a Modbus frame. Returns a form error."""
+    provider = build_physical_provider([gateway])
     try:
         async with asyncio.timeout(20):
             for info in provider.list_gateways():
@@ -201,7 +196,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
                 gateway["noise_psk"] = entry.data["noise_psk"]
             gateway["esphome_entry_id"] = entry.entry_id
             gateways, error = upsert_gateway(self._existing(), gateway)
-            error = error or await verify_gateway(self.hass, gateway)
+            error = error or await verify_gateway(gateway)
             if error is None:
                 return self._save(gateways)
             errors["base"] = error
@@ -226,7 +221,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
             if gateway is not None:
                 gateways, error = upsert_gateway(existing, gateway)
                 # Same API-only MAC and Bridge Protocol check as the ESPHome device path.
-                error = error or await verify_gateway(self.hass, gateway)
+                error = error or await verify_gateway(gateway)
             if error is None:
                 return self._save(gateways)
             errors["base"] = error
@@ -277,7 +272,7 @@ class WoowEsphomeModbusScannerConfigFlow(config_entries.ConfigFlow, domain=DOMAI
                 user_input.get("noise_psk", "").strip(),
                 user_input.get("clear_psk", False),
             )
-            error = error or await verify_gateway(self.hass, gateway)
+            error = error or await verify_gateway(gateway)
             if error is None:
                 return self.async_update_reload_and_abort(
                     entry,

@@ -66,7 +66,8 @@
       "cannot_connect": "無法核對閘道 API 身分與橋接協定支援；未變更既有設定。",
       "scanner_missing": "此 ESPHome 裝置未執行 modbus_scanner 元件（橋接協定 v2）。請在其 ESPHome YAML 加入此元件並重燒，然後再登錄一次。",
       "bridge_mismatch": "裝置的 modbus_scanner 元件橋接協定版本與此整合不符，請將韌體與整合更新到相同版本。",
-      "identity_mismatch": "此主機上的裝置回報的 MAC 與預期不同，未登錄任何閘道。"
+      "identity_mismatch": "此主機上的裝置回報的 MAC 與預期不同，未登錄任何閘道。",
+      "multiple_buses": "此節點回報不只一條 Bus。一台 Gateway 只服務一條 Bus：請在其 ESPHome YAML 只保留一個 modbus_scanner 並重燒；第二條 RS-485 請改用另一台節點。"
     },
     "abort": {
       "already_configured": "此整合已完成設定。",

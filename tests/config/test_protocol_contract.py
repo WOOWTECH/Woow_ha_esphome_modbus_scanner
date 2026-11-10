@@ -158,9 +158,12 @@ def test_pausable_poller_rows_carry_the_contracts_poller_fields():
     assert POLLER_KEYS == tuple(contract.CONTRACT["info"]["poller_fields"])
 
 
-def test_per_bus_sensor_fields_are_an_additive_v2_change():
-    # Optional bus fields, so v2 consumers that ignore them (older HA) keep working.
-    optional = contract.CONTRACT["info"]["optional_bus_fields"]
-    assert {contract.INFO_BUS_RESULT_SENSOR, contract.INFO_BUS_LEASE_SENSOR} <= set(optional)
-    assert not {"result_sensor", "lease_sensor"} & set(contract.INFO_BUS_FIELDS)
+def test_one_bus_per_gateway_keeps_the_v2_wire_format():
+    # ADR 0011: the bus argument and the buses array stay; no per-Bus sensors exist.
     assert contract.BRIDGE_VERSION == 2
+    assert "bus_text_sensors" not in contract.CONTRACT
+    optional = contract.CONTRACT["info"]["optional_bus_fields"]
+    assert set(optional) == {"serial"}
+    assert "buses" in contract.INFO_FIELDS
+    for action in ("probe", "release"):
+        assert "bus" in [arg["name"] for arg in contract.CONTRACT["actions"][action]["args"]]

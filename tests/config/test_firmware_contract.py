@@ -4,8 +4,12 @@ The C++ core is checked against the contract by firmware/tests; this covers the 
 codegen, which fixes the text sensor names HA looks up.
 """
 
+import importlib.util
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
@@ -18,11 +22,6 @@ CONTRACT = json.loads(
 )
 CODEGEN = (ROOT / "firmware/components/modbus_scanner/__init__.py").read_text(encoding="utf-8")
 EXAMPLE = (ROOT / "firmware/examples/generic-modbus-scanner.yaml").read_text(encoding="utf-8")
-MULTI_BUS_EXAMPLE = (ROOT / "firmware/examples/multi-bus-modbus-scanner.yaml").read_text(
-    encoding="utf-8"
-)
-
-
 def test_codegen_uses_contract_sensor_names():
     for sensor in CONTRACT["text_sensors"].values():
         assert f'"{sensor["name"]}"' in CODEGEN
@@ -33,27 +32,78 @@ def test_codegen_requires_esphome_2026_9():
     assert "cv.require_esphome_version(*MIN_ESPHOME_VERSION)" in CODEGEN
 
 
-@pytest.mark.parametrize("example", [EXAMPLE, MULTI_BUS_EXAMPLE])
-def test_example_is_a_plain_modbus_controller_node(example):
+TWO_SCANNERS = (ROOT / "firmware/tests/two-modbus-scanners.yaml").read_text(encoding="utf-8")
+ONE_ENTRY_MESSAGE = (
+    "A node supports only one modbus_scanner; scan a second RS-485 line with another node"
+)
+
+
+def test_example_is_a_plain_modbus_controller_node():
+    example = EXAMPLE
     assert "modbus_controller:" in example
     assert "modbus_scanner:" in example
     assert "api:\n" in example
     assert "actions:" not in example  # the component registers its own probe action
 
 
-def test_multi_bus_example_has_one_scanner_per_hub():
-    config = yaml.safe_load(MULTI_BUS_EXAMPLE.replace("!secret", ""))
-    hubs = [hub["id"] for hub in config["modbus"]]
-    scanners = config["modbus_scanner"]
-    assert [entry["modbus_id"] for entry in scanners] == hubs == ["hub_a", "hub_b"]
-    assert [entry["bus"] for entry in scanners] == ["line_a", "line_b"]
-    # The Gateway's sensors are declared by the component, never per hub in YAML.
-    assert all(set(entry) == {"modbus_id", "bus"} for entry in scanners)
+def test_example_has_one_scanner():
+    config = yaml.safe_load(EXAMPLE.replace("!secret", ""))
+    assert config["modbus_scanner"] == [{"modbus_id": "rs485"}]
 
 
-def test_codegen_names_each_bus_sensor_by_the_contract_pattern():
-    patterns = CONTRACT["bus_text_sensors"]
-    assert f'BUS_RESULT_SENSOR_PATTERN = "{patterns["result"]["name_pattern"]}"' in CODEGEN
-    assert f'BUS_LEASE_SENSOR_PATTERN = "{patterns["lease"]["name_pattern"]}"' in CODEGEN
-    # One name feeds both the entity and the Bus's info entry (set_own_sensors).
-    assert "cg.add(var.set_own_sensors(result, result_name, lease, lease_name))" in CODEGEN
+class _Invalid(Exception):
+    """Stands in for esphome.config_validation.Invalid."""
+
+
+@pytest.fixture
+def codegen(monkeypatch):
+    """The codegen module, imported against stub esphome modules (ESPHome is not installed)."""
+    core = SimpleNamespace(data={}, config={})
+    stubs = {
+        "esphome": MagicMock(),
+        "esphome.codegen": MagicMock(),
+        "esphome.components": MagicMock(),
+        "esphome.components.const": MagicMock(),
+        "esphome.config_validation": MagicMock(Invalid=_Invalid),
+        "esphome.const": MagicMock(CONF_NAME="name"),
+        "esphome.core": MagicMock(CORE=core),
+        "esphome.final_validate": MagicMock(),
+    }
+    for name, module in stubs.items():
+        monkeypatch.setitem(sys.modules, name, module)
+        # `import esphome.config_validation as cv` reads the attribute of the parent package.
+        parent, _, child = name.rpartition(".")
+        if parent:
+            setattr(stubs[parent], child, module)
+    spec = importlib.util.spec_from_file_location(
+        "modbus_scanner_codegen", ROOT / "firmware/components/modbus_scanner/__init__.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module, core
+
+
+def test_codegen_refuses_a_second_modbus_scanner_entry(codegen):
+    module, core = codegen
+    first = module._one_entry_per_node({"modbus_id": "hub_a"})
+    # The only entry carries the Gateway's text sensors under their contract names.
+    assert {first[key]["name"] for key in module._GATEWAY_SENSORS} == {
+        sensor["name"] for sensor in CONTRACT["text_sensors"].values()
+    }
+    with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
+        module._one_entry_per_node({"modbus_id": "hub_b"})
+    assert module.ONE_ENTRY_MESSAGE == ONE_ENTRY_MESSAGE
+    assert core.data
+
+
+def test_final_validation_refuses_two_entries(codegen):
+    module, _core = codegen
+    with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
+        module._final_validate([{"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}])
+
+
+def test_two_scanner_fixture_declares_two_entries():
+    """CI runs `esphome config` on this fixture and expects ONE_ENTRY_MESSAGE."""
+    config = yaml.safe_load(TWO_SCANNERS)
+    assert [entry["modbus_id"] for entry in config["modbus_scanner"]] == ["hub_a", "hub_b"]
+    assert len(config["modbus"]) == len(config["uart"]) == 2
