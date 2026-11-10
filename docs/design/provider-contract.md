@@ -2,9 +2,8 @@
 
 ## Implemented providers (0.5.0.dev1)
 
-- `MockGatewayProvider` (`provider: mock`): two simulated Gateways
-  (`mock:rs485-gateway` with one Bus, `mock:multi-bus-gateway` with two) and six
-  Mock Scenarios. No network, serial, ESPHome or Modbus I/O.
+- `MockGatewayProvider` (`provider: mock`): one simulated Gateway
+  (`mock:rs485-gateway`, Bus `rs485`) and six Mock Scenarios. No network, serial, ESPHome or Modbus I/O.
 - The ESPHome provider (`provider: esphome`) routes each enrolled Gateway to its
   adapter: bridge v2 (`modbus_scan/bridge_v2/`, the `modbus_scanner` firmware
   component, contract in `bridge_v2/contract.json`) or legacy bridge v1
@@ -58,11 +57,10 @@ of an HA-side `finally`. A physical adapter must:
 3. Use only holding-register (FC03) or input-register (FC04) read probes; FC43/14
    device identification is out of scope for 0.5.0. It must never write a
    register, change a Slave ID, or restart a node.
-4. Enforce the coordinator's one-Scan-per-Bus key and avoid hidden parallel
-   requests inside the adapter. Scans on different Buses of one Gateway may run
-   at once. Each Bus has its own Probe Slot when the Gateway gives every Bus its
-   own result and lease sensor; otherwise they share the Gateway's single Probe
-   Slot (ADR 0010).
+4. Enforce the coordinator's one-Scan-per-Gateway key and avoid hidden parallel
+   requests inside the adapter: a Gateway serves exactly one Bus and has at most
+   one Probe in flight (ADR 0011). Refuse a Gateway that reports more than one
+   Bus; a request's optional `bus` must name its one Bus.
 5. Apply timeout, retry, and inter-request delay bounds without extending work
    beyond the requested inclusive address range.
 6. If `pause_normal_polling` is supported, pause only the selected gateway and

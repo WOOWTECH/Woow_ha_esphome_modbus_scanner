@@ -1,7 +1,7 @@
 # Woow ESPHome Modbus Scanner
 
-> **0.5.0.dev2 開發中**（`main` 分支）。0.5.0.dev1（#17）加入廠牌中立元件；
-> 0.5.0.dev2（#18）讓每條 Bus 各有 Result 與 Lease sensor，同一 Gateway 的 Bus 各自送 Probe。
+> **0.5.0.dev3 開發中**（`main` 分支）。0.5.0.dev1（#17）加入廠牌中立元件；
+> 0.5.0.dev3（#26）定案為一台 Gateway 一條 Bus，移除 0.5.0.dev2 的多 Bus 支援。
 > 這不是正式發行版，尚未部署，也尚未完成實機驗收。最後一次部署的版本是 0.4.0.dev1，請見
 > [歷史](#歷史)。
 
@@ -25,8 +25,9 @@ English: [README.md](README.md) · 術語：[GLOSSARY.md](GLOSSARY.md)
 
 ## 運作方式
 
-- **Gateway** 是已登錄、執行 `modbus_scanner` 的 ESPHome 節點。節點上每個
-  設有 `modbus_scanner` 項目的 Modbus hub 就是一條 **Bus**。
+- **Gateway** 是已登錄、執行 `modbus_scanner` 的 ESPHome 節點，剛好服務一條
+  **Bus**：唯一一個 `modbus_scanner` 項目指定的 Modbus RTU 線（hub）及其序列參數。
+  一台 Gateway 一條 Bus；第二條 RS-485 請用另一台節點。
 - **Scan** 是在一條 Bus 上依序對一段站號送出唯讀 **Probe**（FC03 保持暫存器或
   FC04 輸入暫存器）。有回應的站號稱為 **Responder**；這不代表該站號背後恰好
   只有一台實體設備。
@@ -42,14 +43,14 @@ English: [README.md](README.md) · 術語：[GLOSSARY.md](GLOSSARY.md)
 [ADR 0006：Pausable Poller 的探索與選擇](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md)、
 [ADR 0007：由 Gateway 自行恢復的 Scan Lease](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)、
 [ADR 0008：掃描服務清單與持久保存的歷史](docs/adr/0008-scanner-service-set-and-persisted-history.md)、
-[ADR 0010：每條 Bus 各自的 Result 與 Lease 感測器](docs/adr/0010-per-bus-result-and-lease-sensors.md)。
+[ADR 0011：一台 Gateway 一條 Bus](docs/adr/0011-one-bus-per-gateway.md)。
 ADR 0001–0003 說明 provider／coordinator 分離、單一設定項目生命週期與全使用者側邊欄。
 
 ## 安全與存取
 
 掃描只讀取、盡力而為。逾時不代表該位址沒人使用，有回應也不代表該站號只對應一台
 實體設備。韌體拒絕所有寫入功能碼（FC05、FC06、FC15、FC16、FC22、FC23），並自行
-強制硬性限制：站號 1–247、FC03／FC04、1–4 個暫存器、逾時 100–2000 ms、每條 Bus
+強制硬性限制：站號 1–247、FC03／FC04、1–4 個暫存器、逾時 100–2000 ms、每台 Gateway
 同時只有一個 Probe。
 
 - `start_scan` 只接受字面布林值 `safety_confirmed: true`；字串與數字都會被拒絕。
@@ -114,19 +115,17 @@ modbus_scanner:
 ```
 
 元件會註冊唯讀探測與 lease 釋放動作（`modbus_scanner_v2_probe`、
-`modbus_scanner_v2_release`）、三個共用診斷文字感測器（`Modbus Scanner v2 Info`、
-`Result`、`Lease`），以及每條 Bus 的 `Modbus Scanner v2 Result <bus>` 與
-`Modbus Scanner v2 Lease <bus>`；不需要 `api: custom_services`，這些感測器都不用在
+`modbus_scanner_v2_release`）與三個診斷文字感測器（`Modbus Scanner v2 Info`、
+`Result`、`Lease`）；不需要 `api: custom_services`，這些感測器都不用在
 YAML 宣告。綁在同一 hub 的每個
 `PollingComponent`（此例為 `meter`）會自動成為 Pausable Poller；之後新增需重新編譯。
-完整範例：[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)，
-以及一個節點兩條 RS-485 線的
-[`firmware/examples/multi-bus-modbus-scanner.yaml`](firmware/examples/multi-bus-modbus-scanner.yaml)。
+完整範例：[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)。
 
-**一個 Gateway 多條 Bus：**每個 hub 加一個 `modbus_scanner` 項目，可用 `bus:` 命名
-（1–32 個 `0-9 A-Z a-z _ -` 字元；預設為 hub id）。每個 hub 只能有一個掃描元件。
-每條 Bus 各有自己的 Pausable Poller 表，並回報鮑率、同位元與停止位元。探測動作與
-文字感測器每個節點只有一組。
+**一台 Gateway 一條 Bus：**一個節點只能有一個 `modbus_scanner` 項目；第二個會編譯失敗，
+訊息為「A node supports only one modbus_scanner; scan a second RS-485 line with another
+node」。有兩條 RS-485 線的節點只能掃其中一條；第二條 RS-485 請用另一台節點。Bus 可用
+`bus:` 命名（1–32 個 `0-9 A-Z a-z _ -` 字元；預設為 hub id），並回報鮑率、同位元與停止
+位元，HA 會在每筆結果旁顯示。Gateway 的 info 回報超過一條 Bus 時，HA 會拒絕登錄與檢查。
 
 傳輸協定（Bridge Protocol v2）定義在單一機器可讀檔
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json)，
@@ -159,7 +158,7 @@ HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。
 開啟 **Modbus Scanner**（`mdi:radar`，路徑 `/woow-esphome-modbus-scanner`），所有 HA
 使用者都看得到。更新後請強制重新整理瀏覽器。
 
-1. 選擇 Gateway；若 Gateway 有多條 Bus，再選 Bus（會顯示其序列參數）。
+1. 選擇 Gateway。掃描的是它唯一的那條 Bus；結果會標明 Bus 與其序列參數。
 2. 選擇 Device Profile。它的預設值會填入表單，其限制與 Gateway 限制取交集後約束
    每個欄位。
 3. 檢查 Gateway，讓 Pausable Poller 卡片依名稱與站號列出每個輪詢元件。預設全部
@@ -226,21 +225,8 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 一個 `update_interval`。Scan 狀態會回報 `lease_status`（`none`、`active`、`ended`、
 `unconfirmed`）與 `lease_end_reason`（`released`、`idle`、`hard_limit`、`superseded`）。
 
-**多條 Bus：**同一 Gateway 不同 Bus 的 Scan 可同時進行，每條 Bus 一次一個 Scan。
-目前版本的 `modbus_scanner` 元件會為每條 Bus 自動建立自己的結果與 lease 感測器
-（`Modbus Scanner v2 Result <bus>`、`Modbus Scanner v2 Lease <bus>`；重刷 Gateway
-即可，YAML 不用改）。此時每條 Bus 各有自己在途的 Probe，Scan 只等自己的
-`inter_request_delay_ms`；`check_gateway` 會回報 `health.probe_slots: per_bus`
-（ADR 0010）。
-
-沒有這些感測器的 firmware 會改用 Shared-slot fallback：所有 Bus 的 Probe 輪流送出，所以每個
-Gateway 一次只有一個 Probe 在途：所有 Bus 共用
-節點的結果感測器，否則 ESPHome API 可能丟掉同時發布的兩筆結果之一。因此一個 Scan
-在兩個 Probe 之間，要等自己的 `inter_request_delay_ms`，再加上同一 Gateway 每個其他
-執行中 Scan 的一個 Probe（`timeout_ms` + 約 300 ms）。若任何會暫停 Normal Polling 的
-Scan 這段等待會超過 3000 ms，新的 Scan 會在開始時被拒絕，因為更長的間隔可能讓它的
-Scan Lease 因閒置而結束。預設值（間隔 100 ms、逾時 1000 ms）下可同時掃描三條 Bus；
-要再多，請調低 `timeout_ms` 或 `inter_request_delay_ms`，或等其他 Scan 結束。
+**每台 Gateway 一次一個 Scan：**一台 Gateway 只服務一條 Bus，所以同時只有一個 Scan、
+一個 Probe 在途；第二個 Scan 會因 busy 被拒絕。
 
 ## 公開動作
 
@@ -249,9 +235,9 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 
 | 動作 | 用途 |
 |---|---|
-| `list_gateways` | 列出 Gateway：provider、Bus、限制（`probes_take_turns`：各 Bus 是否輪流使用同一個 Probe Slot）、健康狀態、Pausable Poller 清單、`running_buses`（目前正在 Scan 的 Bus）與 `can_operate` |
-| `check_gateway` | 驗證一個 Gateway 的 MAC 與 Bridge Protocol 簽章並讀取其 Bus 與輪詢元件，不送 Modbus 封包 |
-| `set_pausable_pollers` | 儲存一條 Bus 的 Scan 要暫停哪些 Pausable Poller（`gateway_id`、`bus`、`pause_pollers`） |
+| `list_gateways` | 列出 Gateway：provider、Bus（`buses`，檢查後固定一筆）、限制、健康狀態、Pausable Poller 清單與 `can_operate` |
+| `check_gateway` | 驗證一個 Gateway 的 MAC 與 Bridge Protocol 簽章並讀取其 Bus 與輪詢元件，不送 Modbus 封包；回報超過一條 Bus 的 Gateway 會被拒絕 |
+| `set_pausable_pollers` | 儲存 Gateway 那條 Bus 的 Scan 要暫停哪些 Pausable Poller（`gateway_id`、`pause_pollers`，`bus` 可省略） |
 | `start_scan` | 開始範圍 Scan，立即回傳 `scan_id` |
 | `test_address` | 掃描單一站號（`address`）；隱含範圍確認 |
 | `get_scan_status` | 進度、階段、lease 狀態、錯誤與恢復證據 |
@@ -271,7 +257,7 @@ Domain 為 `woow_esphome_modbus_scanner`。所有動作開放給每位啟用中�
 |---|---|---|
 | `provider` | `mock` | `mock` 或 `esphome` |
 | `gateway_id` | `mock:rs485-gateway` | 取自 `list_gateways`，例如 `esphome:aabbccddeeff` |
-| `bus` | — | Gateway 有多條 Bus 時必填 |
+| `bus` | — | 可省略；有給時必須是 Gateway 那條 Bus 的名稱 |
 | `esphome_device_id` | — | 選用；與 HA ESPHome 裝置的 MAC 再交叉核對 |
 | `device_profile_id` | `generic` | 其預設值填入省略欄位；其限制與 Gateway 限制同時適用 |
 | `start_id`、`end_id` | profile 預設 | 1–247；profile 未定義站號範圍時必填 |
@@ -302,13 +288,12 @@ data:
 response_variable: started
 ```
 
-以回傳的 `scan_id` 呼叫 `get_scan_status` 與 `get_scan_results`。每條 Bus 同時只能有一個
+以回傳的 `scan_id` 呼叫 `get_scan_status` 與 `get_scan_results`。每台 Gateway 同時只能有一個
 Scan；第二個會因 busy 被拒絕。
 
 ## 模擬 provider
 
-`provider: mock` 不需硬體，也不開任何連線。提供 `mock:rs485-gateway`（一條 Bus）與
-`mock:multi-bus-gateway`（Bus `rs485_a` 與 `rs485_b`）。`mock_scenario` 選擇一組固定結果：
+`provider: mock` 不需硬體，也不開任何連線。提供 `mock:rs485-gateway`（Bus `rs485`）。`mock_scenario` 選擇一組固定結果：
 `found_default`、`all_offline`、`partial_timeout`、`modbus_exception`、
 `possible_collision`、`gateway_disconnect`。模擬的暫存器讀取會對 FC03／FC04 回傳原始值。
 舊欄位名稱 `mock_profile` 仍可作為**已棄用**的別名；兩者同時傳入會被拒絕。

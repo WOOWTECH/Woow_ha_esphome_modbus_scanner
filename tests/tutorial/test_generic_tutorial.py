@@ -103,7 +103,27 @@ def test_readmes_document_firmware_install_and_minimum_esphome() -> None:
         assert "components: [modbus_scanner]" in text, name
         assert "modbus_scanner:\n  - modbus_id:" in text, name
         assert "modbus_controller:" in text, name
-        assert "firmware/examples/multi-bus-modbus-scanner.yaml" in text, name
+        assert "multi-bus-modbus-scanner.yaml" not in text, name
+
+
+def test_readmes_state_one_gateway_one_bus() -> None:
+    # ADR 0011: no multi-Bus content; a second modbus_scanner entry fails to compile.
+    message = "A node supports only one modbus_scanner; scan a second RS-485 line with another node"
+    en = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "One Gateway, one Bus" in en
+    zh = (ROOT / "README_zh-TW.md").read_text(encoding="utf-8")
+    assert "一台 Gateway 一條 Bus" in zh and "第二條 RS-485 請用另一台節點" in zh
+    for name, text in (("README.md", en), ("README_zh-TW.md", zh)):
+        flat = " ".join(text.split())
+        assert message in flat, name
+        assert "docs/adr/0011-one-bus-per-gateway.md" in text, name
+        for removed in (
+            "mock:multi-bus-gateway",
+            "probes_take_turns",
+            "running_buses",
+            "probe_slots",
+        ):
+            assert removed not in text, f"{name}: {removed}"
 
 
 def test_readmes_state_the_access_policy() -> None:
@@ -133,7 +153,6 @@ def test_readmes_document_every_service_field_and_concept() -> None:
             "docs/adr/0005-vendor-neutral-scanner-component-and-device-profiles.md",
             "docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md",
             "docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md",
-            "docs/adr/0010-per-bus-result-and-lease-sensors.md",
         ):
             assert item in text, f"{name}: {item}"
 
@@ -197,6 +216,26 @@ def test_tutorial_documents_firmware_install_and_minimum_esphome() -> None:
         assert item in TUTORIAL, item
 
 
+def test_tutorial_states_one_gateway_one_bus() -> None:
+    for item in (
+        "一台 Gateway 一條 Bus",
+        "第二條 RS-485 請用另一台節點",
+        "A node supports only one modbus_scanner; scan a second RS-485 line with another node",
+        "../adr/0011-one-bus-per-gateway.md",
+    ):
+        assert item in TUTORIAL, item
+    for removed in (
+        "multi-bus-modbus-scanner.yaml",
+        "mock:multi-bus-gateway",
+        "Per-Bus mode",
+        "Shared-slot fallback",
+        "probe_slots",
+        "預估未包含其他 Scan 的 Probe",
+        "Modbus Scanner v2 Result &lt;bus&gt;",
+    ):
+        assert removed not in TUTORIAL, removed
+
+
 def test_tutorial_states_access_policy_and_safety_facts() -> None:
     for item in (
         "任何啟用中的 Home Assistant 使用者都能對任一已登錄 Bus 的 1–247 站號產生唯讀流量",
@@ -205,7 +244,7 @@ def test_tutorial_states_access_policy_and_safety_facts() -> None:
         "10 分鐘",
         "待送的寫入",
         "update_interval",
-        "一次只有一個 probe",
+        "一個 Probe 在途",
         "Repairs",
         "Bridge Protocol v1",
         "schema_version",
@@ -236,19 +275,3 @@ def test_tutorial_accessibility_and_offline_contract() -> None:
             assert href[1:] in parser.ids, href
     forbidden = ("woow_multi" + "_protocol", "kn" + "x", "d" + "mx")
     assert all(term not in TUTORIAL.lower() for term in forbidden)
-
-
-def test_tutorial_explains_per_bus_mode_and_shared_slot_fallback() -> None:
-    # ADR 0010: per-Bus sensors give Per-Bus mode; older firmware gets the Shared-slot fallback.
-    section = TUTORIAL.split('id="multi-bus-probes"', 1)[1].split("</section>", 1)[0]
-    for item in (
-        "Per-Bus mode",
-        "Shared-slot fallback",
-        "Modbus Scanner v2 Result &lt;bus&gt;",
-        "Modbus Scanner v2 Lease &lt;bus&gt;",
-        "probe_slots: per_bus",
-        "probe_slots: shared_slot_fallback",
-        "重刷",
-        "預估未包含其他 Scan 的 Probe",
-    ):
-        assert item in section, item
