@@ -96,20 +96,39 @@ _GATEWAY_SENSORS = {
 }
 
 
+def _entry_index():
+    """This entry's position in the ``modbus_scanner:`` list, or None outside a validation run.
+
+    ESPHome validates each MULTI_CONF entry in its own step and sets ``path_context`` to
+    ``[DOMAIN, index]`` for it (config.py, SchemaValidationStep). The position comes from
+    that path, not from comparing this config with the loaded YAML, so it still holds when
+    ESPHome hands the validator a copy of the entry.
+    """
+    from esphome.config import path_context  # imported late: esphome.config loads components
+
+    path = path_context.get(None)
+    if path and isinstance(path[-1], int) and not isinstance(path[-1], bool):
+        return path[-1]
+    return None
+
+
 def _one_entry_per_node(config):
-    """Refuse a second entry and give the only one the Gateway's text sensors.
+    """Refuse every entry after the first and give the first the Gateway's text sensors.
 
     Checked here, before the schema, because a second entry would otherwise fail first on
     ESPHome's duplicate entity-name check (the sensor names are fixed) and the final
     validation step, which runs only on an error-free config, would never be reached.
     MULTI_CONF stays on for the same reason: without it two entries fail as "expected a
-    dictionary". The count comes from the YAML as loaded for this validation run, so it
-    needs no state of its own; only the entries after the first are refused, giving one error.
+    dictionary". The entry's position comes from ESPHome's validation path, so the check
+    keeps no state of its own. Entry 0 passes and every later entry is refused with
+    ONE_ENTRY_MESSAGE. ESPHome stops validating at the first error (Config.run_validation_steps),
+    so two entries and three or more entries alike give one error, on the second entry; the
+    third and later entries are never reached.
     """
     if not isinstance(config, dict):
         return config
-    entries = (CORE.raw_config or {}).get(DOMAIN)
-    if isinstance(entries, list) and len(entries) > 1 and config is not entries[0]:
+    index = _entry_index()
+    if index is not None and index > 0:
         raise cv.Invalid(ONE_ENTRY_MESSAGE)
     config = dict(config)
     for key, name in _GATEWAY_SENSORS.items():

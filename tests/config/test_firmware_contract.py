@@ -4,6 +4,8 @@ The C++ core is checked against the contract by firmware/tests; this covers the 
 codegen, which fixes the text sensor names HA looks up.
 """
 
+import contextvars
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -59,8 +61,10 @@ class _Invalid(Exception):
 def codegen(monkeypatch):
     """The codegen module, imported against stub esphome modules (ESPHome is not installed)."""
     core = SimpleNamespace(data={}, config={}, raw_config=None)
+    path_context = contextvars.ContextVar("Config path")
     stubs = {
         "esphome": MagicMock(),
+        "esphome.config": MagicMock(path_context=path_context),
         "esphome.codegen": MagicMock(),
         "esphome.components": MagicMock(),
         "esphome.components.const": MagicMock(),
@@ -80,25 +84,67 @@ def codegen(monkeypatch):
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module, core
+    return module, core, path_context
 
 
-def test_codegen_refuses_a_second_modbus_scanner_entry(codegen):
-    module, core = codegen
-    hub_a, hub_b = {"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}
-    core.raw_config = {"modbus_scanner": [hub_a]}
-    first = module._one_entry_per_node(hub_a)
+def _validate_entries(codegen, entries):
+    """Validate each entry the way ESPHome's MULTI_CONF steps do: path [domain, i], a copy."""
+    module, core, path_context = codegen
+    core.raw_config = {"modbus_scanner": entries}
+    results = []
+    for index, entry in enumerate(entries):
+        token = path_context.set(["modbus_scanner", index])
+        try:
+            results.append(module._one_entry_per_node(copy.deepcopy(entry)))
+        except _Invalid as err:
+            results.append(err)
+        finally:
+            path_context.reset(token)
+    return results
+
+
+def test_codegen_one_scanner_entry_is_valid(codegen):
+    module = codegen[0]
+    (first,) = _validate_entries(codegen, [{"modbus_id": "hub_a"}])
     # The only entry carries the Gateway's text sensors under their contract names.
     assert {first[key]["name"] for key in module._GATEWAY_SENSORS} == {
         sensor["name"] for sensor in CONTRACT["text_sensors"].values()
     }
-    # No state of its own: validating the same config again is still fine.
-    assert module._one_entry_per_node(hub_a) == first
-    core.raw_config = {"modbus_scanner": [hub_a, hub_b]}
-    module._one_entry_per_node(hub_a)  # only the entries after the first are refused
-    with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
-        module._one_entry_per_node(hub_b)
+    # No state of its own: validating the same config again gives the same result.
+    assert _validate_entries(codegen, [{"modbus_id": "hub_a"}]) == [first]
     assert module.ONE_ENTRY_MESSAGE == ONE_ENTRY_MESSAGE
+
+
+def test_codegen_refuses_only_the_second_of_two_entries(codegen):
+    first, second = _validate_entries(codegen, [{"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}])
+    assert isinstance(first, dict)
+    assert isinstance(second, _Invalid) and str(second) == ONE_ENTRY_MESSAGE
+
+
+def test_codegen_refuses_every_entry_after_the_first(codegen):
+    """ESPHome stops at the second entry's error; the check itself refuses all later ones."""
+    hubs = [{"modbus_id": f"hub_{n}"} for n in range(3)]
+    first, *rest = _validate_entries(codegen, hubs)
+    assert isinstance(first, dict)
+    assert [str(err) for err in rest] == [ONE_ENTRY_MESSAGE] * 2
+
+
+def test_codegen_refuses_a_copy_of_the_second_entry(codegen):
+    """The check must not rely on object identity with CORE.raw_config entries."""
+    module, core, path_context = codegen
+    hub_a, hub_b = {"modbus_id": "hub_a"}, {"modbus_id": "hub_b"}
+    core.raw_config = {"modbus_scanner": [hub_a, hub_b]}
+    token = path_context.set(["modbus_scanner", 0])
+    try:
+        assert isinstance(module._one_entry_per_node(dict(hub_a)), dict)
+    finally:
+        path_context.reset(token)
+    token = path_context.set(["modbus_scanner", 1])
+    try:
+        with pytest.raises(_Invalid, match=ONE_ENTRY_MESSAGE):
+            module._one_entry_per_node(dict(hub_b))
+    finally:
+        path_context.reset(token)
 
 
 def test_two_scanner_fixture_declares_two_entries():
