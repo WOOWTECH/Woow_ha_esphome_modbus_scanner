@@ -1,9 +1,16 @@
 # ADR 0010: Per-Bus Result and Lease sensors, so Buses probe independently
 
-- Status: accepted; supersedes the "Scans of different Buses on one Gateway take turns for
-  Probes" consequence of [ADR 0007](0007-per-scan-lease-with-gateway-owned-recovery.md)
+- Status: superseded by [ADR 0011](0011-one-bus-per-gateway.md) (one Bus per Gateway; per-Bus
+  sensors and probing modes removed). Previously superseded the "Scans of different Buses on one
+  Gateway take turns for Probes" consequence of [ADR 0007](0007-per-scan-lease-with-gateway-owned-recovery.md)
 - Date: 2026-11-04
 - Version: 0.5.0.dev2
+
+> **Superseded.** Since 0.5.0.dev3 a Gateway serves exactly one Bus and a node accepts only
+> one `modbus_scanner` entry (ADR 0011). The per-Bus Result and Lease sensors, the
+> `per_bus`/`shared_slot_fallback` probing modes and `concurrent_wait_max_ms` are gone; the
+> Gateway's shared Info, Result and Lease sensors are the only ones. The decision below is
+> kept as history.
 
 ## Decision
 

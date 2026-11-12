@@ -27,11 +27,8 @@ void ModbusScannerGateway::setup() {
 void ModbusScannerGateway::loop() { this->core_.loop(); }
 
 void ModbusScannerGateway::dump_config() {
-  ESP_LOGCONFIG(TAG,
-                "Modbus scanner (bridge v%d):\n"
-                "  Buses: %u",
-                modbus_scanner_core::kBridgeVersion, static_cast<unsigned>(this->core_.buses().size()));
-  for (auto *bus : this->core_.buses())
+  ESP_LOGCONFIG(TAG, "Modbus scanner (bridge v%d):", modbus_scanner_core::kBridgeVersion);
+  if (const auto *bus = this->core_.bus())
     ESP_LOGCONFIG(TAG, "  Bus: %s (%u Pausable Pollers)", bus->name().c_str(),
                   static_cast<unsigned>(bus->poller_count()));
 }

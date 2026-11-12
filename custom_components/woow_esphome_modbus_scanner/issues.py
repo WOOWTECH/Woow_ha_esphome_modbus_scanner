@@ -5,15 +5,21 @@ from hashlib import sha256
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN
+from .modbus_scan.models import FaultCode
 
 PERSISTENT = {
-    "API_AUTH_FAILED",
-    "IDENTITY_MISMATCH",
-    "BRIDGE_UNSUPPORTED",
-    "PROFILE_MISMATCH",
-    "FIRMWARE_FAULT",
+    FaultCode.API_AUTH_FAILED,
+    FaultCode.IDENTITY_MISMATCH,
+    FaultCode.BRIDGE_UNSUPPORTED,
+    FaultCode.PROFILE_MISMATCH,
+    FaultCode.FIRMWARE_FAULT,
+    FaultCode.MULTIPLE_BUSES,
 }
 
+# The one fault a passing Gateway check or Enrollment clears: it read the Gateway's info and
+# found exactly one Bus. Every other issue is cleared only by a Scan whose cleanup closed and
+# whose recovery is verified, as before one Bus per Gateway (ADR 0011).
+CLEARED_BY_CHECK = FaultCode.MULTIPLE_BUSES
 
 LEGACY_BRIDGE_PREFIX = "legacy_bridge_"
 
@@ -58,12 +64,28 @@ def sync_legacy_bridge_issues(hass, gateways) -> None:
         )
 
 
-def report_gateway_issue(hass, gateway_id, code):
-    issue_id = "gateway_" + _digest(gateway_id)
+def _gateway_issue_id(gateway_id: str) -> str:
+    return "gateway_" + _digest(gateway_id)
+
+
+def _issue_code(hass, issue_id: str) -> str | None:
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    return None if issue is None else (issue.translation_placeholders or {}).get("code")
+
+
+def report_gateway_issue(hass, gateway_id, code, *, check=False) -> None:
+    """Raise the Gateway's Repairs issue for a persistent fault ``code``; None: it is fixed.
+
+    A None from a Scan (cleanup closed, recovery verified) clears any issue. With ``check``
+    the outcome is a Gateway check's or Enrollment's, and a None clears only
+    ``CLEARED_BY_CHECK``.
+    """
+    issue_id = _gateway_issue_id(gateway_id)
     if code is None:
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        if not check or _issue_code(hass, issue_id) == CLEARED_BY_CHECK:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
     elif code in PERSISTENT:
-        if code == "API_AUTH_FAILED":
+        if code == FaultCode.API_AUTH_FAILED:
             from .modbus_scan.adapters import physical_gateway_id
 
             for entry in hass.config_entries.async_entries(DOMAIN):

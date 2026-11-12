@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import re
 from typing import Any
 from uuid import UUID
@@ -19,7 +20,6 @@ from .const import (
     DATA_COORDINATOR,
     DATA_COORDINATOR_OWNER,
     DATA_DEVICE_PROFILES,
-    DATA_PROBE_SLOT_MODES,
     DATA_SERVICE_OWNER,
     DATA_SERVICES_AVAILABLE,
     DOMAIN,
@@ -106,11 +106,14 @@ _POLLER_INDICES = vol.All(
     [vol.All(_exact_int, vol.Range(min=0, max=255))], vol.Unique(), vol.Coerce(tuple)
 )
 
+# A Bus name as a Gateway reports it; a malformed name is a schema error, never a lookup.
+_BUS_NAME = vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z"))
+
 _PROVIDER_FIELDS = {
     vol.Optional("provider", default="mock"): vol.In(["mock", "esphome"]),
     vol.Optional("gateway_id", default=MOCK_GATEWAY_ID): str,
-    # The Bus to scan; may be omitted when the Gateway has only one.
-    vol.Optional("bus"): vol.All(str, vol.Match(rf"\A{BUS_NAME_PATTERN}\Z")),
+    # The Gateway's one Bus (ADR 0011); may be omitted, and when given must name that Bus.
+    vol.Optional("bus"): _BUS_NAME,
     # Reserved UI bridge for a future adapter. Mock mode accepts and records no
     # dependency on an ESPHome device or integration.
     vol.Optional("esphome_device_id"): str,
@@ -257,9 +260,7 @@ def _coordinator(
         entry = hass.config_entries.async_get_entry(owner[0]) if owner else None
         if entry is not None and (
             physical := build_physical_provider(
-                entry.data.get("gateways", ()),
-                esphome_endpoint=_esphome_endpoint(hass),
-                probe_slot_memory=domain_data.get(DATA_PROBE_SLOT_MODES),
+                entry.data.get("gateways", ()), esphome_endpoint=_esphome_endpoint(hass)
             )
         ):
             providers.append(physical)
@@ -267,7 +268,7 @@ def _coordinator(
             hass,
             providers,
             history=domain_data.get("history"),
-            issue_callback=lambda gateway, code: report_gateway_issue(hass, gateway, code),
+            issue_callback=partial(report_gateway_issue, hass),
             selection_store=PollerSelectionStore(hass, owner[0] if owner else None),
         )
         domain_data[DATA_COORDINATOR] = coordinator
@@ -423,11 +424,11 @@ async def _handle_test_address(call: ServiceCall, owner: _Owner) -> ServiceRespo
 async def _handle_check_gateway(call: ServiceCall, owner: _Owner) -> ServiceResponse:
     await _authorize_physical(call, "esphome")
     try:
+        # The coordinator reports the outcome to Repairs, whoever asks for the check.
         return await _coordinator(call.hass, owner).check_gateway(call.data["gateway_id"])
     except ValueError as err:
         raise _as_home_assistant_error(err) from err
     except GatewayProviderError as err:
-        report_gateway_issue(call.hass, call.data["gateway_id"], err.code)
         raise HomeAssistantError(
             str(err),
             translation_domain=DOMAIN,
@@ -442,7 +443,7 @@ async def _handle_set_pausable_pollers(call: ServiceCall, owner: _Owner) -> Serv
     await _authorize_physical(call, "esphome")
     try:
         return _coordinator(call.hass, owner).save_poller_selection(
-            call.data["gateway_id"], call.data["bus"], call.data["pause_pollers"]
+            call.data["gateway_id"], call.data.get("bus"), call.data["pause_pollers"]
         )
     except ValueError as err:
         raise _as_home_assistant_error(err) from err
@@ -545,7 +546,7 @@ _SERVICE_DEFINITIONS = (
         vol.Schema(
             {
                 vol.Required("gateway_id"): str,
-                vol.Required("bus"): str,
+                vol.Optional("bus"): _BUS_NAME,
                 vol.Required("pause_pollers"): _POLLER_INDICES,
             }
         ),

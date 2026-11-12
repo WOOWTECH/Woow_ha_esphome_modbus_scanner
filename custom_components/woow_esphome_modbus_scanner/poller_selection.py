@@ -11,7 +11,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .modbus_scan.models import GatewayInfo
+from .modbus_scan.models import ONE_BUS_PER_GATEWAY, GatewayInfo, resolve_bus
 from .modbus_scan.pollers import choose as choose_pollers
 from .modbus_scan.pollers import reconcile
 
@@ -69,18 +69,18 @@ class PollerSelectionStore:
         """(checklist per Bus, saved rows the firmware no longer has, per Bus).
 
         ``tables`` is the Gateway's current poller table per Bus, or None while unknown, in
-        which case the saved checklists are returned as they are. With ``prune`` this also
-        saves the checklists without the removed rows, so each removal is reported once.
+        which case the saved checklists are returned as they are. Once known, only Buses the
+        Gateway reports keep a checklist; the saved rows of any other Bus count as removed.
+        With ``prune`` this also saves the checklists without the removed rows and without
+        the Buses the Gateway no longer reports, so each removal is reported once.
         """
         saved = self.saved(gateway_id)
-        if tables is None:
-            return saved, {}
-        selection: Checklists = {}
-        removed: Checklists = {}
-        for bus in sorted({*tables, *saved}):
-            selection[bus], removed[bus] = reconcile(tables.get(bus, ()), saved.get(bus))
-        selection = {bus: rows for bus, rows in selection.items() if bus in tables}
-        if prune and any(removed.values()):
+        selection, removed = _reconciled(tables, saved)
+        if (
+            tables is not None
+            and prune
+            and (any(removed.values()) or not set(saved) <= set(tables))
+        ):
             self.save(gateway_id, {bus: selection[bus] for bus in saved if bus in tables})
         return selection, removed
 
@@ -89,33 +89,78 @@ class PollerSelectionStore:
 
         Empty for a Gateway without Scan Lease support: the one place that rule is checked.
         With ``prune`` the saved rows the firmware no longer has are dropped (see ``revalidate``).
+        No checklist while the Gateway is refused for reporting several Buses: it has no Bus a
+        checklist applies to until a read reports one Bus again (the saved one is kept).
         """
         if not gateway.supports_scan_lease:
             return {}
+        if gateway.multiple_buses:
+            return {"poller_selection": {}, "removed_pollers": {}}
         selection, removed = self.revalidate(
             gateway.gateway_id, gateway.pausable_poller_tables, prune=prune
         )
         return {"poller_selection": selection, "removed_pollers": removed}
 
-    def save_choice(self, gateway: GatewayInfo | None, bus: str, indices) -> dict[str, Any]:
+    def save_choice(
+        self, gateway: GatewayInfo | None, bus: str | None, indices
+    ) -> dict[str, Any]:
         """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table).
 
-        Validated against the Bus's last known table; returns the Gateway's checklists after.
+        The one place that decides whether a choice can be saved, and for which Bus:
+
+        - once HA knows the Gateway's poller table, for its one Bus, validated against that
+          table; ``bus`` may be omitted and, when given, must name that Bus;
+        - before that (no check or Scan since HA started), for the one Bus a checklist was
+          saved for, validated against that checklist as the panel shows it;
+        - never for a Gateway refused for reporting several Buses (ADR 0011).
+
+        Returns the Bus and the Gateway's checklists after. Checklists of Buses the Gateway
+        no longer reports are dropped by the same save once its table is known.
         """
-        checklists = self.for_gateway(gateway, prune=False) if gateway is not None else {}
-        if not checklists:
+        if gateway is None or not gateway.supports_scan_lease:
             raise ValueError(
                 "Pausable Poller selection needs an enrolled Gateway with Scan Lease support"
             )
-        selection = checklists["poller_selection"]
-        if bus not in selection:
+        gateway_id = gateway.gateway_id
+        if gateway.multiple_buses:
             raise ValueError(
-                f"Bus {bus} has no known Pausable Poller table; check the Gateway first"
+                f"Gateway {gateway_id} reports more than one Bus, but {ONE_BUS_PER_GATEWAY}"
             )
-        checklist, unknown = choose_pollers(selection[bus], indices)
+        tables = gateway.pausable_poller_tables
+        saved = self.saved(gateway_id)
+        if tables is None:
+            # A saved Bus is not a known one: a request naming another is told to check.
+            selection = saved if len(saved) == 1 else {}
+            target = bus if bus is not None else next(iter(selection), None)
+        else:
+            selection, _removed = _reconciled(tables, saved)
+            target = resolve_bus(gateway_id, gateway.bus, bus)
+        if target is None:
+            raise ValueError(
+                f"The Bus of Gateway {gateway_id} is not known yet; check the Gateway first"
+            )
+        if target not in selection:
+            raise ValueError(
+                f"Bus {target} has no known Pausable Poller table; check the Gateway first"
+            )
+        checklist, unknown = choose_pollers(selection[target], indices)
         if unknown:
-            raise ValueError(f"Bus {bus} has no Pausable Poller with index {unknown}")
-        saved = self.saved(gateway.gateway_id)
-        saved[bus] = checklist
-        self.save(gateway.gateway_id, saved)
-        return self.for_gateway(gateway, prune=False)
+            raise ValueError(f"Bus {target} has no Pausable Poller with index {unknown}")
+        saved[target] = checklist
+        kept = {key: rows for key, rows in saved.items() if key in selection}
+        self.save(gateway_id, kept)
+        after, removed = _reconciled(tables, kept)
+        return {"bus": target, "poller_selection": after, "removed_pollers": removed}
+
+
+def _reconciled(
+    tables: dict[str, list[dict[str, Any]]] | None, saved: Checklists
+) -> tuple[Checklists, Checklists]:
+    """``saved`` checked against the current ``tables`` (see ``revalidate``), not saved."""
+    if tables is None:
+        return saved, {}
+    selection: Checklists = {}
+    removed: Checklists = {}
+    for bus in sorted({*tables, *saved}):
+        selection[bus], removed[bus] = reconcile(tables.get(bus, ()), saved.get(bus))
+    return {bus: rows for bus, rows in selection.items() if bus in tables}, removed

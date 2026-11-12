@@ -66,3 +66,37 @@ test("Scan Lease support is the capability HA publishes, not the Bridge Protocol
   assert.equal(outlastsScanLease(Number.MAX_SAFE_INTEGER, unleased), false);
   assert.equal(supportsScanLease({...GATEWAY, supports_scan_lease: "yes"}), false);
 });
+
+test("only the Gateway's one Bus gets a checklist; saved keys of former Buses are not shown", () => {
+  // A former multi-Bus (dev2) Gateway can leave saved selections for Buses it no longer has.
+  const stale = {...GATEWAY,
+    buses: [{bus: "rs485", serial: {baud_rate: 9600, parity: "NONE", stop_bits: 1}}],
+    poller_selection: {...GATEWAY.poller_selection, line_b: [{index: 0, name: "old", address: 9, paused: true}]},
+    removed_pollers: {...GATEWAY.removed_pollers, line_b: [{index: 4, name: "gone", address: 3}]},
+  };
+  assert.deepEqual(pollerChecklists(stale).map(({bus}) => bus), ["rs485"]);
+  assert.deepEqual(pollerChecklists(stale)[0].removed, ["chiller (5)"]);
+  // The reported Bus has no saved checklist: nothing to show, never another Bus's.
+  assert.deepEqual(pollerChecklists({...stale, buses: [{bus: "line_c"}]}), []);
+  // Bus not known yet (not checked since load): a single saved key can only be the one Bus, so it
+  // is shown; several keys cannot be told apart, so none is shown until a check reports the Bus.
+  assert.deepEqual(pollerChecklists({...GATEWAY, buses: []}).map(({bus}) => bus), ["rs485"]);
+  assert.deepEqual(pollerChecklists({...stale, buses: undefined}), []);
+  // More than one reported Bus breaks ADR 0011 (HA refuses such a Gateway): nothing to pick.
+  assert.deepEqual(pollerChecklists({...stale, buses: [{bus: "rs485"}, {bus: "line_b"}]}), []);
+});
+
+test("a checklist is offered exactly when set_pausable_pollers would accept its Bus", () => {
+  const rows = [{index: 0, name: "meter", address: 1, paused: true}];
+  const offered = (gateway) => pollerChecklists({...GATEWAY, removed_pollers: {}, ...gateway}).map(({bus}) => bus);
+  // One known Bus: HA accepts only that Bus.
+  assert.deepEqual(offered({buses: [{bus: "rs485"}], poller_selection: {rs485: rows, line_b: rows}}), ["rs485"]);
+  // Bus unknown (no check since a restart, or forgotten after MULTIPLE_BUSES) with one saved key:
+  // HA accepts that key, validated against the saved checklist.
+  assert.deepEqual(offered({buses: [], poller_selection: {rs485: rows}}), ["rs485"]);
+  assert.deepEqual(offered({buses: undefined, poller_selection: {rs485: rows}}), ["rs485"]);
+  // Bus unknown with several saved keys: HA cannot tell which is the Gateway's Bus and refuses them all.
+  assert.deepEqual(offered({buses: [], poller_selection: {rs485: rows, line_b: rows}}), []);
+  // Several Buses reported: no one Bus to save for.
+  assert.deepEqual(offered({buses: [{bus: "rs485"}, {bus: "line_b"}], poller_selection: {rs485: rows}}), []);
+});

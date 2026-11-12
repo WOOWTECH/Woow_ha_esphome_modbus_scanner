@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
@@ -24,6 +24,8 @@ from .models import (
     ScanOutcome,
     ScanPhase,
     ScanRequest,
+    check_bus,
+    gateway_key,
 )
 from .pollers import POLLER_KEYS
 from .provider import GatewayProvider, GatewayProviderError
@@ -45,27 +47,24 @@ class ScanNotFoundError(LookupError):
 
 
 class GatewayBusyError(RuntimeError):
-    """A scan already owns the Bus (or the whole Gateway) this request needs."""
+    """A scan already owns the Gateway (and so its one Bus) this request needs."""
 
-    def __init__(
-        self, provider: str, gateway_id: str, scan_id: str, bus: str | None = None
-    ) -> None:
-        target = f"Bus {bus} of gateway" if bus is not None else "Gateway"
-        super().__init__(f"{target} {provider}/{gateway_id} is busy with active scan {scan_id}")
+    def __init__(self, provider: str, gateway_id: str, scan_id: str) -> None:
+        super().__init__(f"Gateway {provider}/{gateway_id} is busy with active scan {scan_id}")
         self.scan_id = scan_id
-        self.bus = bus
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-
 @dataclass(slots=True)
 class _ScanState:
     scan_id: str
     request: ScanRequest
-    # The Bus scanned: the request's, else the one the provider resolved on connect.
+    # The Bus scanned: the requested one (None when omitted) until the provider reports the
+    # Bus it targets. Never a Bus HA cached from an earlier read, which a Scan that fails
+    # before reaching its Bus never targeted.
     bus: str | None = None
     profile: DeviceProfile = GENERIC_DEVICE_PROFILE
     device_profile: dict[str, Any] = field(default_factory=GENERIC_DEVICE_PROFILE.summary)
@@ -124,36 +123,19 @@ class ModbusScanCoordinator:
         self._issues_failed = False
         self._scans: dict[str, _ScanState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        # (provider, gateway_id, bus) -> running scan id; a None bus holds the whole Gateway.
-        self._active: dict[tuple[str, str, str | None], str] = {}
+        # (provider, gateway_id) -> running scan id: one Scan per Gateway and its one Bus.
+        self._active: dict[tuple[str, str], str] = {}
         self._terminal_order: deque[str] = deque()
         self._shutting_down = False
 
     def list_gateways(self) -> dict[str, Any]:
         """Return every provider gateway in a stable service response."""
         gateways = [
-            {
-                **gateway.as_dict(),
-                **self._poller_selection(gateway, prune=False),
-                "running_buses": self._running_buses(gateway),
-            }
+            {**gateway.as_dict(), **self._poller_selection(gateway, prune=False)}
             for provider in self._providers.values()
             for gateway in provider.list_gateways()
         ]
         return {"gateways": gateways}
-
-    def _running_buses(self, gateway: GatewayInfo) -> list[str]:
-        """Buses of the Gateway with a running Scan, in name order.
-
-        A Scan started without a Bus counts from when it connects and resolves its Bus.
-        """
-        return sorted(
-            bus
-            for (p, g, _bus), scan_id in self._active.items()
-            if p == gateway.provider
-            and g == gateway.gateway_id
-            and (bus := self._scans[scan_id].bus) is not None
-        )
 
     def _poller_selection(self, gateway: GatewayInfo, *, prune: bool) -> dict[str, Any]:
         """Pausable Poller checklist per Bus of a Scan Lease Gateway, revalidated if known."""
@@ -173,13 +155,19 @@ class ModbusScanCoordinator:
         """Saved Pausable Poller checklist per Bus of one Gateway, for a Scan request."""
         return self._selection_store.saved(gateway_id) if self._selection_store else {}
 
-    def save_poller_selection(self, gateway_id: str, bus: str, indices) -> dict[str, Any]:
-        """Save which Pausable Pollers of one Bus a Scan pauses (indices of its table)."""
+    def save_poller_selection(
+        self, gateway_id: str, bus: str | None, indices
+    ) -> dict[str, Any]:
+        """Save which Pausable Pollers of the Gateway's Bus a Scan pauses (table indices).
+
+        The store decides whether, and for which Bus, a choice can be saved.
+        """
         if self._selection_store is None:
             raise ValueError("No config entry keeps Pausable Poller selections")
-        gateway = self._gateway("esphome", gateway_id)
-        checklists = self._selection_store.save_choice(gateway, bus, indices)
-        return {"gateway_id": gateway_id, "bus": bus, **checklists}
+        saved = self._selection_store.save_choice(
+            self._gateway("esphome", gateway_id), bus, indices
+        )
+        return {"gateway_id": gateway_id, **saved}
 
     def request_defaults(
         self,
@@ -203,46 +191,31 @@ class ModbusScanCoordinator:
             None,
         )
 
-    def _running_on(self, provider: str, gateway_id: str, bus: str | None = None) -> str | None:
-        """The running Scan holding this Bus; with bus None, any running Scan of the Gateway.
+    @staticmethod
+    def _check_bus(request: ScanRequest, gateway: GatewayInfo) -> None:
+        """Refuse a Scan naming a Bus other than the Gateway's one Bus (ADR 0011).
 
-        A Scan whose Bus is not known yet (None) holds every Bus of its Gateway.
+        ``bus`` may be omitted and then stays omitted: the provider targets the one Bus the
+        Gateway reports when the Scan connects, never a name HA remembers from an earlier
+        read (the Gateway may have been reflashed with its Bus renamed). A Bus that is named
+        while HA does not know it yet is checked by the provider the same way.
         """
-        return next(
-            (
-                scan_id
-                for (p, g, b), scan_id in self._active.items()
-                if p == provider and g == gateway_id and (bus is None or b is None or b == bus)
-            ),
-            None,
-        )
+        check_bus(request.gateway_id, gateway.bus, request.bus)
+        if request.bus is not None and gateway.bus is None and not gateway.supports_bus_selection:
+            raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
 
     @staticmethod
-    def _target_bus(request: ScanRequest, gateway: GatewayInfo) -> ScanRequest:
-        """Resolve and check the Scan's Bus against the Buses the Gateway reports.
+    def _initial_bus(
+        request: ScanRequest, gateway: GatewayInfo, provider: GatewayProvider
+    ) -> str | None:
+        """The Bus a Scan records before its provider reports one (see ``_ScanState.bus``).
 
-        A Gateway with one known Bus needs no ``bus``. While the Buses of a Gateway that
-        supports Bus selection are not known yet (a bridge v2 Gateway never checked), the
-        provider resolves the Bus when it connects.
+        A provider without progress reports (the mock) can never report one; it serves the
+        fixed Bus it lists, so that one is recorded.
         """
-        names = [row["bus"] for row in gateway.buses]
-        if request.bus is not None:
-            if names and request.bus not in names:
-                raise ValueError(
-                    f"Gateway {request.gateway_id} has no Bus {request.bus}; "
-                    f"its Buses are {', '.join(names)}"
-                )
-            if not names and not gateway.supports_bus_selection:
-                raise ValueError(f"Gateway {request.gateway_id} does not support bus selection")
-            return request
-        if len(names) == 1:
-            return replace(request, bus=names[0])
-        if len(names) > 1:
-            raise ValueError(
-                f"Gateway {request.gateway_id} has {len(names)} Buses ({', '.join(names)}); "
-                "choose one with bus"
-            )
-        return request
+        if request.bus is not None or getattr(provider, "supports_progress", False):
+            return request.bus
+        return gateway.bus
 
     async def start(
         self, request: ScanRequest, profile: DeviceProfile = GENERIC_DEVICE_PROFILE
@@ -265,24 +238,15 @@ class ModbusScanCoordinator:
         profile.limits.validate(request)
         if request.pause_pollers is not None and not gateway.supports_scan_lease:
             raise ValueError("pause_pollers needs a Gateway with Scan Lease support")
-        request = self._target_bus(request, gateway)
-        if existing := self._running_on(request.provider, request.gateway_id, request.bus):
-            raise GatewayBusyError(request.provider, request.gateway_id, existing, request.bus)
-        if gateway.limits is not None:
-            gateway.limits.validate_alongside(
-                request,
-                [
-                    self._scans[scan_id].request
-                    for (p, g, _bus), scan_id in self._active.items()
-                    if p == request.provider and g == request.gateway_id
-                ],
-            )
+        self._check_bus(request, gateway)
+        if existing := self._active.get(request.gateway_key):
+            raise GatewayBusyError(request.provider, request.gateway_id, existing)
 
         scan_id = str(uuid4())
         state = _ScanState(
             scan_id=scan_id,
             request=request,
-            bus=request.bus,
+            bus=self._initial_bus(request, gateway, provider),
             profile=profile,
             device_profile=profile.summary(),
             timing=gateway.limits.timing if gateway.limits is not None else ScanTiming(),
@@ -517,7 +481,7 @@ class ModbusScanCoordinator:
                 state.lease_ended_after_address = (
                     state.request.start_id + state.completed_addresses - 1
                 )
-            if state.bus is None and isinstance(update.get("bus"), str):
+            if isinstance(update.get("bus"), str):
                 state.bus = update["bus"]
             for key in ("paused_pollers", "removed_pollers"):
                 if isinstance(update.get(key), list):
@@ -621,10 +585,15 @@ class ModbusScanCoordinator:
         except Exception:  # noqa: BLE001 - never replace the Scan's own outcome
             return
 
-    def _report_issue(self, gateway_id, code):
+    def _report_issue(self, gateway_id, code, *, check=False):
+        """Report a fault (``code``) or, with None, that it is fixed (see report_gateway_issue).
+
+        ``check``: the outcome of a Gateway check, which proves fewer faults fixed than a
+        Scan whose recovery is verified.
+        """
         if self._issue_callback:
             try:
-                self._issue_callback(gateway_id, code)
+                self._issue_callback(gateway_id, code, check=check)
             except Exception:  # noqa: BLE001 - never replace the primary outcome
                 self._issues_failed = True
 
@@ -753,9 +722,14 @@ class ModbusScanCoordinator:
         provider = self._providers.get("esphome")
         if provider is None or not hasattr(provider, "check_gateway"):
             raise ValueError("No physical gateways are configured")
-        if existing := self._running_on("esphome", gateway_id):
+        if existing := self._active.get(gateway_key("esphome", gateway_id)):
             raise GatewayBusyError("esphome", gateway_id, existing)
-        health = await provider.check_gateway(gateway_id)
+        try:
+            health = await provider.check_gateway(gateway_id)
+        except GatewayProviderError as err:
+            self._report_issue(gateway_id, err.code, check=True)
+            raise
+        self._report_issue(gateway_id, None, check=True)
         response = {"gateway_id": gateway_id, "health": health}
         if gateway := self._gateway("esphome", gateway_id):
             response["buses"] = [dict(row) for row in gateway.buses]

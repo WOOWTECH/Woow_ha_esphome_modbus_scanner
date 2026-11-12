@@ -11,7 +11,7 @@ from homeassistant import config_entries, data_entry_flow
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.woow_esphome_modbus_scanner.const import DATA_PROBE_SLOT_MODES, DOMAIN
+from custom_components.woow_esphome_modbus_scanner.const import DOMAIN
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
 )
@@ -136,21 +136,6 @@ async def test_picking_an_esphome_device_enrolls_it_with_its_host_and_key(hass, 
     assert node.probes == []
 
 
-@pytest.mark.parametrize(
-    ("per_bus_sensors", "mode"), [(True, "per_bus"), (False, "shared_slot_fallback")]
-)
-async def test_enrollment_records_the_probe_slot_mode_it_read(hass, node, per_bus_sensors, mode):
-    # Scans right after Enrollment are then admitted under this mode (ADR 0010).
-    node.per_bus_sensors = per_bus_sensors
-    device = esphome_device(hass)
-
-    form = await step(hass, await start_user(hass), {"next_step_id": "esphome_device"})
-    created = await step(hass, form, {"device": device.entry_id})
-
-    assert created["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert hass.data[DOMAIN][DATA_PROBE_SLOT_MODES].get("esphome:aabbccddee01") == mode
-
-
 async def test_the_device_list_only_offers_esphome_nodes_with_a_known_mac(hass, node):
     device = esphome_device(hass)
     esphome_device(hass, mac="AA:BB:CC:DD:EE:02", source=config_entries.SOURCE_IGNORE)
@@ -179,6 +164,10 @@ def _old_signature(gateway):
     gateway.services[0].args.pop()
 
 
+def _two_buses(gateway):
+    gateway.buses = ["line_a", "line_b"]
+
+
 def _other_bridge_version(gateway):
     gateway.info = lambda: {"v": 1, "bridge": 3, "buses": []}
 
@@ -201,6 +190,7 @@ def _offline(gateway):
         (_plain_node, "scanner_missing"),
         (_old_signature, "bridge_mismatch"),
         (_other_bridge_version, "bridge_mismatch"),
+        (_two_buses, "multiple_buses"),
         (_reused_ip, "identity_mismatch"),
     ],
 )
@@ -333,6 +323,7 @@ async def test_manual_mode_verifies_a_v2_gateway_before_saving_it(hass, node):
         (_offline, "cannot_connect"),
         (_plain_node, "scanner_missing"),
         (_other_bridge_version, "bridge_mismatch"),
+        (_two_buses, "multiple_buses"),
         (_reused_ip, "identity_mismatch"),
     ],
 )

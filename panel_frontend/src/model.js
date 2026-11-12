@@ -33,7 +33,7 @@ export const DEFAULTS = Object.freeze({
   register_count: 1, timeout_ms: 500, retries: 1,
   inter_request_delay_ms: 100, pause_normal_polling: false,
   mock_scenario: "found_default", safety_confirmed: false, large_range_confirmed: false, bridge: "",
-  device_profile_id: "generic", bus: "",
+  device_profile_id: "generic",
 });
 /** A Bus name as Gateways report it (the Bridge Protocol v2 identifier charset). */
 const BUS_NAME = /^[0-9A-Za-z_-]{1,32}$/;
@@ -44,28 +44,16 @@ function serialLabel(serial) {
   if (!Number.isInteger(baud) || baud < 1 || !PARITIES.includes(parity) || ![1, 2].includes(stop)) return "";
   return ` (${baud} baud, parity ${parity}, ${stop} stop bit${stop === 2 ? "s" : ""})`;
 }
-/** The Buses a gateway reports, with their serial parameters, from untrusted response data. */
-export function gatewayBuses(gateway) {
+/**
+ * A result's Bus name with the serial parameters its Gateway reports for it, e.g.
+ * "rs485 (9600 baud, parity NONE, 1 stop bit)", from untrusted response data. A Gateway serves
+ * one Bus, so the panel offers no Bus choice: HA resolves the Bus of every Scan.
+ */
+export function busLabel(gateway, bus) {
+  if (typeof bus !== "string" || !BUS_NAME.test(bus)) return null;
   const rows = Array.isArray(gateway?.buses) ? gateway.buses : [];
-  return rows.filter((row) => row && typeof row === "object" && typeof row.bus === "string" && BUS_NAME.test(row.bus))
-    .map((row) => ({bus: row.bus, label: `${row.bus}${serialLabel(row.serial)}`}));
-}
-/** Choose the Bus a Scan targets; a Bus the gateway does not report is ignored. */
-export function selectBus(form, gateway, bus) {
-  if (!gatewayBuses(gateway).some((row) => row.bus === bus)) return form;
-  return {...form, bus, safety_confirmed: false, large_range_confirmed: false};
-}
-/** The Bus to keep for a gateway: none needed for one (or unknown) Bus, else the chosen or first one. */
-function initialBus(gateway, current = "") {
-  const buses = gatewayBuses(gateway);
-  if (buses.length < 2) return "";
-  return buses.some((row) => row.bus === current) ? current : buses[0].bus;
-}
-/** Revalidate the form's Bus once the gateway's Buses are (re)loaded. */
-export function reconcileBus(form, gateway) {
-  if (!gateway) return form;
-  const bus = initialBus(gateway, form.bus);
-  return bus === form.bus ? form : {...form, bus, safety_confirmed: false, large_range_confirmed: false};
+  const row = rows.find((item) => item && typeof item === "object" && item.bus === bus);
+  return `${bus}${serialLabel(row?.serial)}`;
 }
 const FUNCTION_CODE_PROBES = Object.freeze({3: "holding_register", 4: "input_register"});
 /** The built-in Generic Device Profile, as list_device_profiles returns it (used until the list loads). */
@@ -89,18 +77,6 @@ const PHYSICAL_GATEWAY = /^esphome:[0-9a-f]{12}$/;
 /** Whether a Scan estimated at `estimateMs` outlasts the Scan Lease of a Gateway that holds one (the contract's hard limit). */
 export function outlastsScanLease(estimateMs, gateway) {
   return supportsScanLease(gateway) && Number.isFinite(estimateMs) && estimateMs > contract.lease.hard_limit_ms;
-}
-/**
- * Whether the Gateway's estimate leaves out other Scans' Probes: its Buses take turns for one
- * Probe Slot (shared-slot fallback) and another Bus runs a Scan now. In per-Bus mode other Scans
- * do not slow this one.
- */
-export function estimateLeavesOutOtherScans(gateway, bus) {
-  if (gateway?.limits?.probes_take_turns !== true || !Array.isArray(gateway.running_buses)) return false;
-  // A form without a Bus targets a one-Bus Gateway's only Bus.
-  const buses = gatewayBuses(gateway);
-  const own = bus || (buses.length === 1 ? buses[0].bus : undefined);
-  return gateway.running_buses.some((running) => running !== own);
 }
 export function isBridgeV2(gateway) {
   return gateway?.provider === "esphome" && Array.isArray(gateway.capabilities) && gateway.capabilities.includes("bridge_v2");
@@ -170,7 +146,7 @@ export function selectGateway(form, gateway) {
   const limits = reportedLimits(gateway?.limits);
   const bridge = isBridgeV2(gateway) ? "v2" : gateway.provider === "esphome" ? "v1" : "";
   return {...form, ...(gateway.provider === "mock" ? DEFAULTS : {}), ...reportedDefaults(limits), provider:gateway.provider,
-    gateway_id:gateway.gateway_id, bridge, bus:initialBus(gateway), gateway_limits:limits, safety_confirmed:false};
+    gateway_id:gateway.gateway_id, bridge, gateway_limits:limits, safety_confirmed:false};
 }
 /**
  * Revalidate a restored or kept form once its gateway is (re)loaded: when the limits the Gateway
@@ -202,7 +178,7 @@ export function reconcileGateway(form, gateway) {
     if (limits.pause_normal_polling_required === true) next.pause_normal_polling = true;
     if (Object.keys(DEFAULTS).some((key) => next[key] !== form[key])) Object.assign(next, {safety_confirmed: false, large_range_confirmed: false});
   }
-  return reconcileBus(next, gateway);
+  return next;
 }
 /** Raw register evidence in decimal and hex, e.g. "1234 (0x04D2), 65535 (0xFFFF)". */
 export function formatRawValues(row) {
@@ -268,13 +244,28 @@ export function removedPollers(status) {
   return pollerObjects(status?.removed_pollers).map(pollerLabel);
 }
 /**
- * The Pausable Poller checklist of each Bus of a Gateway with Scan Lease support, as saved in HA and
- * revalidated against the firmware: `removed` names saved pollers the firmware dropped.
- * With `bus` (the selected Bus of a multi-Bus gateway) only that Bus's checklist is returned.
+ * The checklist key the panel shows for a Gateway's one Bus (ADR 0011), read only from what HA sends:
+ * the keys of its `poller_selection` payload and the Gateway's `buses`. With one reported Bus, that Bus
+ * if HA sent a checklist for it; with no reported Bus (no check since a restart, or a check that made HA
+ * forget it), the only key HA sent. Several keys with no reported Bus, or several reported Buses, give none.
+ * HA decides which checklist it sends and sends `{}` for a Gateway it refuses, which shows no checklist;
+ * whatever the panel picks, HA still validates the key when the checklist is saved.
  */
-export function pollerChecklists(gateway, bus = "") {
+function ownBus(gateway, keys) {
+  const buses = Array.isArray(gateway.buses) ? gateway.buses : [];
+  if (buses.length) return buses.length === 1 && keys.includes(buses[0]?.bus) ? buses[0].bus : null;
+  return keys.length === 1 ? keys[0] : null;
+}
+/**
+ * The Pausable Poller checklist of a Gateway with Scan Lease support, as saved in HA (keyed by its
+ * one Bus) and revalidated against the firmware: `removed` names saved pollers the firmware dropped.
+ * At most one checklist: the Gateway's one Bus.
+ */
+export function pollerChecklists(gateway) {
   if (!supportsScanLease(gateway) || !gateway.poller_selection || typeof gateway.poller_selection !== "object") return [];
-  return Object.entries(gateway.poller_selection).filter(([name, rows]) => Array.isArray(rows) && (!bus || name === bus)).map(([bus, rows]) => ({
+  const saved = Object.entries(gateway.poller_selection).filter(([, rows]) => Array.isArray(rows));
+  const own = ownBus(gateway, saved.map(([bus]) => bus));
+  return saved.filter(([bus]) => bus === own).map(([bus, rows]) => ({
     bus,
     pollers: pollerObjects(rows).filter((row) => Number.isInteger(row.index) && row.index >= 0)
       .map((row) => ({index: row.index, label: pollerLabel(row), paused: row.paused === true})),
@@ -356,7 +347,6 @@ export function validateForm(form, single = false, text = {}, profile = GENERIC_
 function sharedPayload(form) {
   return {
     provider: form.provider, gateway_id: form.gateway_id,
-    ...(typeof form.bus === "string" && BUS_NAME.test(form.bus) ? {bus: form.bus} : {}),
     probe_type: form.probe_type,
     register_address: Number(form.register_address), register_count: Number(form.register_count),
     timeout_ms: Number(form.timeout_ms), retries: Number(form.retries),
@@ -419,8 +409,6 @@ export function sanitizePreferences(value) {
   if (source.pause_normal_polling === true || source.pause_normal_polling === false) form.pause_normal_polling = source.pause_normal_polling;
   // Checked against the loaded profile list later; an unknown id falls back to Generic there.
   if (typeof source.device_profile_id === "string" && PROFILE_ID.test(source.device_profile_id)) form.device_profile_id = source.device_profile_id;
-  // Checked against the gateway's reported Buses when the gateway list loads.
-  if (typeof source.bus === "string" && BUS_NAME.test(source.bus)) form.bus = source.bus;
   // A stored acknowledgement is not consent for a new browser session.
   form.safety_confirmed = false;
   form.large_range_confirmed = false;

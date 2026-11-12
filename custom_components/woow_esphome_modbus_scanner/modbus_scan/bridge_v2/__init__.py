@@ -1,14 +1,9 @@
 """Bridge protocol v2 adapter for the vendor-neutral ``modbus_scanner`` ESPHome component."""
 
-from .provider import EndpointResolver, ProbeSlotMemory, V2Gateway, V2GatewayProvider
+from .provider import EndpointResolver, V2Gateway, V2GatewayProvider
 
 
-def build_provider(
-    gateways,
-    *,
-    endpoint: EndpointResolver | None = None,
-    probe_slot_memory: ProbeSlotMemory | None = None,
-):
+def build_provider(gateways, *, endpoint: EndpointResolver | None = None):
     """Create the v2 provider from config-entry gateway dictionaries."""
     return V2GatewayProvider(
         [
@@ -23,8 +18,7 @@ def build_provider(
             for g in gateways
         ],
         endpoint=endpoint,
-        probe_slot_memory=probe_slot_memory,
     )
 
 
-__all__ = ["ProbeSlotMemory", "V2Gateway", "V2GatewayProvider", "build_provider"]
+__all__ = ["V2Gateway", "V2GatewayProvider", "build_provider"]

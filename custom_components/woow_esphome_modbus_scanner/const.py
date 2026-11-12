@@ -2,7 +2,7 @@
 
 DOMAIN = "woow_esphome_modbus_scanner"
 NAME = "Woow ESPHome Modbus Scanner"
-VERSION = "0.5.0.dev2"
+VERSION = "0.5.0.dev3"
 
 PANEL_COMPONENT_NAME = "woow-esphome-modbus-scanner-panel"
 PANEL_URL_PATH = "woow-esphome-modbus-scanner"
@@ -19,7 +19,6 @@ DATA_STATIC_PATH_REGISTERED = "static_path_registered"
 DATA_SERVICE_OWNER = "service_owner"
 DATA_SERVICES_AVAILABLE = "services_available"
 DATA_DEVICE_PROFILES = "device_profiles"
-DATA_PROBE_SLOT_MODES = "probe_slot_modes"
 
 SERVICE_LIST_GATEWAYS = "list_gateways"
 SERVICE_START_SCAN = "start_scan"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
@@ -12,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
 
 from .const import (
     DATA_COORDINATOR,
@@ -30,10 +32,28 @@ from .const import (
 from .device_profile_store import DeviceProfileStore
 from .history import ScanHistory
 from .issues import sync_legacy_bridge_issues
-from .probe_slot_modes import async_probe_slot_modes
 from .services import async_register_services, async_unregister_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+_LOGGER = logging.getLogger(__name__)
+
+# Storage files earlier releases wrote and nothing reads any more. 0.5.0.dev2 kept each
+# Gateway's Probe Slot mode; one Bus per Gateway (ADR 0011) removed Probe Slot modes.
+RETIRED_STORAGE_KEYS = (f"{DOMAIN}.probe_slot_modes",)
+
+
+async def _async_remove_retired_storage(hass: HomeAssistant) -> None:
+    """Delete the retired storage files, best effort, on every setup.
+
+    A storage cleanup, not a settings migration: a file left behind is never read, so a
+    failure only logs a warning and never fails setup.
+    """
+    for key in RETIRED_STORAGE_KEYS:
+        try:
+            await Store(hass, 1, key).async_remove()  # a file already gone is not an error
+        except OSError as err:
+            _LOGGER.warning("Could not remove the retired %s storage file: %s", key, err)
 
 
 @dataclass(slots=True)
@@ -111,7 +131,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 profiles = DeviceProfileStore(hass)
                 await profiles.async_load()
                 domain_data[DATA_DEVICE_PROFILES] = profiles
-            await async_probe_slot_modes(hass)
+            await _async_remove_retired_storage(hass)
             await _async_register_panel(hass)
         except BaseException:
             if (

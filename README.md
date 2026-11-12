@@ -1,10 +1,10 @@
 # Woow ESPHome Modbus Scanner
 
-> **0.5.0.dev2 is under development** (on `main`). It is not a release and has
+> **0.5.0.dev3 is under development** (on `main`). It is not a release and has
 > not been deployed or accepted on hardware yet. 0.5.0.dev1 (#17) introduced the
-> vendor-neutral component; 0.5.0.dev2 (#18) gives every Bus its own Result and
-> Lease sensor so the Buses of one Gateway probe independently. The last
-> deployed build was 0.4.0.dev1; see [History](#history).
+> vendor-neutral component; 0.5.0.dev3 (#26) settles on one Gateway, one Bus and
+> drops the multi-Bus support of 0.5.0.dev2. The last deployed build was
+> 0.4.0.dev1; see [History](#history).
 
 Read-only, best-effort discovery of which Modbus RTU slave IDs answer on an
 RS-485 Bus reached through an ESPHome node, driven from Home Assistant. The
@@ -27,8 +27,10 @@ The older mock-only tutorials are listed under [History](#history).
 
 ## How it works
 
-- A **Gateway** is an enrolled ESPHome node running `modbus_scanner`. Each
-  Modbus hub on the node with a `modbus_scanner` entry is one **Bus**.
+- A **Gateway** is an enrolled ESPHome node running `modbus_scanner` on
+  exactly one **Bus**: the Modbus RTU line (hub) its one `modbus_scanner` entry
+  names, with its serial parameters. One Gateway, one Bus: scan a second RS-485
+  line with another node.
 - A **Scan** is an ordered series of read-only **Probes** (FC03 holding or FC04
   input registers) over a range of slave IDs on one Bus. A slave ID that
   answers is a **Responder**; that is not proof of exactly one physical device.
@@ -46,7 +48,7 @@ Design decisions:
 [ADR 0006, Pausable Poller discovery and selection](docs/adr/0006-codegen-discovery-and-runtime-selection-of-pausable-pollers.md),
 [ADR 0007, Scan Lease with Gateway-owned recovery](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md),
 [ADR 0008, scanner service set and persisted history](docs/adr/0008-scanner-service-set-and-persisted-history.md),
-[ADR 0010, per-Bus Result and Lease sensors](docs/adr/0010-per-bus-result-and-lease-sensors.md).
+[ADR 0011, one Bus per Gateway](docs/adr/0011-one-bus-per-gateway.md).
 Earlier ADRs 0001–0003 cover the provider/coordinator split, the singleton
 lifecycle and the all-user sidebar.
 
@@ -56,7 +58,7 @@ Discovery is read-only and best-effort. A timeout does not prove an address is
 unused, and a reply does not prove that one physical device owns that slave ID.
 The firmware refuses every write function code (FC05, FC06, FC15, FC16, FC22,
 FC23) and enforces its own hard limits: slave 1–247, FC03/FC04, 1–4 registers,
-100–2000 ms timeout, one Probe in flight per Bus.
+100–2000 ms timeout, one Probe in flight per Gateway.
 
 - `start_scan` requires the literal boolean `safety_confirmed: true`; strings
   and numbers are rejected.
@@ -126,21 +128,20 @@ modbus_scanner:
 ```
 
 The component registers the read-only probe and lease-release actions
-(`modbus_scanner_v2_probe`, `modbus_scanner_v2_release`), three shared diagnostic
-text sensors (`Modbus Scanner v2 Info`, `Result`, `Lease`) and, for every Bus,
-`Modbus Scanner v2 Result <bus>` and `Modbus Scanner v2 Lease <bus>`; `api:
+(`modbus_scanner_v2_probe`, `modbus_scanner_v2_release`) and three diagnostic
+text sensors (`Modbus Scanner v2 Info`, `Result`, `Lease`); `api:
 custom_services` is not needed and none of these sensors is declared in YAML. Every `PollingComponent` bound to the same hub,
 here `meter`, becomes a Pausable Poller automatically; adding one later needs a
-recompile. Complete examples:
-[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml)
-and, for one node with two RS-485 lines,
-[`firmware/examples/multi-bus-modbus-scanner.yaml`](firmware/examples/multi-bus-modbus-scanner.yaml).
+recompile. Complete example:
+[`firmware/examples/generic-modbus-scanner.yaml`](firmware/examples/generic-modbus-scanner.yaml).
 
-**Several Buses on one Gateway:** add one `modbus_scanner` entry per hub,
-optionally naming each with `bus:` (1–32 characters from `0-9 A-Z a-z _ -`; the
-default is the hub id). Only one scanner is allowed per hub. Each Bus has its
-own Pausable Poller table and reports its baud rate, parity and stop bits. The
-probe actions and text sensors exist once per node.
+**One Gateway, one Bus:** a node has exactly one `modbus_scanner` entry; a
+second one fails to compile with "A node supports only one modbus_scanner; scan
+a second RS-485 line with another node". On a node with two RS-485 lines, only
+one of them can be scanned. The Bus may be named with `bus:` (1–32 characters
+from `0-9 A-Z a-z _ -`; the default is the hub id); it reports its baud rate,
+parity and stop bits, which HA shows with every result. HA refuses to enroll or
+check a Gateway whose info reports more than one Bus.
 
 The wire protocol (bridge protocol v2) is defined in one machine-readable file,
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json),
@@ -177,12 +178,13 @@ Gateway at a time. Stored keys are never shown.
 Open **Modbus Scanner** (`mdi:radar`, route `/woow-esphome-modbus-scanner`). It
 is visible to all HA users. Hard-refresh the browser after an update.
 
-1. Pick a Gateway; on a Gateway with several Buses pick the Bus (shown with its
-   serial parameters).
+1. Pick a Gateway. Its one Bus is scanned; results name it with its serial
+   parameters.
 2. Pick a Device Profile. Its defaults fill the form and its limits, intersected
    with the Gateway's, bound every field.
 3. Check the Gateway so the Pausable Pollers card lists each poller by name and
-   slave address. All are checked by default; the selection is saved per Bus.
+   slave address. All are checked by default; the selection is saved for the
+   Gateway's Bus.
 4. Confirm the best-effort warning (and the Large Range warning above 32 IDs),
    then **Start scan**, or **Test address** for one slave ID.
 
@@ -256,23 +258,8 @@ up to one of its `update_interval`s. Scan status reports `lease_status`
 (`none`, `active`, `ended`, `unconfirmed`) and `lease_end_reason` (`released`,
 `idle`, `hard_limit`, `superseded`).
 
-**Multiple Buses:** Scans of different Buses on one Gateway run side by side,
-one Scan per Bus. The current `modbus_scanner` component gives every Bus its own
-result and lease sensor (`Modbus Scanner v2 Result <bus>` and
-`Modbus Scanner v2 Lease <bus>`, created automatically; reflash the Gateway, no
-YAML change). Then each Bus has one Probe in flight of its own and a Scan waits
-only for its own `inter_request_delay_ms`; `check_gateway` reports
-`health.probe_slots: per_bus` (ADR 0010).
-
-Firmware without these sensors gets the shared-slot fallback: the Probes of all
-Buses take turns, so there is one Probe in flight per Gateway at a time. All
-Buses share the node's result sensor, and ESPHome's API would otherwise drop one
-of two results published together. Between two Probes a Scan therefore waits its own `inter_request_delay_ms` plus one Probe
-(`timeout_ms` + about 300 ms) of every other running Scan of the Gateway. A Scan
-is refused at start when that wait would pass 3000 ms for any Scan that pauses
-Normal Polling, since a longer gap could end its Scan Lease as idle. At the
-defaults (100 ms delay, 1000 ms timeout) three Buses scan together; lower
-`timeout_ms` or `inter_request_delay_ms` to add more, or wait for the other Scan.
+**One Scan per Gateway:** a Gateway serves one Bus, so it runs one Scan and
+has one Probe in flight at a time; a second Scan is refused as busy.
 
 ## Public services
 
@@ -281,9 +268,9 @@ active user (physical operations need an active user or an internal automation).
 
 | Service | Purpose |
 |---|---|
-| `list_gateways` | Gateways with provider, Buses, limits (`probes_take_turns`: whether the Buses take turns for one Probe Slot), health, Pausable Poller checklist, `running_buses` (Buses running a Scan now) and `can_operate` |
-| `check_gateway` | Verify one Gateway's MAC and Bridge Protocol signature and read its Buses and pollers, without a Modbus frame |
-| `set_pausable_pollers` | Save which Pausable Pollers of one Bus a Scan pauses (`gateway_id`, `bus`, `pause_pollers`) |
+| `list_gateways` | Gateways with provider, Bus (`buses`, always one entry once checked), limits, health, Pausable Poller checklist and `can_operate` |
+| `check_gateway` | Verify one Gateway's MAC and Bridge Protocol signature and read its Bus and pollers, without a Modbus frame; a Gateway reporting more than one Bus is refused |
+| `set_pausable_pollers` | Save which Pausable Pollers of the Gateway's Bus a Scan pauses (`gateway_id`, `pause_pollers`, optional `bus`) |
 | `start_scan` | Start a range Scan; returns its `scan_id` immediately |
 | `test_address` | Scan one slave ID (`address`); range confirmation is implicit |
 | `get_scan_status` | Progress, phase, lease state, errors and recovery evidence |
@@ -305,7 +292,7 @@ retry and no pause):
 |---|---|---|
 | `provider` | `mock` | `mock` or `esphome` |
 | `gateway_id` | `mock:rs485-gateway` | From `list_gateways`, e.g. `esphome:aabbccddeeff` |
-| `bus` | — | Required when the Gateway has more than one Bus |
+| `bus` | — | Optional; when given it must name the Gateway's one Bus |
 | `esphome_device_id` | — | Optional extra MAC cross-check against an HA ESPHome device |
 | `device_profile_id` | `generic` | Its defaults fill omitted fields; its limits apply with the Gateway's |
 | `start_id`, `end_id` | Device Profile default | 1–247; required unless the Device Profile defines a slave range |
@@ -337,13 +324,12 @@ response_variable: started
 ```
 
 Use the returned `scan_id` with `get_scan_status` and `get_scan_results`. Only
-one Scan may run per Bus; a second one is refused as busy.
+one Scan may run per Gateway; a second one is refused as busy.
 
 ## Mock provider
 
 `provider: mock` needs no hardware and never opens a connection. It offers
-`mock:rs485-gateway` (one Bus) and `mock:multi-bus-gateway` (Buses `rs485_a`
-and `rs485_b`). `mock_scenario` selects one fixed outcome set:
+`mock:rs485-gateway` (Bus `rs485`). `mock_scenario` selects one fixed outcome set:
 `found_default`, `all_offline`, `partial_timeout`, `modbus_exception`,
 `possible_collision`, `gateway_disconnect`. Mock register reads return raw
 values for FC03/FC04. The former field name `mock_profile` is still accepted as

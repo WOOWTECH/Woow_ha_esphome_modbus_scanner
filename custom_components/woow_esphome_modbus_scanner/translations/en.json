@@ -66,7 +66,8 @@
       "cannot_connect": "Could not verify gateway API identity and Bridge Protocol support. Existing settings were not changed.",
       "scanner_missing": "This ESPHome device does not run the modbus_scanner component (Bridge Protocol v2). Add the component to its ESPHome YAML and reflash, then enroll it again.",
       "bridge_mismatch": "The node's modbus_scanner component speaks a different Bridge Protocol version than this integration. Update the firmware and the integration to the same release.",
-      "identity_mismatch": "The device at this host reports a different MAC than expected; nothing was enrolled."
+      "identity_mismatch": "The device at this host reports a different MAC than expected; nothing was enrolled.",
+      "multiple_buses": "This node reports more than one Bus. A Gateway serves exactly one Bus: keep one modbus_scanner entry in its ESPHome YAML and reflash, and scan a second RS-485 line with another node."
     },
     "abort": {
       "already_configured": "This integration is already configured.",
@@ -90,7 +91,7 @@
   "issues": {
     "gateway_action_required": {
       "title": "Scanner gateway requires attention",
-      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and Bridge Protocol version of the Gateway firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual Gateway maintenance. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
+      "description": "Gateway error: {code}. Check the configured MAC, API encryption key and Bridge Protocol version of the Gateway firmware. For FIRMWARE_FAULT, the firmware has blocked further reads because transport state is uncertain; arrange manual Gateway maintenance. For MULTIPLE_BUSES, the Gateway firmware declares more than one modbus_scanner Bus but a Gateway serves exactly one: keep one modbus_scanner entry in its ESPHome YAML, reflash it and check the Gateway again, and scan a second RS-485 line with another node. Do not repeatedly restart scans or clear encryption to bypass an authentication error."
     },
     "legacy_bridge": {
       "title": "Gateway {name} uses the deprecated Bridge Protocol v1",
