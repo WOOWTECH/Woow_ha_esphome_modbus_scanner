@@ -1,4 +1,7 @@
-"""HA diagnostic downloads contain no addresses, keys, raw frames or user data."""
+"""HA diagnostic downloads contain no addresses, keys, raw frames or user data.
+
+The Info summary of each Gateway carries no Bus or Pausable Poller names.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ def _info_summary(gateway) -> dict | None:
     pollers = health.get("pausable_pollers") or {}
     return {
         "bridge_version": health["bridge_version"],
-        "serial": buses[0].get("serial") if len(buses) == 1 else None,
+        "serial": buses[0].get("serial") if buses else None,
         "pausable_poller_count": sum(len(table) for table in pollers.values()),
     }
 
@@ -71,6 +74,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
             for record in records
         ],
         "privacy": (
-            "Gateway identities, hosts, credentials, raw responses and exception text omitted."
+            "Gateway identities, hosts, credentials, raw responses, exception text, Bus and "
+            "Pausable Poller names omitted."
         ),
     }

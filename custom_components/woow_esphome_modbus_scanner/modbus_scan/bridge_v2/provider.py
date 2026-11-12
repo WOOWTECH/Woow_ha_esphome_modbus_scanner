@@ -529,7 +529,7 @@ class V2GatewayProvider:
         )
 
     def _refuse_buses(self, gateway_id: str) -> None:
-        """Mark the Gateway refused for several Buses, and forget its last Info (Bus, pollers).
+        """Mark the Gateway refused for several Buses, and forget its last Info.
 
         The refusal stays in health (``multiple_buses``) until an info read reports exactly
         one Bus; a later failure for any other reason keeps it, so nothing targets or saves

@@ -144,13 +144,13 @@ parity and stop bits, which HA shows with every result. HA refuses to enroll or
 check a Gateway whose info reports more than one Bus.
 
 **The Info sensor is disabled by default.** `Modbus Scanner v2 Info` lists the
-Bus and every Pausable Poller, so with more than a few pollers it passes Home
+Bus and every Pausable Poller, so with more than a few Pausable Pollers it passes Home
 Assistant's 255-character state limit. HA therefore registers it as a disabled
 entity and stores no state for it; the integration still reads the full Info
 over the ESPHome API, so Enrollment, **Check Gateway** and Scans are unaffected.
 `Result` and `Lease` stay enabled. To see what the Gateway reports, download the
 integration's diagnostics (**Settings → Devices & services → Woow ESPHome Modbus
-Scanner → ⋮ → Download diagnostics**): each Gateway lists its bridge protocol
+Scanner → ⋮ → Download diagnostics**): each Gateway lists its Bridge Protocol
 version, serial parameters and Pausable Poller count (Bus and poller names are
 left out). If you enable the Info entity, or set
 `info_sensor: {name: Modbus Scanner v2 Info, disabled_by_default: false}` in
