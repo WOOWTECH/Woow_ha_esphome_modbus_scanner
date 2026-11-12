@@ -127,6 +127,17 @@ node」。有兩條 RS-485 線的節點只能掃其中一條；第二條 RS-485 
 `bus:` 命名（1–32 個 `0-9 A-Z a-z _ -` 字元；預設為 hub id），並回報鮑率、同位元與停止
 位元，HA 會在每筆結果旁顯示。Gateway 的 info 回報超過一條 Bus 時，HA 會拒絕登錄與檢查。
 
+**Info 感測器預設停用。**`Modbus Scanner v2 Info` 會列出 Bus 與每個 Pausable
+Poller，Poller 稍多就會超過 Home Assistant 255 字元的 state 上限，所以 HA 把它註冊為停用的
+entity，不寫入 state。整合仍經 ESPHome API 讀取完整的 Info，Enrollment、「檢查 Gateway」與
+Scan 都不受影響；`Result` 與 `Lease` 維持啟用。想看 Gateway 回報的內容，請下載整合的診斷資料
+（**設定 → 裝置與服務 → Woow ESPHome Modbus Scanner → ⋮ → 下載診斷資料**）：每台 Gateway 會列出
+Bridge Protocol 版本、serial 參數與 Pausable Poller 數量（不含 Bus 與 Poller 名稱）。若手動啟用
+Info entity，或在 YAML 寫 `info_sensor: {name: Modbus Scanner v2 Info, disabled_by_default: false}`，
+Info 變長後 HA 會記錄 `... modbus_scanner_v2_info is longer than 255` 並把 entity 顯示為
+`unknown`，這是預期行為。這個預設只影響之後新註冊的 entity：先前已加入的 Gateway 會保留啟用的
+Info entity，移除後重新加入即可。
+
 傳輸協定（Bridge Protocol v2）定義在單一機器可讀檔
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json)，
 HA adapter、測試用假 Gateway 與韌體主機測試都讀取它。

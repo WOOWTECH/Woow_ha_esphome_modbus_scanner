@@ -99,8 +99,19 @@ jobs:
             echo 'wifi_password: "ci-password"'
             echo "api_encryption_key: \"$(head -c 32 /dev/urandom | base64)\""
           } > secrets.yaml
-      - run: esphome config generic-modbus-scanner.yaml
+      - name: Validate the example; only the Info sensor is disabled by default (issue #25)
         working-directory: firmware/examples
+        run: |
+          esphome config generic-modbus-scanner.yaml > /tmp/config.log 2>&1 || { cat /tmp/config.log; exit 1; }
+          grep -A3 '    info_sensor:' /tmp/config.log | grep -F 'disabled_by_default: true' || { cat /tmp/config.log; exit 1; }
+          for sensor in result_sensor lease_sensor; do
+            grep -A3 "    $sensor:" /tmp/config.log | grep -F 'disabled_by_default: false' || { cat /tmp/config.log; exit 1; }
+          done
+          # A disabled_by_default written in YAML wins over the component's default.
+          awk '{print} /^  - modbus_id: rs485$/ {print "    info_sensor:\n      name: Modbus Scanner v2 Info\n      disabled_by_default: false"}' \
+            generic-modbus-scanner.yaml > info-enabled-check.yaml
+          esphome config info-enabled-check.yaml > /tmp/override.log 2>&1 || { cat /tmp/override.log; exit 1; }
+          grep -A3 '    info_sensor:' /tmp/override.log | grep -F 'disabled_by_default: false' || { cat /tmp/override.log; exit 1; }
       - name: Two modbus_scanner entries on one node are refused (one Bus per Gateway)
         working-directory: firmware/tests
         run: |
