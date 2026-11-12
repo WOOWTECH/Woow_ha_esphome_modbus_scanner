@@ -135,8 +135,10 @@ Scan 都不受影響；`Result` 與 `Lease` 維持啟用。想看 Gateway 回報
 Bridge Protocol 版本、serial 參數與 Pausable Poller 數量（不含 Bus 與 Poller 名稱）。若手動啟用
 Info entity，或在 YAML 寫 `info_sensor: {name: Modbus Scanner v2 Info, disabled_by_default: false}`，
 Info 變長後 HA 會記錄 `... modbus_scanner_v2_info is longer than 255` 並把 entity 顯示為
-`unknown`，這是預期行為。這個預設只影響之後新註冊的 entity：先前已加入的 Gateway 會保留啟用的
-Info entity，移除後重新加入即可。
+`unknown`，這是預期行為。這個預設只影響 HA 從沒見過的 Gateway：先前已加入過 HA 的 Gateway
+會保留啟用的 Info entity，請手動停用（**設定 → 裝置與服務 → 實體**，`Modbus Scanner v2 Info` →
+**停用**）。移除 Gateway 再重新加入沒有用：HA 會記住已移除 entity 的啟用／停用設定 30 天，
+重新加入時還原。
 
 傳輸協定（Bridge Protocol v2）定義在單一機器可讀檔
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json)，

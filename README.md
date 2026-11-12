@@ -156,8 +156,11 @@ left out). If you enable the Info entity, or set
 `info_sensor: {name: Modbus Scanner v2 Info, disabled_by_default: false}` in
 YAML, HA logs `... modbus_scanner_v2_info is longer than 255` and shows the
 entity as `unknown` once the Info is long; that is expected. The default applies
-only to entities HA registers from now on: a Gateway added before keeps its Info
-entity enabled until it is removed and added again.
+only to a Gateway HA has never seen: a Gateway added to HA before keeps its Info
+entity enabled. Disable it by hand (**Settings → Devices & services → Entities**,
+`Modbus Scanner v2 Info` → **Disable**). Removing the Gateway and adding it again
+does not help: HA remembers a removed entity's enabled or disabled setting for 30
+days and restores it.
 
 The wire protocol (bridge protocol v2) is defined in one machine-readable file,
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json),
