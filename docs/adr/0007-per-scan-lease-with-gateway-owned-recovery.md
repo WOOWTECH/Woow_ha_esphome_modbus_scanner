@@ -60,7 +60,7 @@ pause.
   `clear_tx_queue_for_address()` clears the hub's queued frames, not a frame
   already on the Bus waiting for its reply. If a selected Pausable Poller has
   such a frame in flight when the lease begins and its field device does not
-  answer, that Pausable Poller's `modbus_controller` resends the frame during
+  answer, that Pausable Poller (a `modbus_controller`) resends the frame during
   the Scan, up to its `max_cmd_retries` times (ESPHome default 4). The cost is
   extra Bus traffic and a slower Scan (about 3–4 s on the test bench); the hub
   sends one frame at a time, so Responder results are unaffected. We accept
