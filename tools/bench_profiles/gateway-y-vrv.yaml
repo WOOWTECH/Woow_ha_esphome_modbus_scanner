@@ -1,0 +1,59 @@
+# #16 A3 bench Gateway Y: the same board as gateway-y.yaml, wired to a real third-party
+# device instead of the simulator: a VRV-To-Modbus-Controller in its built-in VRV simulation
+# mode (slave 1, 9600 8E1 per its manual; holding register (AA*32+BB)*6+1 is the setpoint
+# of 內機 AA-BB). Only that device is on the Bus.
+# Differences from gateway-y.yaml: parity EVEN, and no Pausable Poller (bench_poller reads
+# slave 1, which here is the VRV device). Paths are relative to this file. secrets.yaml is
+# local only, never committed.
+#   esphome -s fw_version 0.5.0.dev3 run gateway-y-vrv.yaml
+substitutions:
+  components_path: ../../firmware/components
+  fw_version: "0.5.0.dev3"
+
+esphome:
+  name: bench-gateway-y
+  min_version: 2026.9.0
+  project:
+    name: woowtech.modbus_scanner
+    version: ${fw_version}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key_y
+
+ota:
+  - platform: esphome
+
+external_components:
+  - source:
+      type: local
+      path: ${components_path}
+    components: [modbus_scanner]
+
+uart:
+  id: rs485_uart
+  tx_pin: GPIO32
+  rx_pin: GPIO35
+  baud_rate: 9600
+  parity: EVEN
+  stop_bits: 1
+
+modbus:
+  id: rs485
+  uart_id: rs485_uart
+  flow_control_pin: GPIO33
+  send_wait_time: 1000ms
+
+modbus_scanner:
+  - modbus_id: rs485
