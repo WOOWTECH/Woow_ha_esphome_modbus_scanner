@@ -238,6 +238,12 @@ Scan 會暫停你在該 Bus 選定的 Pausable Poller，避免其流量與 Probe
 一個 `update_interval`。Scan 狀態會回報 `lease_status`（`none`、`active`、`ended`、
 `unconfirmed`）與 `lease_end_reason`（`released`、`idle`、`hard_limit`、`superseded`）。
 
+**已知限制：**Scan Lease 只能停掉還沒送出的封包。如果 lease 開始時，某個選定的 Pausable
+Poller 已經有一個封包在等回應，而它的現場設備沒有回應，這個 Pausable Poller（一個 `modbus_controller`）會在 Scan
+期間重送這個封包，最多 `max_cmd_retries` 次（ESPHome 預設 4）。這會增加 Bus 上的流量，
+讓 Scan 慢幾秒；Responder 結果不受影響。見 [ADR 0007](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)
+與 #30。
+
 **每台 Gateway 一次一個 Scan：**一台 Gateway 只服務一條 Bus，所以同時只有一個 Scan、
 一個 Probe 在途；第二個 Scan 會因 busy 被拒絕。
 
