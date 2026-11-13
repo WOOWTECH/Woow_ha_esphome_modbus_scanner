@@ -143,6 +143,25 @@ from `0-9 A-Z a-z _ -`; the default is the hub id); it reports its baud rate,
 parity and stop bits, which HA shows with every result. HA refuses to enroll or
 check a Gateway whose info reports more than one Bus.
 
+**The Info sensor is disabled by default.** `Modbus Scanner v2 Info` lists the
+Bus and every Pausable Poller, so with more than a few Pausable Pollers it passes Home
+Assistant's 255-character state limit. HA therefore registers it as a disabled
+entity and stores no state for it; the integration still reads the full Info
+over the ESPHome API, so Enrollment, **Check Gateway** and Scans are unaffected.
+`Result` and `Lease` stay enabled. To see what the Gateway reports, download the
+integration's diagnostics (**Settings → Devices & services → Woow ESPHome Modbus
+Scanner → ⋮ → Download diagnostics**): each Gateway lists its Bridge Protocol
+version, serial parameters and Pausable Poller count (Bus and poller names are
+left out). If you enable the Info entity, or set
+`info_sensor: {name: Modbus Scanner v2 Info, disabled_by_default: false}` in
+YAML, HA logs `... modbus_scanner_v2_info is longer than 255` and shows the
+entity as `unknown` once the Info is long; that is expected. The default applies
+only to a Gateway HA has never seen: a Gateway added to HA before keeps its Info
+entity enabled. Disable it by hand (**Settings → Devices & services → Entities**,
+`Modbus Scanner v2 Info` → **Disable**). Removing the Gateway and adding it again
+does not help: HA remembers a removed entity's enabled or disabled setting for 30
+days and restores it.
+
 The wire protocol (bridge protocol v2) is defined in one machine-readable file,
 [`bridge_v2/contract.json`](custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json),
 read by the HA adapter, the test fake and the firmware host tests.

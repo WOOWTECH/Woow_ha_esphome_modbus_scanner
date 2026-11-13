@@ -25,6 +25,9 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.woow_esphome_modbus_scanner.const import DATA_COORDINATOR, DOMAIN
+from custom_components.woow_esphome_modbus_scanner.diagnostics import (
+    async_get_config_entry_diagnostics,
+)
 from custom_components.woow_esphome_modbus_scanner.issues import report_gateway_issue
 from custom_components.woow_esphome_modbus_scanner.modbus_scan.bridge_v2 import (
     provider as v2_provider,
@@ -1095,3 +1098,50 @@ async def test_check_gateway_lists_the_pausable_pollers(hass, polled):
     checked = await call("check_gateway", {"gateway_id": GATEWAY_ID})
     assert checked["health"]["pausable_pollers"] == {"rs485": POLLER_TABLE}
     assert polled.probes == []
+
+
+# ---- Diagnostics: the Info summary, for people who leave the Info entity disabled ----
+
+FIVE_POLLERS = [(f"poller_name_{n:02d}", n + 1) for n in range(5)]
+
+
+async def _diagnostics_info(hass):
+    """The diagnostics download and the Info summary of its one esphome Gateway."""
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    (summary,) = [g["info"] for g in diagnostics["gateways"] if g["provider"] == "esphome"]
+    return diagnostics, summary
+
+
+async def test_diagnostics_summarize_the_info_without_bus_or_poller_names(hass, gateway):
+    gateway.buses = ["north_roof_line"]
+    gateway.pollers = {"north_roof_line": list(FIVE_POLLERS)}
+    gateway.serial = {"north_roof_line": {"baud_rate": 19200, "parity": "EVEN", "stop_bits": 1}}
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    diagnostics, summary = await _diagnostics_info(hass)
+    assert summary == {
+        "bridge_version": 2,
+        "serial": {"baud_rate": 19200, "parity": "EVEN", "stop_bits": 1},
+        "pausable_poller_count": 5,
+    }
+    dumped = json.dumps(diagnostics)
+    assert "north_roof_line" not in dumped
+    assert "poller_name" not in dumped
+
+
+async def test_diagnostics_before_any_info_read_leave_the_summary_empty(hass, gateway):
+    await _setup(hass)
+    summary = (await _diagnostics_info(hass))[1]
+    assert summary is None
+
+
+async def test_diagnostics_forget_the_info_of_a_gateway_reflashed_to_two_buses(hass, gateway):
+    gateway.pollers = {"rs485": [("meter", 1)]}
+    call = await _setup(hass)
+    await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    gateway.buses = ["rs485", "rs485_b"]
+    with pytest.raises(HomeAssistantError, match="exactly one Bus"):
+        await call("check_gateway", {"gateway_id": GATEWAY_ID})
+    summary = (await _diagnostics_info(hass))[1]
+    assert summary is None

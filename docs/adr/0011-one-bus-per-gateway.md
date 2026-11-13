@@ -44,6 +44,8 @@ hardware (#16), and the Info sensor growing past Home Assistant's 255-character 
   multi-Bus support.
 - #25 is reduced but not fixed: without the per-Bus sensor names a single-Bus Info is about
   160 characters, but every Pausable Poller adds about 34 characters plus its name.
+  *Update (#25):* the Info format stays as is; the Info sensor is instead disabled by default,
+  so HA stores no state for it, and diagnostics summarize it.
 - A Gateway refused for several Buses offers no Pausable Poller checklist and refuses to save
   one, with the one-Bus message. HA keeps the refusal through later failures of any other
   kind (offline, connect); only a check or Scan whose info reports exactly one Bus lifts it.

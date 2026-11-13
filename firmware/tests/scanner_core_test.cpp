@@ -652,6 +652,41 @@ static void test_info_lists_the_pausable_poller_table(const Value &contract) {
   CHECK(rig.sink.results.empty());
 }
 
+// The Info is never cut to fit Home Assistant's 255-character state limit: the integration
+// reads it over the ESPHome API, and the Info entity is disabled by default so HA never stores
+// it (issue #25). Many long-named Pausable Pollers give a longer Info that is still whole.
+static void test_info_longer_than_255_stays_complete_json(const Value &contract) {
+  current_test = "info length";
+  FakeClock clock;
+  FakeSink sink;
+  FakePort port;
+  core::Bus bus{"rs485_north_roof_inverters_line", port, 2000};
+  bus.set_serial(19200, "EVEN", 1);
+  std::vector<std::string> names;
+  for (int i = 0; i < 6; i++)
+    names.push_back("inverter_string_" + std::to_string(i) + "_meter");
+  std::vector<FakePoller> pollers;
+  pollers.reserve(names.size());
+  for (const auto &name : names)
+    pollers.emplace_back(name.c_str());
+  for (size_t i = 0; i < names.size(); i++)
+    bus.add_poller(names[i], static_cast<uint8_t>(i + 1), &pollers[i]);
+  core::Gateway gateway{clock, sink};
+  gateway.set_bus(&bus);
+  const std::string json = gateway.info_json();
+  CHECK(json.size() > 255);
+  Value info = mini_json::parse(json);
+  CHECK(info["bridge"].integer() == contract["bridge_version"].integer());
+  CHECK(info["buses"][0]["bus"].str() == "rs485_north_roof_inverters_line");
+  const Value &table = info["buses"][0]["pollers"];
+  CHECK(table.array.size() == names.size());
+  for (size_t i = 0; i < names.size(); i++) {
+    CHECK(table[i]["index"].integer() == static_cast<int64_t>(i));
+    CHECK(table[i]["name"].str() == names[i]);
+    CHECK(table[i]["address"].integer() == static_cast<int64_t>(i + 1));
+  }
+}
+
 int main(int argc, char **argv) {
   const char *path =
       argc > 1 ? argv[1] : "custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json";
@@ -675,6 +710,7 @@ int main(int argc, char **argv) {
   test_a_new_scan_supersedes_an_active_lease(contract);
   test_no_selection_and_rejected_probes_never_pause(contract);
   test_info_lists_the_pausable_poller_table(contract);
+  test_info_longer_than_255_stays_complete_json(contract);
   if (failures) {
     std::fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

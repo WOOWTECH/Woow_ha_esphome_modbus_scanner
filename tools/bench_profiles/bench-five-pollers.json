@@ -1,0 +1,87 @@
+{
+  "_comment": [
+    "#25 bench: line X only, wired to Gateway X running gateway-x-five-pollers.yaml.",
+    "Slaves 1-5 are the five Pausable Poller targets: holding 0x0000 counts up on every read,",
+    "so gaps in each slave's reads in the log are the pauses. Slave 1 is the same as in bench.json.",
+    "Slaves 10 and 17 are polled by nobody; a Scan of 1-17 finds them as Responders",
+    "(register 0 is 0xA0nn, nn = slave id in hex, as in bench.json)."
+  ],
+  "lines": {
+    "X": {
+      "baudrate": 9600,
+      "parity": "N",
+      "stopbits": 1,
+      "slaves": {
+        "1": {
+          "holding": {
+            "0x0000": "counter",
+            "0x6201": 0,
+            "0x6202": 1,
+            "0x6203": 50,
+            "0x6205": 0,
+            "0x6206": 0,
+            "0x6101": 1305,
+            "0x6102": 55,
+            "0x6103": 240,
+            "0x6104": 180,
+            "0x6105": 0,
+            "0x6106": 0,
+            "0x6111": 120,
+            "0x6112": 500
+          },
+          "input": {
+            "0x0000": "counter"
+          }
+        },
+        "2": {
+          "holding": {
+            "0x0000": "counter"
+          },
+          "input": {
+            "0x0000": "counter"
+          }
+        },
+        "3": {
+          "holding": {
+            "0x0000": "counter"
+          },
+          "input": {
+            "0x0000": "counter"
+          }
+        },
+        "4": {
+          "holding": {
+            "0x0000": "counter"
+          },
+          "input": {
+            "0x0000": "counter"
+          }
+        },
+        "5": {
+          "holding": {
+            "0x0000": "counter"
+          },
+          "input": {
+            "0x0000": "counter"
+          }
+        },
+        "10": {
+          "holding": {
+            "0x0000": 40970
+          },
+          "input": {
+            "0x0000": 40970
+          }
+        },
+        "17": {
+          "holding": {
+            "0x0000": 40977
+          },
+          "input": {
+            "0x0000": 40977
+          }
+        }
+      }
+    }
+  }
+}

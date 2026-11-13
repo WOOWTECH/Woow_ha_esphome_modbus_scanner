@@ -14,6 +14,8 @@ validation, so a second RS-485 line is scanned with another node. The Bus may be
 creates the Gateway's probe/release actions and the info/result/lease text sensors, whose
 names are fixed by the bridge v2 contract file
 (custom_components/woow_esphome_modbus_scanner/modbus_scan/bridge_v2/contract.json).
+The info sensor is disabled by default in Home Assistant (issue #25); the integration reads
+it over the ESPHome API either way.
 
 Pausable Pollers are found here, at code generation: every component in the validated config
 that is bound to the same hub (``modbus_id``) and whose generated class inherits
@@ -30,6 +32,7 @@ import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
     CONF_BAUD_RATE,
+    CONF_DISABLED_BY_DEFAULT,
     CONF_ID,
     CONF_NAME,
     CONF_UART_ID,
@@ -133,6 +136,14 @@ def _one_entry_per_node(config):
     config = dict(config)
     for key, name in _GATEWAY_SENSORS.items():
         config.setdefault(key, {CONF_NAME: name})
+    # The Info grows with every Pausable Poller and soon passes Home Assistant's 255-character
+    # state limit. HA stores no state for a disabled entity, while ESPHome still lists and
+    # publishes it over the API, where the integration reads it. text_sensor_schema() takes
+    # no disabled_by_default argument, so the default is filled in here, before the schema;
+    # a value written in YAML wins.
+    info = config[CONF_INFO_SENSOR]
+    if isinstance(info, dict):
+        config[CONF_INFO_SENSOR] = {CONF_DISABLED_BY_DEFAULT: True, **info}
     return config
 
 

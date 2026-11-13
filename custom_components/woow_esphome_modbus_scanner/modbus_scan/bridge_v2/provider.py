@@ -522,20 +522,21 @@ class V2GatewayProvider:
             api_status="verified",
             checked_at=_now(),
             bridge_status="v2_signature_verified",
+            bridge_version=info["bridge"],
             buses=[bus["bus"] for bus in session.buses],
             pausable_pollers={bus["bus"]: deepcopy(bus["pollers"]) for bus in session.buses},
             error_info=None,
         )
 
     def _refuse_buses(self, gateway_id: str) -> None:
-        """Mark the Gateway refused for several Buses, and forget its last Bus and pollers.
+        """Mark the Gateway refused for several Buses, and forget its last Info.
 
         The refusal stays in health (``multiple_buses``) until an info read reports exactly
         one Bus; a later failure for any other reason keeps it, so nothing targets or saves
         against a Bus in the meantime.
         """
         self._buses.pop(gateway_id, None)
-        for key in ("buses", "pausable_pollers"):
+        for key in ("bridge_version", "buses", "pausable_pollers"):
             self.health[gateway_id].pop(key, None)
         self.health[gateway_id]["multiple_buses"] = True
 

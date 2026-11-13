@@ -1,8 +1,29 @@
-"""HA diagnostic downloads contain no addresses, keys, raw frames or user data."""
+"""HA diagnostic downloads contain no addresses, keys, raw frames or user data.
+
+The Info summary of each Gateway carries no Bus or Pausable Poller names.
+"""
 
 from __future__ import annotations
 
 from .const import DATA_COORDINATOR, DOMAIN, VERSION
+
+
+def _info_summary(gateway) -> dict | None:
+    """What the Gateway's last accepted Info reported, without Bus or Pausable Poller names.
+
+    The Info entity is disabled by default in HA (issue #25), so this is where people see
+    it. None until the provider has read an Info.
+    """
+    health = gateway.get("health") or {}
+    if "bridge_version" not in health:
+        return None
+    buses = gateway.get("buses") or []
+    pollers = health.get("pausable_pollers") or {}
+    return {
+        "bridge_version": health["bridge_version"],
+        "serial": buses[0].get("serial") if buses else None,
+        "pausable_poller_count": sum(len(table) for table in pollers.values()),
+    }
 
 
 async def async_get_config_entry_diagnostics(hass, entry):
@@ -25,6 +46,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                 "error_code": (health.get("error_info") or {}).get("code"),
                 "recovery_error_code": (health.get("recovery_error") or {}).get("code"),
                 "profile_hash": (gateway.get("profile") or {}).get("profile_hash"),
+                "info": _info_summary(gateway),
             }
         )
     history = data.get("history")
@@ -52,6 +74,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
             for record in records
         ],
         "privacy": (
-            "Gateway identities, hosts, credentials, raw responses and exception text omitted."
+            "Gateway identities, hosts, credentials, raw responses, exception text, Bus and "
+            "Pausable Poller names omitted."
         ),
     }

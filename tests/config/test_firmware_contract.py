@@ -69,7 +69,9 @@ def codegen(monkeypatch):
         "esphome.components": MagicMock(),
         "esphome.components.const": MagicMock(),
         "esphome.config_validation": MagicMock(Invalid=_Invalid),
-        "esphome.const": MagicMock(CONF_NAME="name"),
+        "esphome.const": MagicMock(
+            CONF_NAME="name", CONF_DISABLED_BY_DEFAULT="disabled_by_default"
+        ),
         "esphome.core": MagicMock(CORE=core),
         "esphome.final_validate": MagicMock(),
     }
@@ -113,6 +115,35 @@ def test_codegen_one_scanner_entry_is_valid(codegen):
     # No state of its own: validating the same config again gives the same result.
     assert _validate_entries(codegen, [{"modbus_id": "hub_a"}]) == [first]
     assert module.ONE_ENTRY_MESSAGE == ONE_ENTRY_MESSAGE
+
+
+def test_codegen_disables_only_the_info_sensor_by_default(codegen):
+    """HA stores no state for a disabled entity, so a long Info logs no error (issue #25)."""
+    module = codegen[0]
+    (config,) = _validate_entries(codegen, [{"modbus_id": "hub_a"}])
+    assert config[module.CONF_INFO_SENSOR]["disabled_by_default"] is True
+    for key in (module.CONF_RESULT_SENSOR, module.CONF_LEASE_SENSOR):
+        assert "disabled_by_default" not in config[key]  # ESPHome's own default: enabled
+
+
+def test_codegen_info_sensor_default_applies_to_a_sensor_written_in_yaml(codegen):
+    module = codegen[0]
+    entry = {"modbus_id": "hub_a", "info_sensor": {"name": module.INFO_SENSOR_NAME}}
+    (config,) = _validate_entries(codegen, [entry])
+    assert config[module.CONF_INFO_SENSOR] == {
+        "name": module.INFO_SENSOR_NAME,
+        "disabled_by_default": True,
+    }
+
+
+def test_codegen_yaml_disabled_by_default_overrides_the_info_default(codegen):
+    module = codegen[0]
+    entry = {
+        "modbus_id": "hub_a",
+        "info_sensor": {"name": module.INFO_SENSOR_NAME, "disabled_by_default": False},
+    }
+    (config,) = _validate_entries(codegen, [entry])
+    assert config[module.CONF_INFO_SENSOR]["disabled_by_default"] is False
 
 
 def test_codegen_refuses_only_the_second_of_two_entries(codegen):
