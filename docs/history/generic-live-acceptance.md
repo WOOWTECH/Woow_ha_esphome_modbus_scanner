@@ -1,6 +1,6 @@
 # 0.5.0.dev1 通用掃描器實機驗收（#16 A 段）
 
-> **狀態：本輪（測試台）完成，通過。** 實體非冠傑設備補驗仍列在 #16。
+> **狀態：完成，通過。** A3 已於 2026-11-13 以實體非冠傑設備補驗（見文末「A3 實體設備補驗」）。
 > 操作順序見 [`docs/plans/2026-11-05-live-acceptance-runbook.md`](../plans/2026-11-05-live-acceptance-runbook.md) 步驟 0–1。
 > 本輪以 **測試台** 執行：兩台單 Bus Gateway，Bus 上的設備由電腦上的模擬器扮演（見 runbook「0b. 測試台」）。
 
@@ -49,7 +49,7 @@
 | A1 | 重燒後 Repairs 提示消失、可正常 Scan | 通過 | 通過 | USB 重燒 `gateway-x/y.yaml` 後，依 Repairs 說明在「重新設定 → 從 ESPHome 裝置新增或更新閘道」改以 v2 登錄；兩則 `legacy_bridge_*` 消失。`check_gateway`：`api_status` `verified`、`bridge_status` `v2_signature_verified` |
 | A2 | Scan 後 Normal Polling 恢復 | 通過 | 通過 | X：Poller 讀取 17:32:25.5 停、17:32:41.9 恢復（計數器 41 → 42）；Y：17:39:32.0 停、17:39:58.4 恢復（40 → 41）；lease `ended`／`released` |
 | A2' | Scan 中停掉 HA，超過 lease idle 時限（5 s）後再啟動，Normal Polling 已由 Gateway 自己恢復 | 通過 | 通過 | 見下方「A2' 細節」。拔 .28 網路線約 17:50:31–33；最後一個 Probe 17:50:30.2；**Poller 恢復 17:50:38.0（X、Y 同時）**；HA 17:50:45.5 才判定 `API_TRANSPORT_ERROR`，lease `unconfirmed` |
-| A3 | 非冠傑設備以 Generic Device Profile 被找到並顯示原始值（**以模擬器代替**） | 通過 | 通過 | 原始值與 `bench.json` 一致：X 站號 10 `0xA00A`、17 `0xA011`；Y 站號 20 `0xB014`、33 `0xB021`；站號 1 回 Poller 計數器 |
+| A3 | 非冠傑設備以 Generic Device Profile 被找到並顯示原始值（**本輪以模擬器代替**；實體設備見文末補驗） | 通過 | 通過 | 原始值與 `bench.json` 一致：X 站號 10 `0xA00A`、17 `0xA011`；Y 站號 20 `0xB014`、33 `0xB021`；站號 1 回 Poller 計數器 |
 | 多 Gateway | X、Y 同時各跑一個 Scan，結果互不干擾 | 通過 | 通過 | 17:40:28 同時開始，站號 1–33；X 26.4 s、Y 26.4 s 完成，Responder 各自只有自己 line 的站號，沒有串線 |
 
 ### A2' 細節
@@ -137,3 +137,36 @@ Gateway 恢復比 HA 發現斷線早 7.5 s，且期間 HA 連不到 Gateway，�
 - **板子不會自動重置**：FTDI 的 RTS／DTR 沒接到 EN／IO0，USB 燒錄前要手動 BOOT+EN，燒完要再按一次 EN（esptool 的「Hard resetting via RTS」無效）。已記入 runbook。
 - **從 Arduino（v1）換到 esp-idf（通用元件）以 USB 燒 factory.bin**，不用 OTA，避免分割表不相容。
 - 產品端：無。
+
+## A3 實體設備補驗（2026-11-13）
+
+> **結果：通過。** 實體第三方設備以 Generic Device Profile 被找到，原始值正確，而且會跟著設備的值改變。
+
+日期：2026-11-13　執行者：WOOWTECH 現場人員（接線、操作設備）＋ Claude Code（燒錄、HA 操作、紀錄）
+
+### 設備與接線
+
+- 設備：**VRV-To-Modbus-Controller**（把 VRV 空調系統轉成 Modbus RTU 的第三方轉換器），開啟它內建的 VRV 冷氣模擬功能。站號 1，9600 8E1（手冊預設）。
+- register 對照（設備手冊）：內機 `AA-BB` 的狀態區塊是 holding register `(AA*32+BB)*6` 起的 6 個，`+1` 是設定溫度。內機 1-1 的設定溫度在 **register 199**（`0x00C7`）。
+- Gateway：**Y**（`5C:01:3B:46:FD:A8`，192.168.2.16）。X 有 #28 的板子瑕疵，不用來判斷 Responder。Bus 上只接這台設備。
+- 韌體：`tools/bench_profiles/gateway-y-vrv.yaml`（`git hash-object` `0e19d427`），元件來自 main `aa4afea`，`0.5.0.dev3`，ESPHome 2026.10.0，OTA。跟 `gateway-y.yaml` 的差異：parity `EVEN`，沒有 Pausable Poller（`bench_poller` 讀站號 1，會撞到這台設備）。
+- HA：2026.7.2（.28），整合 `0.5.0.dev3`／main `aa4afea`（32 個檔案與 `aa4afea` 雜湊一致）。
+
+### 結果
+
+`check_gateway`：`verified`、`v2_signature_verified`，Bus `rs485` 的序列參數為 `9600 EVEN 1`，沒有 Pausable Poller。
+
+| 時間 | 範圍 | FC／register | `timeout_ms`／`inter_request_delay_ms` | 耗時 | Responder（原始值） | 其他位址 |
+|---|---|---|---|---|---|---|
+| 16:11 | 1–5 | FC03／199 | 500／100 | 4.0 s | 1（`26`，延遲 40 ms） | 2–5 `timeout` |
+| 16:12 | 1–5 | FC03／199 | 500／100 | 4.0 s | 1（`26`） | 2–5 `timeout` |
+| 16:12 | 1–5 | FC03／199 | 500／100 | 4.0 s | 1（`26`） | 2–5 `timeout` |
+| 現場把內機 1-1 設定溫度改成 25 °C 後 | 1–5 | FC03／199 | 500／100 | 4.0 s | 1（`25`），detail `FC03 register 0x00C7 x1 = [25]` | 2–5 `timeout` |
+
+- 原始值與設備上的設定溫度一致（26 °C → `26`，改成 25 °C 後 → `25`），證明讀到的是設備的即時值，不是快取。
+- 韌體 log 沒有 `parse failed`／`partial response`。
+- 驗完把 Y 燒回 `gateway-y.yaml`，`check_gateway` 回到 `9600 NONE 1`，`bench_poller` 恢復。
+
+### 證據
+
+原始檔在 repo 外的 `../bench-logs/`：`stage3-flash-gateway-y-vrv.log`、`stage3-a3-try1-*.json`、`stage3-a3-*.json`、`stage3-a3-after-change-*.json`、`stage3-a3-probe1-firmware.log`、`stage3-a3-firmware.log`、`stage4-flash-gateway-y.log`。
