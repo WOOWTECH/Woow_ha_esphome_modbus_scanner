@@ -56,6 +56,17 @@ pause.
   had pending, for example a setpoint change from an HA entity issued just
   before the Scan. Users should not change settings on paused devices during a
   Scan.
+- The Scan Lease stops only frames that have not been sent yet:
+  `clear_tx_queue_for_address()` clears the hub's queued frames, not a frame
+  already on the Bus waiting for its reply. If a selected Pausable Poller has
+  such a frame in flight when the lease begins and its field device does not
+  answer, that Pausable Poller's `modbus_controller` resends the frame during
+  the Scan, up to its `max_cmd_retries` times (ESPHome default 4). The cost is
+  extra Bus traffic and a slower Scan (about 3–4 s on the test bench); the hub
+  sends one frame at a time, so Responder results are unaffected. We accept
+  this: ESPHome 2026.10 has no public API to cancel such a resend, and setting
+  `max_cmd_retries` to 0 during the lease would mark the field device offline
+  on its next timeout. See #30.
 - After the lease ends the first fresh reading from a resumed poller may take up
   to one of its `update_interval`s; until then its HA entities show stale values.
   The sidebar names the paused devices while a lease may hold.

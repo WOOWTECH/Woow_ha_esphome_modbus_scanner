@@ -277,6 +277,14 @@ up to one of its `update_interval`s. Scan status reports `lease_status`
 (`none`, `active`, `ended`, `unconfirmed`) and `lease_end_reason` (`released`,
 `idle`, `hard_limit`, `superseded`).
 
+Known limitation: the Scan Lease stops only frames not yet sent. If a selected
+Pausable Poller already has a frame waiting for a reply when the lease begins
+and its device does not answer, its `modbus_controller` resends that frame
+during the Scan, up to its `max_cmd_retries` times (ESPHome default 4). This
+adds Bus traffic and slows the Scan by a few seconds; Responder results are
+not affected. See [ADR 0007](docs/adr/0007-per-scan-lease-with-gateway-owned-recovery.md)
+and #30.
+
 **One Scan per Gateway:** a Gateway serves one Bus, so it runs one Scan and
 has one Probe in flight at a time; a second Scan is refused as busy.
 
