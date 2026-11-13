@@ -1,6 +1,6 @@
 # 移除多 Bus 後的回歸驗收（#16 C 段，驗 #26）
 
-> **狀態：完成，C 段四項全部通過。**
+> **狀態：完成，C 段四項全部通過。** 本段是合併前（`14396aa`）的結果；合併後的 main 已於 2026-11-13 重跑，見文末「在 main 上重跑」，#16 以那一段為準。
 > 決定見 [ADR 0011](../adr/0011-one-bus-per-gateway.md)。測試台與 [`per-bus-live-acceptance.md`](per-bus-live-acceptance.md) 相同：兩台單 Bus Gateway，設備由模擬器扮演（見 runbook「0b. 測試台」）。
 
 日期：2026-11-10　執行者：Claude Code（測試台已由現場人員接好，本輪不需要按鍵或換線）
@@ -101,3 +101,67 @@ diagnostics 已下載，沒有 `probe_slots`，也沒有金鑰或密碼。
 ## 證據
 
 原始檔在 repo 外的 `../bench-logs/`：`bench-20261110-c.log`（模擬器）、`stepC-pre-*-check_gateway.json`、`stepC-*-check_gateway.json`、`stepC-*-scan.json`、`stepC-5c013b459f4c-bus-mismatch.json`、`stepC-flash-gateway-*.yaml.log`、`stepC-two-modbus-scanners.log`、`stepC-diagnostics.json`。
+
+## 在 main 上重跑（2026-11-13）
+
+> **結果：C1–C4 全部通過。** 上面那一輪是在合併前用 `14396aa` 跑的。合併前又經過三輪 review，`custom_components/` 與 `firmware/` 改了 14 個檔，所以在合併後的 main 上重跑一次。
+
+日期：2026-11-13　執行者：WOOWTECH 現場人員（接線、量測）＋ Claude Code（燒錄、HA 操作、紀錄）
+
+### 環境
+
+| 項目 | 值 |
+|---|---|
+| HA 版本 | 2026.7.2（測試機 .28，HAOS 16.1） |
+| 整合 | `0.5.0.dev3`／main `aa4afea`（產品程式碼與 `ed25cb5` 相同；32 個檔案經 Samba 比對雜湊一致） |
+| fw | `0.5.0.dev3`／main `aa4afea`，ESPHome 2026.10.0，在 Linux 編譯，OTA |
+| YAML 雜湊（`git hash-object`） | X `25907d7e6e0ff986164617ffcdf89c1b53cacd0d`、Y `c9bcac5435e43e9f3268545cfe94590b1dcc65c3`，與上一輪相同（未修改） |
+| 模擬器 | `tools/rtu_bench_simulator.py`，`tools/bench_profiles/bench.json`；X = 轉換器 A（`/dev/ttyUSB1`），Y = 轉換器 B（`/dev/ttyUSB0`），都在 Linux 電腦 |
+
+| 節點 | MAC／IP | 備註 |
+|---|---|---|
+| X | `5C:01:3B:45:9F:4C`／192.168.2.55 | **板子有瑕疵（#28）**：每次放開 DE 都會在 Bus 上產生一個 `0x40`，設備回應快的時候會把回應弄壞。所以 X 只驗燒錄、`check_gateway`、Scan 完成與 Normal Polling 恢復，Responder 正確性以 Y 為準 |
+| Y | `5C:01:3B:46:FD:A8`／192.168.2.16（DHCP，之前是 .21） | — |
+
+### C1：重燒、entity 與版本 — 通過
+
+- 兩台以未修改的 YAML 從 main 編譯、OTA 重燒；經 ESPHome API 讀到 `project_version` `0.5.0.dev3`、ESPHome 2026.10.0。
+- HA 中每台只有 `Modbus Scanner v2 Info`／`Result`／`Lease`，沒有 per-Bus sensor。
+- Info 160 字元，只有一條 Bus `rs485`；Info 的 `disabled_by_default: true`（#25）。
+
+### C2：`check_gateway`、Scan 與 Normal Polling — 通過
+
+`check_gateway`：兩台都是 `verified`、`v2_signature_verified`、`buses: ["rs485"]`、Pausable Poller `bench_poller`。
+
+| 節點 | 範圍 | `timeout_ms` | `inter_request_delay_ms` | pause_pollers | `bus` 參數 | 耗時 | 結果 | Responder |
+|---|---|---|---|---|---|---|---|---|
+| X | 8–18 | 500 | 100 | `[0]` | 省略 | 11.0 s | completed，lease `ended`／`released` | 10（`40970`）、17（`40977`） |
+| Y | 19–34 | 500 | 100 | `[0]` | `rs485` | 13.1 s | completed，lease `ended`／`released` | 20（`45076`）、33（`45089`） |
+
+模擬器 log 中站號 1（Pausable Poller）的讀取：
+
+| 節點 | 第一個到最後一個 Probe | 其間的 Poller 讀取 | Scan 前最後一次 | Scan 後第一次 |
+|---|---|---|---|---|
+| X | 16:00:56.568 → 16:01:04.790 | 1（16:00:57.211，見下） | 16:00:55.563 | 16:01:05.816 |
+| Y | 16:01:07.049 → 16:01:18.915 | 0 | 16:01:06.426 | 16:01:19.920 |
+
+- 兩台的 Normal Polling 都在 Scan 結束後約 1.0 s 恢復。
+- X 那 1 次 Scan 期間的 Poller 讀取：Scan Lease 開始時，Poller 有一個 frame 正在等回應。它的回應被 X 的 `0x40` 弄壞後，`modbus_controller` 重送，這次重送不受 Scan Lease 控制。在 Y 上讓 Poller 的設備不回應，可以穩定重現（3 次 Scan 期間各送出 3–4 次），已開 **#30**；這個行為在 #26 之前就存在，不擋 C 段。
+- X 另外重跑 3 次 8–18（加錄韌體 log），Poller 都沒有在 Scan 期間讀取；Responder 分別找到 0、1、2 個，是 #28 的板子瑕疵。
+- #28 修正驗證時，Y 另跑過 3 次 19–34，每次都找到 20、33，韌體 log 沒有 `parse failed`／`partial response`。
+
+### C3：兩個 `modbus_scanner:` 編譯失敗 — 通過
+
+`esphome config firmware/tests/two-modbus-scanners.yaml`（ESPHome 2026.10.0，main `aa4afea`）exit 2：
+
+```text
+A node supports only one modbus_scanner; scan a second RS-485 line with another node.
+```
+
+### C4：HA log — 通過
+
+本整合的 logger 從 HA 啟動（11-12 16:50）到 11-13 16:05 都沒有任何紀錄。system log 只剩 11-12 的兩則 ERROR（#25 的 Info 長度、ESPHome 核心整合的 zh-Hant 字串），11-13 沒有新的 ERROR。
+
+### 證據
+
+原始檔在 repo 外的 `../bench-logs/`：`stage0-compile-*.log`、`stage0-c3-two-modbus-scanners.log`、`stage2-flash-gateway-y.log`、`issue28-x-restore-flash.log`、`stage2-c1-*`、`stage2-c2-*`、`stage2-c2x-retry-*`、`stage2-lease-silent-poller-*`、`bench-20261113-c.log`（模擬器）、`stage2-c4-system-log.json`。
