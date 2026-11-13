@@ -38,6 +38,15 @@
 | B | Gateway Y 的 RS-485 | `Y` | 1（Poller）、20、33 |
 
 - Gateway 板子同 `guanjie-ind17`：UART TX GPIO32、RX GPIO35、DE/RE GPIO33，9600 8N1。
+- **Gateway X 的板子有瑕疵（#28，2026-11-13）**：每次放開 DE 都會在 Bus 上產生一個 `0x40`，
+  設備回應快的時候會跟回應黏在一起（`parse failed`），Scan 因此漏掉 Responder；Bus 上只有 X 時也會發生。
+  Y 沒有這個問題。凡是要判斷 Responder 正確性的項目一律用 **Y**；X 只用來驗燒錄、`check_gateway`、
+  Scan Lease。X 要不要送修或更換，由維護者決定。
+- 從 2026-11-12 起，燒錄與模擬器改在 Linux 電腦上執行；兩個轉換器都是 CH340，會出現在 `/dev/ttyUSB*`，
+  用 `ls -l /dev/serial/by-path/` 確認哪個 USB 埠對應哪一個。轉換器接上 Bus 後，閒置時 A−B 電壓約
+  +155 mV（低於 RS-485 的 +200 mV 門檻），但不是 #28 的原因。
+- 實體第三方設備（#16 A3）：VRV-To-Modbus-Controller 的模擬功能，站號 1、9600 8E1，接在 Y 上，
+  用 `tools/bench_profiles/gateway-y-vrv.yaml`（parity `EVEN`，沒有 Pausable Poller）。
 - 站號 10、17、20、33 的 register 0（holding 與 input）回 `0xA0nn`／`0xB0nn`（nn 為站號十六進位），
   從 HA 的原始值就看得出是哪台 Gateway 的哪個站號。站號 1 的 holding 0x0000 每讀一次加一，
   是 Pausable Poller 的讀取目標；log 裡它的讀取中斷就是暫停，重新出現就是恢復。
